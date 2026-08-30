@@ -103,7 +103,7 @@ try {
         "https://${HostName}${Path}"
     )
     $routeStatus = Invoke-Checked curl $upgradeArguments 'Validate TLS route'
-    if ($routeStatus.Trim() -notin @('401', '426')) { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
+    if ($routeStatus.Trim() -ne '401') { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
     Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
     $invalidStatus = Invoke-Checked curl @('--silent', '--show-error', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}/not-a-realtime-route") 'Validate invalid route rejection'
     if ($invalidStatus.Trim() -ne '404') { throw "Invalid route returned unexpected status $($invalidStatus.Trim())." }

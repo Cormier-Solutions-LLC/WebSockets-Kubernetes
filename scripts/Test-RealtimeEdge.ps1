@@ -88,7 +88,8 @@ try {
     if ($dnsAddresses -notcontains $vip) { throw "DNS for $HostName does not contain assigned VIP $vip." }
     Write-Result PASS "DNS resolves $HostName to the assigned VIP."
 
-    $routeStatus = Invoke-Checked curl @('--silent', '--show-error', '--http1.1', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--header', 'Connection: Upgrade', '--header', 'Upgrade: websocket', '--header', 'Sec-WebSocket-Version: 13', '--header', 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==', '--header', 'Sec-WebSocket-Protocol: propago.realtime.v1', '--header', "Origin: $Origin", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}${Path}") 'Validate TLS route'
+    $webSocketKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
+    $routeStatus = Invoke-Checked curl @('--silent', '--show-error', '--http1.1', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--header', 'Connection: Upgrade', '--header', 'Upgrade: websocket', '--header', 'Sec-WebSocket-Version: 13', '--header', "Sec-WebSocket-Key: $webSocketKey", '--header', 'Sec-WebSocket-Protocol: propago.realtime.v1', '--header', "Origin: $Origin", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}${Path}") 'Validate TLS route'
     if ($routeStatus.Trim() -notin @('401', '426')) { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
     Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
     $invalidStatus = Invoke-Checked curl @('--silent', '--show-error', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}/not-a-realtime-route") 'Validate invalid route rejection'
@@ -112,8 +113,8 @@ try {
             Write-Result PASS "Authenticated WSS connection remained open for $LongConnectionSeconds seconds."
         }
         finally {
-            $connectionTimeout.Dispose()
-            $socket.Dispose()
+            try { $connectionTimeout.Dispose() } catch {}
+            try { $socket.Dispose() } catch {}
         }
     }
 }

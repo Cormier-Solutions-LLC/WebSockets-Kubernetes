@@ -202,7 +202,7 @@ if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
     throw "Repository root does not exist: $resolvedRoot"
 }
 
-New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+[System.IO.Directory]::CreateDirectory($logDirectory) | Out-Null
 $exitCode = 0
 Push-Location -LiteralPath $resolvedRoot
 

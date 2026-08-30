@@ -2,12 +2,13 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <VersionPrefix>$(ApplicationVersion)</VersionPrefix>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>true</PublishAot>
     <ContainerRepository>propago-realtime-gateway</ContainerRepository>
-    <ContainerImageTags>$(VersionPrefix)</ContainerImageTags>
+    <ContainerImageTags>$(ApplicationVersion)</ContainerImageTags>
     <ContainerBaseImage>mcr.microsoft.com/dotnet/runtime-deps:10.0-noble-chiseled</ContainerBaseImage>
     <ContainerUser>1654</ContainerUser>
     <ContainerPort>8080</ContainerPort>

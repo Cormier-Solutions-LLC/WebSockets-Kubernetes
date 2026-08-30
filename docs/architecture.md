@@ -31,4 +31,4 @@ Kubernetes must remove the pod from ready endpoints before shutdown. PBV7-486 ex
 
 ## Versioning
 
-The application and initial OCI artifact use semantic version `0.1.0`. Contracts, application, image, and the future Helm chart can advance independently once their release pipelines split. Immutable release identifiers may append source revision metadata without changing the semantic compatibility contract.
+`Directory.Build.props` defines independent `ApplicationVersion`, `ContractsVersion`, `RedisAdapterVersion`, and `HelmChartVersion` properties. Each product project consumes only its corresponding property, and the OCI tag follows `ApplicationVersion`, so a contract compatibility release does not force an application or image version change. All four streams begin at semantic version `0.1.0` and can be overridden independently by release automation. Immutable release identifiers may append source revision metadata without changing the semantic compatibility contract.

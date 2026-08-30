@@ -38,6 +38,23 @@ public sealed class GatewayStateTests
             await state.IsReadyAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task ReadinessCannotReturnHealthyAfterDrainingBeginsDuringProbe()
+    {
+        var probe = new ControlledRedisReadinessProbe();
+        var state = new GatewayState(
+            probe,
+            Options.Create(new RedisOptions { RequiredForReadiness = true }));
+        state.MarkStarted();
+
+        var readiness = state.IsReadyAsync(CancellationToken.None).AsTask();
+        await probe.Entered;
+        state.BeginDrain();
+        probe.Complete(ready: true);
+
+        Assert.False(await readiness);
+    }
+
     private static GatewayState CreateState(bool redisRequired, bool redisReady) =>
         new(
             new StubRedisReadinessProbe(redisReady),
@@ -50,5 +67,24 @@ public sealed class GatewayStateTests
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(ready);
         }
+    }
+
+    private sealed class ControlledRedisReadinessProbe : IRedisReadinessProbe
+    {
+        private readonly TaskCompletionSource _entered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _result = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public ValueTask<bool> IsReadyAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _entered.TrySetResult();
+            return new ValueTask<bool>(_result.Task);
+        }
+
+        public void Complete(bool ready) => _result.TrySetResult(ready);
     }
 }

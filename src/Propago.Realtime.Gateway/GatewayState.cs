@@ -26,8 +26,10 @@ public sealed class GatewayState(
             return false;
         }
 
-        return !redisOptions.Value.RequiredForReadiness ||
+        var dependenciesReady = !redisOptions.Value.RequiredForReadiness ||
             await redisProbe.IsReadyAsync(cancellationToken);
+
+        return dependenciesReady && !IsDraining;
     }
 }
 

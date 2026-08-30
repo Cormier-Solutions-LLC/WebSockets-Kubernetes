@@ -72,7 +72,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("BackupRedis", script, StringComparison.Ordinal);
         Assert.Contains("RestoreRedis", script, StringComparison.Ordinal);
         Assert.Contains("'delete','hpa'", script, StringComparison.Ordinal);
-        Assert.Contains("'rollout','restart'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("'rollout','restart'", script, StringComparison.Ordinal);
         Assert.Contains("Rollback gateway to its previous Helm revision", script, StringComparison.Ordinal);
         Assert.Contains("RedisPasswordKey", script, StringComparison.Ordinal);
         Assert.Contains("AddDays(-7)", script, StringComparison.Ordinal);

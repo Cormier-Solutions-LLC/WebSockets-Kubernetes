@@ -230,7 +230,6 @@ try {
                 Invoke-Tool helm @('upgrade','--install',$redisRelease,'oci://registry-1.docker.io/bitnamicharts/redis','--version','23.1.1','-n',$namespace,'--create-namespace','--values',$redisValues,'--set',"fullnameOverride=$redisRelease",'--set',"auth.existingSecret=$RedisSecretName",'--set-string',"auth.existingSecretPasswordKey=$RedisAdminPasswordKey",'--set',"auth.acl.userSecret=$RedisSecretName",'--set-string',"auth.acl.users[0].username=$RedisUsername",'--set-string',"auth.acl.users[0].keys=~${RedisInstancePrefix}:*",'--set-string',"auth.acl.users[0].channels=&${RedisInstancePrefix}:*",'--wait','--atomic',"--timeout=${TimeoutSeconds}s") 'Install or upgrade managed Redis'
             }
             Invoke-Tool helm (@('upgrade','--install',$target,$chart,'-n',$namespace,'--create-namespace','--wait','--atomic',"--timeout=${TimeoutSeconds}s") + (Get-ValueArgs)) 'Install or upgrade gateway'
-            Invoke-Tool kubectl @('rollout','restart',"deployment/$target",'-n',$namespace) 'Restart gateway for credential rotation'
             Invoke-Tool kubectl @('rollout','status',"deployment/$target",'-n',$namespace,"--timeout=${TimeoutSeconds}s") 'Validate gateway rollout'
             $summary.Updated++
         }

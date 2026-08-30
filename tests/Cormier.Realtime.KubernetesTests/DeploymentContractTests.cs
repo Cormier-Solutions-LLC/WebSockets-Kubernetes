@@ -143,6 +143,13 @@ public sealed class DeploymentContractTests
         Assert.Contains("Certificate expiry", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__LOGS_URL__", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__TRACES_URL__", dashboardText, StringComparison.Ordinal);
+        foreach (var expression in dashboard.RootElement.GetProperty("panels").EnumerateArray()
+                     .SelectMany(panel => panel.GetProperty("targets").EnumerateArray())
+                     .Select(target => target.GetProperty("expr").GetString()!)
+                     .Where(expression => expression.Contains("cormier_realtime_", StringComparison.Ordinal)))
+        {
+            Assert.Contains("service=\"__SERVICE_NAME__\"", expression, StringComparison.Ordinal);
+        }
 
         var rules = Read("helm/realtime-gateway/templates/prometheusrule.yaml");
         foreach (var alert in new[] { "RealtimeGatewayUnavailable", "RealtimeGatewayReadinessFailure", "RealtimeGatewayCrashLooping", "RealtimeGatewayAbnormalDisconnects", "RealtimeGatewayReconnectStorm", "RealtimeGatewayAuthenticationFailures", "RealtimeGatewayAuthorizationFailures", "RealtimeGatewayQueueDrops", "RealtimeGatewayQueueSaturation", "RealtimeGatewaySlowConsumers", "RealtimeGatewayHandlerLatency", "RealtimeGatewayRedisErrors", "RealtimeGatewayRedisDisconnected", "RealtimeGatewayRedisLatency", "RealtimeGatewayCertificateExpiring", "RealtimeGatewayCertificateNotReady", "RealtimeGatewayEdgeErrors", "RealtimeGatewayVipAdvertisementLost", "RealtimeGatewayRolloutFailed" })
@@ -157,6 +164,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("metallb_layer2_responses_sent", rules, StringComparison.Ordinal);
         Assert.Contains("sum(increase(cormier_realtime_connections_opened_total", rules, StringComparison.Ordinal);
         Assert.Contains("name={{ $certificateName", rules, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_connections_closed_total", rules, StringComparison.Ordinal);
+        Assert.Contains("reason=~\"abrupt_disconnect|socket_closed\"", rules, StringComparison.Ordinal);
+        Assert.Contains("traefikNamespace", rules, StringComparison.Ordinal);
+        Assert.Contains("service=~{{ $traefikServicePattern", rules, StringComparison.Ordinal);
         foreach (var expression in rules.Split('\n').Where(line => line.Contains("expr:", StringComparison.Ordinal) && line.Contains("cormier_realtime_", StringComparison.Ordinal)))
         {
             Assert.Contains("namespace=", expression, StringComparison.Ordinal);
@@ -175,6 +186,16 @@ public sealed class DeploymentContractTests
         Assert.Contains("closeReason = await heartbeat ?? \"cancelled\"", handler, StringComparison.Ordinal);
         Assert.Contains("return \"heartbeat_timeout\"", handler, StringComparison.Ordinal);
         Assert.Contains("return \"slow_consumer\"", handler, StringComparison.Ordinal);
+
+        var dispatcher = Read("src/Cormier.Realtime.Gateway/RealtimeDispatcher.cs");
+        Assert.Contains("catch (OperationCanceledException)", dispatcher, StringComparison.Ordinal);
+        Assert.Contains("outcome = \"cancelled\"", dispatcher, StringComparison.Ordinal);
+        Assert.Contains("catch\n        {\n            outcome = \"failure\"", dispatcher.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+
+        var subscriber = Read("src/Cormier.Realtime.Gateway/RedisSubscriberService.cs");
+        Assert.Contains("ConnectionFailed +=", subscriber, StringComparison.Ordinal);
+        Assert.Contains("ConnectionRestored +=", subscriber, StringComparison.Ordinal);
+        Assert.Contains("MarkSubscription(false)", subscriber, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -187,6 +208,9 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
         Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
         Assert.Contains("vars.CONTAINER_REGISTRY", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets.REGISTRY_USERNAME", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets.REGISTRY_PASSWORD", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("username: ${{ github.actor }}", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("'ghcr.io'", publish, StringComparison.Ordinal);
         Assert.Contains("rollbackPublishRunId", promote, StringComparison.Ordinal);
         Assert.Contains("actions/runs/$runId", promote, StringComparison.Ordinal);
@@ -197,6 +221,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);
         Assert.Contains("image.digest", promote, StringComparison.Ordinal);
         Assert.Contains("HELM_VALUES_CONTENT", promote, StringComparison.Ordinal);
+        Assert.Contains("kubectl get --raw /apis/monitoring.coreos.com/v1", promote, StringComparison.Ordinal);
+        Assert.Contains("api_args+=(--api-versions", promote, StringComparison.Ordinal);
         Assert.Contains("--values", promote, StringComparison.Ordinal);
         Assert.Contains("deployment_name=$(awk", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);

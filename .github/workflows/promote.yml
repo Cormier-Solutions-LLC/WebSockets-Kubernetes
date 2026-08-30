@@ -106,12 +106,14 @@ jobs:
           DEPLOY_ENABLED: ${{ vars.KUBERNETES_DEPLOY_ENABLED }}
           DIGEST: ${{ steps.artifact.outputs.digest }}
           HELM_VALUES_CONTENT: ${{ secrets.HELM_VALUES }}
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG_CONTENT }}
           IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |
           mkdir -p artifacts/promotion
           values_args=()
+          api_args=()
           if [ -n "$HELM_VALUES_CONTENT" ]; then
             values_path="$RUNNER_TEMP/promotion-values.yaml"
             printf '%s' "$HELM_VALUES_CONTENT" > "$values_path"
@@ -121,7 +123,23 @@ jobs:
             echo 'The protected environment must configure the HELM_VALUES secret when deployment is enabled.' >&2
             exit 1
           fi
-          helm template "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" "${values_args[@]}" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST" > artifacts/promotion/rendered.yaml
+          if [ "$DEPLOY_ENABLED" = 'true' ]; then
+            test -n "$KUBECONFIG_CONTENT"
+            render_kubeconfig="$RUNNER_TEMP/render-kubeconfig"
+            printf '%s' "$KUBECONFIG_CONTENT" > "$render_kubeconfig"
+            chmod 600 "$render_kubeconfig"
+            if KUBECONFIG="$render_kubeconfig" kubectl get --raw /apis/monitoring.coreos.com/v1 > "$RUNNER_TEMP/monitoring-v1.json" 2>/dev/null; then
+              for kind in ServiceMonitor PrometheusRule; do
+                if jq --exit-status --arg kind "$kind" '.resources[] | select(.kind == $kind)' "$RUNNER_TEMP/monitoring-v1.json" >/dev/null; then
+                  api_args+=(--api-versions "monitoring.coreos.com/v1/$kind")
+                fi
+              done
+            fi
+            if KUBECONFIG="$render_kubeconfig" kubectl get --raw /apis/monitoring.coreos.com/v1alpha1 > "$RUNNER_TEMP/monitoring-v1alpha1.json" 2>/dev/null && jq --exit-status '.resources[] | select(.kind == "AlertmanagerConfig")' "$RUNNER_TEMP/monitoring-v1alpha1.json" >/dev/null; then
+              api_args+=(--api-versions "monitoring.coreos.com/v1alpha1/AlertmanagerConfig")
+            fi
+          fi
+          helm template "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" "${values_args[@]}" "${api_args[@]}" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST" > artifacts/promotion/rendered.yaml
           printf '{"schemaVersion":1,"operation":"%s","environment":"%s","image":"%s","digest":"%s","release":"%s","namespace":"%s","workflowRunId":%s}\n' "${{ inputs.operation }}" "${{ inputs.environment }}" "$IMAGE_REPOSITORY" "$DIGEST" "$RELEASE_NAME" "$NAMESPACE" "${{ github.run_id }}" > artifacts/promotion/evidence.json
           grep --quiet "@$DIGEST" artifacts/promotion/rendered.yaml
       - name: Deploy exact digest when the environment enables deployment

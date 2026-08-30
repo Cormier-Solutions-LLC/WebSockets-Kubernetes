@@ -29,6 +29,8 @@ public sealed class LoadTestContractTests
 
         var runner = File.ReadAllText(Path.Join(root, "tools", "Cormier.Realtime.LoadRunner", "Program.cs"));
         Assert.Contains("Task.WhenAll(orderedClients.Select", runner, StringComparison.Ordinal);
+        Assert.Contains("options.Scenario == \"soak\"", runner, StringComparison.Ordinal);
+        Assert.Contains("DateTimeOffset.UtcNow < deadline", runner, StringComparison.Ordinal);
         Assert.Contains("acknowledgedMessageLatencyMilliseconds", runner, StringComparison.Ordinal);
         Assert.Contains("connectionLatencyMilliseconds", runner, StringComparison.Ordinal);
         Assert.Contains("connectionDeadline", runner, StringComparison.Ordinal);

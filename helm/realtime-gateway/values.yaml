@@ -32,6 +32,10 @@ observability:
     certificateName: ""
     metalLbAdvertisementMode: l2
     metalLbNamespace: metallb-system
+    # Namespace and service-label regex exported by the Traefik metrics deployment.
+    traefikNamespace: traefik
+    # Empty derives a regex from this chart's rendered fullname.
+    traefikServicePattern: ""
   alertThresholds:
     queueDepth: 100
     handlerLatencySeconds: 0.25

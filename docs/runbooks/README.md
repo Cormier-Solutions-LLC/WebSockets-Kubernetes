@@ -5,7 +5,7 @@ All commands require explicit context, namespace, release, and endpoint paramete
 ## Deployment, promotion, and rollback
 
 1. Confirm CI passed build, tests, Native AOT smoke, rootless/read-only container smoke, dependency review, Trivy scans, and SBOM generation.
-2. Configure the repository variables `CONTAINER_REGISTRY` and `IMAGE_REPOSITORY`; publishing fails closed when either image coordinate is absent. Retrieve `release-manifest.json` and verify its source commit, archive SHA-256, repository, and registry digest.
+2. Configure the repository variables `CONTAINER_REGISTRY` and `IMAGE_REPOSITORY` and the protected secrets `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`; publishing fails closed when any registry coordinate or credential is absent. Retrieve `release-manifest.json` and verify its source commit, archive SHA-256, repository, and registry digest.
 3. Configure each protected deployment environment with `KUBECONFIG_CONTENT` and a complete `HELM_VALUES` Secret. Run **Promote or roll back immutable gateway image** with the trusted publish run ID, source commit, release, and namespace. It downloads the trusted manifest, inspects the remote digest, renders with the protected values, and—when that environment enables deployment—uses the same values with Helm `--atomic --wait` without rebuilding or retagging.
 4. Verify rollout, readiness, active connections, abnormal closes, queue drops, handler latency, Redis errors, and edge 5xx. Attach workflow evidence and a dashboard snapshot to the release record.
 

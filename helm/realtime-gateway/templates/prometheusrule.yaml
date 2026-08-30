@@ -1,5 +1,6 @@
 {{- if and .Values.observability.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
 {{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
+{{- $traefikServicePattern := default (printf ".*%s.*" (include "realtime-gateway.fullname" .)) .Values.observability.platformMetrics.traefikServicePattern }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -43,7 +44,7 @@ spec:
     - name: realtime-gateway.performance
       rules:
         - alert: RealtimeGatewayAbnormalDisconnects
-          expr: sum(rate(cormier_realtime_websocket_closes_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},code!~"1000|1001|1012"}[5m])) > 1
+          expr: (sum(rate(cormier_realtime_websocket_closes_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},code!~"1000|1001|1012"}[5m])) > 1) or (sum(rate(cormier_realtime_connections_closed_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},reason=~"abrupt_disconnect|socket_closed"}[5m])) > 1)
           for: 10m
           labels:
             severity: warning
@@ -162,7 +163,7 @@ spec:
             summary: A realtime certificate is not ready
             runbook_url: {{ printf "%s/certificates" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayEdgeErrors
-          expr: sum(rate(traefik_service_requests_total{namespace={{ .Release.Namespace | quote }},code=~"5.."}[5m])) > 1
+          expr: sum(rate(traefik_service_requests_total{namespace={{ .Values.observability.platformMetrics.traefikNamespace | quote }},service=~{{ $traefikServicePattern | quote }},code=~"5.."}[5m])) > 1
           for: 10m
           labels:
             severity: warning

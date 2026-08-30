@@ -131,6 +131,16 @@ public sealed class RealtimeDispatcher(
                     "The messaging service is temporarily unavailable."));
             }
         }
+        catch (OperationCanceledException)
+        {
+            outcome = "cancelled";
+            throw;
+        }
+        catch
+        {
+            outcome = "failure";
+            throw;
+        }
         finally
         {
             metrics.RecordHandlerDuration("dispatch", Stopwatch.GetElapsedTime(started), outcome);

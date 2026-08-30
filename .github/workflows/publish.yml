@@ -30,16 +30,21 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
       - name: Validate configured image coordinates
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           test -n "$CONTAINER_REGISTRY"
           test -n "$IMAGE_REPOSITORY"
+          test -n "$REGISTRY_USERNAME"
+          test -n "$REGISTRY_PASSWORD"
           printf '%s' "$CONTAINER_REGISTRY" | grep --quiet --extended-regexp '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$'
           printf '%s' "$IMAGE_REPOSITORY" | grep --quiet --extended-regexp '^[a-z0-9][a-z0-9._/-]*$'
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.CONTAINER_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
       - name: Push the tested OCI archive without rebuilding
         id: publish
         env:

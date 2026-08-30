@@ -82,14 +82,22 @@ else
 {
     await Task.WhenAll(orderedClients.Select(async client =>
     {
-        for (var message = 0; message < options.MessagesPerConnection; message++)
+        var message = 0;
+        while (options.Scenario == "soak"
+            ? DateTimeOffset.UtcNow < deadline
+            : message < options.MessagesPerConnection)
         {
-            if (options.Scenario == "soak" && DateTimeOffset.UtcNow >= deadline) break;
             try
             {
                 await SendCommandAsync(client, "publish", options.PayloadBytes, options.Scenario != "slow-client", timeout.Token);
                 Interlocked.Increment(ref sent);
                 if (options.Scenario == "soak") await Task.Delay(TimeSpan.FromMilliseconds(100), timeout.Token);
+                message++;
+            }
+            catch (OperationCanceledException) when (
+                options.Scenario == "soak" && DateTimeOffset.UtcNow >= deadline)
+            {
+                break;
             }
             catch (Exception exception)
             {

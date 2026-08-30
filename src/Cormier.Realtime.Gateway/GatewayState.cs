@@ -81,7 +81,6 @@ public sealed class GatewayMetrics : IDisposable
     private long _authorizationFailureCount;
     private long _queueDropCount;
     private long _redisErrorCount;
-    private long _closeCount;
     private long _handlerCancellationCount;
     private long _draining;
     private long _redisSubscriptionActive;
@@ -242,7 +241,6 @@ public sealed class GatewayMetrics : IDisposable
 
     public void RecordCloseCode(int status)
     {
-        Interlocked.Increment(ref _closeCount);
         _closeCodes.Add(1, new KeyValuePair<string, object?>("code", status));
         Increment("cormier_realtime_websocket_closes_total", ("code", status.ToString(CultureInfo.InvariantCulture)));
     }
@@ -293,9 +291,8 @@ public sealed class GatewayMetrics : IDisposable
             builder.Append(series.Key).Append(' ').Append(series.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
         }
 
-        // Compatibility totals retained for pre-dashboard consumers.
+        // Aggregate failure totals complement the bounded dimensional series above.
         AppendSample(builder, "cormier_realtime_queue_dropped_total", Interlocked.Read(ref _queueDropCount));
-        AppendSample(builder, "cormier_realtime_websocket_closes_total", Interlocked.Read(ref _closeCount));
         AppendSample(builder, "cormier_realtime_authentication_failures_total", Interlocked.Read(ref _authenticationFailures));
         AppendSample(builder, "cormier_realtime_redis_errors_total", Interlocked.Read(ref _redisErrorCount));
         foreach (var histogram in _histograms.OrderBy(item => item.Key, StringComparer.Ordinal))

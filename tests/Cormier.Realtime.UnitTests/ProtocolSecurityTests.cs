@@ -162,7 +162,7 @@ public sealed class ProtocolSecurityTests
             CancellationToken.None);
 
         Assert.Equal(RealtimeCloseStatus.SlowConsumer, socket.CloseStatus);
-        Assert.Contains("cormier_realtime_websocket_closes_total 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"4008\"} 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
     }
 
     [Fact]

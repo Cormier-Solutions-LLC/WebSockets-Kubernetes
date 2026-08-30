@@ -1,0 +1,58 @@
+deployment:
+  replicas: 3
+  podLabels:
+    cormier.io/edge: realtime
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
+
+ports:
+  web:
+    redirectTo:
+      port: websecure
+  websecure:
+    tls:
+      enabled: true
+
+service:
+  type: LoadBalancer
+  annotations:
+    metallb.io/address-pool: development-traefik
+    external-dns.alpha.kubernetes.io/hostname: realtime.cormier.local
+  spec:
+    externalTrafficPolicy: Local
+
+providers:
+  kubernetesCRD:
+    namespaces:
+      - development-realtime
+
+logs:
+  access:
+    enabled: true
+    fields:
+      headers:
+        defaultMode: drop
+      names:
+        RequestAddr: drop
+        RequestPath: drop
+        RequestPort: drop
+
+metrics:
+  prometheus:
+    service:
+      enabled: true
+
+additionalArguments:
+  - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=60s
+  - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=60s
+  - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=120s
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2

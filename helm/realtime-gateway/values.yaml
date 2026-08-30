@@ -20,6 +20,12 @@ service:
   port: 80
   targetPort: 8080
 
+ingressRoute:
+  enabled: false
+  host: ""
+  path: /realtime/ws
+  tlsSecretName: ""
+
 gateway:
   shutdownDrainSeconds: 25
   detailedHealthChecks: false

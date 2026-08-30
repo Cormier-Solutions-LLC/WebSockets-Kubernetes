@@ -1,0 +1,18 @@
+gateway:
+  allowedOrigins:
+    - https://cormier.local
+  shutdownDrainSeconds: 25
+
+networkPolicy:
+  ingressNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: traefik
+  ingressPodSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+
+ingressRoute:
+  enabled: true
+  host: realtime.cormier.local
+  path: /realtime/ws
+  tlsSecretName: realtime-cormier-local-tls

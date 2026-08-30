@@ -1,0 +1,28 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: development-traefik
+  namespace: metallb-system
+  labels:
+    cormier.io/environment: development
+spec:
+  addresses:
+    - 192.168.50.240-192.168.50.250
+  autoAssign: false
+  serviceAllocation:
+    namespaces:
+      - traefik
+    serviceSelectors:
+      - matchLabels:
+          app.kubernetes.io/name: traefik
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: development-traefik
+  namespace: metallb-system
+  labels:
+    cormier.io/environment: development
+spec:
+  ipAddressPools:
+    - development-traefik

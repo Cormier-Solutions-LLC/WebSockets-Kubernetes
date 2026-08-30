@@ -14,6 +14,21 @@
         "digest": { "type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$" }
       }
     },
+    "ingressRoute": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "host": { "type": "string", "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" },
+        "path": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
+        "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } } },
+          "then": { "required": ["host", "path", "tlsSecretName"], "properties": { "host": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 } } }
+        }
+      ]
+    },
     "gateway": {
       "type": "object",
       "required": ["allowedOrigins", "trustedNetworks", "shutdownDrainSeconds"],

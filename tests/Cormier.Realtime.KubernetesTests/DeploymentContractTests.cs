@@ -80,6 +80,50 @@ public sealed class DeploymentContractTests
         Assert.Contains(".backups/", Read(".gitignore"), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EdgeConfigurationKeepsGatewayPrivateAndTerminatesWssAtTraefik()
+    {
+        var service = Read("helm/realtime-gateway/templates/service.yaml");
+        var route = Read("helm/realtime-gateway/templates/ingressroute.yaml");
+        var gatewayValues = Read("cluster/edge/development/gateway-values.yaml");
+        var traefikValues = Read("cluster/edge/development/traefik-values.yaml");
+        var metalLb = Read("cluster/edge/development/metallb.yaml");
+        var certificate = Read("cluster/edge/development/certificate.yaml");
+
+        Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
+        Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)", route, StringComparison.Ordinal);
+        Assert.Contains("flushInterval: -1", route, StringComparison.Ordinal);
+        Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);
+        Assert.Contains("externalTrafficPolicy: Local", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("defaultMode: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("RequestPath: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("RequestPort: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.cormier.local", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("prometheus:", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("idletimeout=120s", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("topologySpreadConstraints:", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("development-traefik", metalLb, StringComparison.Ordinal);
+        Assert.Contains("kind: L2Advertisement", metalLb, StringComparison.Ordinal);
+        Assert.Contains("realtime.cormier.local", certificate, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EdgeValidationAutomationProtectsTargetAndSecrets()
+    {
+        var script = Read("scripts/Test-RealtimeEdge.ps1");
+
+        Assert.Contains("ExpectedContext", script, StringComparison.Ordinal);
+        Assert.Contains("TARGET MISMATCH", script, StringComparison.Ordinal);
+        Assert.Contains("externalTrafficPolicy", script, StringComparison.Ordinal);
+        Assert.Contains("type ClusterIP", script, StringComparison.Ordinal);
+        Assert.Contains("[Net.Dns]::GetHostAddresses", script, StringComparison.Ordinal);
+        Assert.Contains("Certificate is Ready", script, StringComparison.Ordinal);
+        Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
+        Assert.Contains("Invalid route is rejected", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Write-Host $ticket", script, StringComparison.Ordinal);
+    }
+
     private static string Read(string relative)
     {
         var normalizedRelative = relative.Replace('/', Path.DirectorySeparatorChar);

@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: realtime-cormier-local
+  namespace: development-realtime
+  labels:
+    cormier.io/environment: development
+spec:
+  secretName: realtime-cormier-local-tls
+  dnsNames:
+    - realtime.cormier.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: cormier-local-ca

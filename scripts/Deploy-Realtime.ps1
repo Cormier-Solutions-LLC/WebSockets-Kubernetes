@@ -66,7 +66,9 @@ $redisRelease = "$target-redis"
 if (-not $RedisSecretName) { $RedisSecretName = "$target-redis" }
 if (-not $RedisInstancePrefix) {
     $RedisInstancePrefix = if ($null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {
-        [string]$naming.redisInstancePrefix
+        # Preserve environment isolation while remaining inside the managed ACL's
+        # cormier:realtime:* key and channel boundary.
+        "$([string]$naming.redisInstancePrefix):$Environment"
     }
     else {
         "${Environment}:$Application"

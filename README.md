@@ -30,7 +30,7 @@ pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a
 # application: realtime-customer-a; service: cormier-realtime-customer-a-gateway
 ```
 
-`Deploy-Realtime.ps1` consumes the generated Kubernetes application and Redis prefix unless those parameters are explicitly supplied. .NET container publishing imports the generated container repository; an explicit MSBuild property can still override it.
+`Deploy-Realtime.ps1` consumes the generated Kubernetes application and scopes the generated Redis prefix by deployment environment unless those parameters are explicitly supplied. .NET container publishing imports the generated container repository; an explicit MSBuild property can still override it.
 
 Domains, origins, host/server names, IPs, CIDRs, ports, Redis endpoints, image repositories, and Kubernetes identities are configuration inputs. Override the development examples through `appsettings`, environment variables (double underscores separate .NET configuration keys), Helm values, or deployment-script parameters; do not compile environment-specific network identities into the application.
 

@@ -52,7 +52,9 @@ public sealed partial class BrandingConfigurationTests
         Assert.Contains("kubernetesApplication", bootstrap, StringComparison.Ordinal);
         Assert.Contains("naming.props", bootstrap, StringComparison.Ordinal);
         Assert.Contains(".bootstrap/naming.props", Read("Directory.Build.props"), StringComparison.Ordinal);
-        Assert.Contains("$PSBoundParameters.ContainsKey('Application')", Read("scripts/Deploy-Realtime.ps1"), StringComparison.Ordinal);
+        var deployment = Read("scripts/Deploy-Realtime.ps1");
+        Assert.Contains("$PSBoundParameters.ContainsKey('Application')", deployment, StringComparison.Ordinal);
+        Assert.Contains("$([string]$naming.redisInstancePrefix):$Environment", deployment, StringComparison.Ordinal);
         Assert.Contains(".bootstrap/", Read(".gitignore"), StringComparison.Ordinal);
     }
 

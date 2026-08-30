@@ -1,0 +1,228 @@
+using System.Buffers;
+using System.Net.WebSockets;
+using System.Text.Json;
+using Propago.Realtime.Contracts;
+
+namespace Propago.Realtime.Gateway;
+
+public sealed class RealtimeWebSocketHandler(
+    RealtimeAuthenticator authenticator,
+    RealtimeConnectionRegistry registry,
+    RealtimeDispatcher dispatcher,
+    RealtimeOptions options,
+    GatewayState state,
+    GatewayMetrics metrics)
+{
+    public const string SubProtocol = "propago.realtime.v1";
+
+    public async Task HandleAsync(HttpContext context)
+    {
+        if (state.IsDraining)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
+
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        if (!context.WebSockets.WebSocketRequestedProtocols.Contains(SubProtocol, StringComparer.Ordinal))
+        {
+            context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
+            context.Response.Headers.SecWebSocketProtocol = SubProtocol;
+            return;
+        }
+
+        var authentication = await authenticator.AuthenticateAsync(
+            context.Request,
+            context.RequestAborted);
+        if (!authentication.Succeeded)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        using var socket = await context.WebSockets.AcceptWebSocketAsync(SubProtocol);
+        await using var connection = new RealtimeConnection(
+            socket,
+            authentication.Identity!,
+            options,
+            metrics);
+        if (!registry.Add(connection))
+        {
+            await connection.RequestCloseAsync(
+                WebSocketCloseStatus.InternalServerError,
+                "connection_registration_failed",
+                context.RequestAborted);
+            return;
+        }
+
+        using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        var sender = connection.RunSenderAsync(connectionCancellation.Token);
+        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation.Token);
+        var closeReason = "client_disconnect";
+        try
+        {
+            closeReason = await RunReceiverAsync(connection, connectionCancellation.Token);
+        }
+        catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
+        {
+            closeReason = "cancelled";
+        }
+        catch (WebSocketException)
+        {
+            closeReason = "abrupt_disconnect";
+        }
+        finally
+        {
+            connectionCancellation.Cancel();
+            registry.Remove(connection.Id, closeReason);
+            try
+            {
+                await Task.WhenAll(sender, heartbeat);
+            }
+            catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
+            {
+            }
+        }
+    }
+
+    private async Task<string> RunReceiverAsync(
+        RealtimeConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(options.MaximumFrameBytes + 1);
+        try
+        {
+            while (connection.IsOpen)
+            {
+                var result = await connection.Socket.ReceiveAsync(
+                    buffer.AsMemory(0, options.MaximumFrameBytes + 1),
+                    cancellationToken);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    await connection.RequestCloseAsync(
+                        connection.Socket.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                        "client_close",
+                        cancellationToken);
+                    return "client_close";
+                }
+
+                if (result.MessageType != WebSocketMessageType.Text)
+                {
+                    await connection.RequestCloseAsync(
+                        WebSocketCloseStatus.InvalidMessageType,
+                        "text_messages_required",
+                        cancellationToken);
+                    return "invalid_message_type";
+                }
+
+                if (!result.EndOfMessage)
+                {
+                    connection.TryEnqueue(RealtimeDispatcher.Error(
+                        null,
+                        ProtocolErrorCodes.FragmentedMessageRejected,
+                        "Fragmented messages are not accepted."));
+                    await connection.RequestCloseAsync(
+                        WebSocketCloseStatus.InvalidPayloadData,
+                        "fragmented_message_rejected",
+                        cancellationToken);
+                    return "fragmented_message";
+                }
+
+                if (result.Count > options.MaximumFrameBytes || result.Count > options.MaximumMessageBytes)
+                {
+                    await connection.RequestCloseAsync(
+                        WebSocketCloseStatus.MessageTooBig,
+                        "message_too_large",
+                        cancellationToken);
+                    return "message_too_large";
+                }
+
+                connection.RecordActivity();
+                MessageEnvelope? envelope;
+                try
+                {
+                    envelope = JsonSerializer.Deserialize(
+                        buffer.AsSpan(0, result.Count),
+                        RealtimeJsonSerializerContext.Default.MessageEnvelope);
+                }
+                catch (JsonException)
+                {
+                    metrics.RecordMessage("inbound", "malformed");
+                    connection.TryEnqueue(RealtimeDispatcher.Error(
+                        null,
+                        ProtocolErrorCodes.InvalidEnvelope,
+                        "Message JSON is malformed."));
+                    continue;
+                }
+
+                var validation = ProtocolValidator.Validate(envelope, DateTimeOffset.UtcNow);
+                if (!validation.IsValid)
+                {
+                    metrics.RecordMessage("inbound", "invalid");
+                    connection.TryEnqueue(RealtimeDispatcher.Error(
+                        envelope,
+                        validation.ErrorCode!,
+                        validation.ErrorMessage!));
+                    continue;
+                }
+
+                if (!connection.TryTrackCorrelation(envelope!.CorrelationId))
+                {
+                    metrics.RecordMessage("inbound", "duplicate");
+                    connection.TryEnqueue(RealtimeDispatcher.Error(
+                        envelope,
+                        ProtocolErrorCodes.DuplicateCorrelation,
+                        "CorrelationId has already been processed on this connection."));
+                    continue;
+                }
+
+                metrics.RecordMessage("inbound", "accepted");
+                await dispatcher.DispatchAsync(connection, envelope, cancellationToken);
+            }
+
+            return "socket_closed";
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+        }
+    }
+
+    private async Task RunHeartbeatAsync(
+        RealtimeConnection connection,
+        CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatSeconds));
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            if (DateTimeOffset.UtcNow - connection.LastActivity > TimeSpan.FromSeconds(options.IdleTimeoutSeconds))
+            {
+                await connection.RequestCloseAsync(
+                    RealtimeCloseStatus.HeartbeatTimeout,
+                    "heartbeat_timeout",
+                    cancellationToken);
+                return;
+            }
+
+            if (!connection.TryEnqueue(new ServerMessageEnvelope(
+                    ProtocolVersions.Current,
+                    ProtocolMessageTypes.Ping,
+                    Guid.NewGuid().ToString("N"),
+                    DateTimeOffset.UtcNow,
+                    "system/heartbeat")) &&
+                connection.HasExceededSlowConsumerLimit)
+            {
+                await connection.RequestCloseAsync(
+                    RealtimeCloseStatus.SlowConsumer,
+                    "slow_consumer",
+                    cancellationToken);
+                return;
+            }
+        }
+    }
+}

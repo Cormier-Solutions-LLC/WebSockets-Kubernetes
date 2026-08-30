@@ -6,6 +6,7 @@ using Propago.Realtime.Gateway;
 using Propago.Realtime.Redis;
 
 var builder = WebApplication.CreateSlimBuilder(args);
+builder.Configuration.AddEnvironmentVariables();
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -26,6 +27,25 @@ builder.Services
     .Bind(builder.Configuration.GetSection(RedisOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.Endpoint), "Redis:Endpoint is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.InstancePrefix), "Redis:InstancePrefix is required.")
+    .Validate(options => options.ConnectRetryCount is >= 1 and <= 20, "Redis:ConnectRetryCount must be between 1 and 20.")
+    .Validate(options => options.StreamMaxLength is >= 100 and <= 1_000_000, "Redis:StreamMaxLength must be between 100 and 1000000.")
+    .Validate(options => options.StreamReadCount is >= 1 and <= 1_000, "Redis:StreamReadCount must be between 1 and 1000.")
+    .Validate(options => options.StreamClaimIdleMilliseconds is >= 1 and <= 3_600_000, "Redis:StreamClaimIdleMilliseconds must be between 1 and 3600000.")
+    .Validate(options => options.StreamIdempotencyTtlSeconds is >= 60 and <= 2_592_000, "Redis:StreamIdempotencyTtlSeconds must be between 60 and 2592000.")
+    .Validate(options => options.StreamPoisonMaxLength is >= 10 and <= 100_000, "Redis:StreamPoisonMaxLength must be between 10 and 100000.")
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<RealtimeOptions>()
+    .Bind(builder.Configuration.GetSection(RealtimeOptions.SectionName))
+    .Validate(options => options.EndpointPath.StartsWith('/'), "Realtime:EndpointPath must start with '/'.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.SessionCookieName), "Realtime:SessionCookieName is required.")
+    .Validate(options => options.AllowedOrigins.Length > 0 && options.AllowedOrigins.All(origin => Uri.TryCreate(origin, UriKind.Absolute, out _)), "Realtime:AllowedOrigins must contain absolute origins.")
+    .Validate(options => options.MaximumFrameBytes is >= 1024 and <= 1_048_576, "Realtime:MaximumFrameBytes must be between 1024 and 1048576.")
+    .Validate(options => options.MaximumMessageBytes >= options.MaximumFrameBytes, "Realtime:MaximumMessageBytes must be at least MaximumFrameBytes.")
+    .Validate(options => options.OutboundQueueCapacity is >= 1 and <= 10_000, "Realtime:OutboundQueueCapacity must be between 1 and 10000.")
+    .Validate(options => options.HeartbeatSeconds is >= 5 and <= 300, "Realtime:HeartbeatSeconds must be between 5 and 300.")
+    .Validate(options => options.IdleTimeoutSeconds > options.HeartbeatSeconds, "Realtime:IdleTimeoutSeconds must exceed HeartbeatSeconds.")
     .ValidateOnStart();
 
 var configuredDrainSeconds = builder.Configuration.GetValue<int?>(
@@ -42,9 +62,22 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, RealtimeJsonSerializerContext.Default);
 });
-builder.Services.AddSingleton<IRedisReadinessProbe, DeferredRedisReadinessProbe>();
+builder.Services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<GatewayOptions>>().Value);
+builder.Services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RedisOptions>>().Value);
+builder.Services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RealtimeOptions>>().Value);
+builder.Services.AddSingleton<RedisConnectionProvider>();
+builder.Services.AddSingleton<IRedisReadinessProbe>(serviceProvider => serviceProvider.GetRequiredService<RedisConnectionProvider>());
+builder.Services.AddSingleton<IRealtimeSessionStore, RedisSessionStore>();
+builder.Services.AddSingleton<IConnectionTicketStore, RedisConnectionTicketStore>();
+builder.Services.AddSingleton<IRealtimeMessageBus, RedisRealtimeMessageBus>();
+builder.Services.AddSingleton<IDurableRealtimeStore, RedisDurableRealtimeStore>();
 builder.Services.AddSingleton<GatewayState>();
 builder.Services.AddSingleton<GatewayMetrics>();
+builder.Services.AddSingleton<RealtimeConnectionRegistry>();
+builder.Services.AddSingleton<RealtimeAuthenticator>();
+builder.Services.AddSingleton<RealtimeDispatcher>();
+builder.Services.AddSingleton<RealtimeWebSocketHandler>();
+builder.Services.AddHostedService<RedisSubscriberService>();
 builder.Services.AddHostedService<GatewayDrainService>();
 
 var app = builder.Build();
@@ -52,6 +85,7 @@ var state = app.Services.GetRequiredService<GatewayState>();
 var metrics = app.Services.GetRequiredService<GatewayMetrics>();
 var gatewayOptions = app.Services.GetRequiredService<IOptions<GatewayOptions>>().Value;
 var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GatewayLifecycle");
+var realtimeOptions = app.Services.GetRequiredService<IOptions<RealtimeOptions>>().Value;
 var serviceVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
 var logStarted = LoggerMessage.Define<string, string>(
     LogLevel.Information,
@@ -70,6 +104,35 @@ app.Lifetime.ApplicationStopping.Register(() =>
 {
     state.BeginDrain();
     logDraining(logger, gatewayOptions.ServiceName, null);
+});
+
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(realtimeOptions.HeartbeatSeconds),
+});
+
+app.Map(realtimeOptions.EndpointPath, async (HttpContext context, RealtimeWebSocketHandler handler) =>
+    await handler.HandleAsync(context));
+
+app.MapPost("/realtime/tickets", async Task<Results<Ok<ConnectionTicketResponse>, UnauthorizedHttpResult>> (
+    HttpContext context,
+    RealtimeAuthenticator authenticator,
+    IConnectionTicketStore ticketStore,
+    CancellationToken cancellationToken) =>
+{
+    var authentication = await authenticator.AuthenticateAsync(context.Request, cancellationToken);
+    if (!authentication.Succeeded)
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    var lifetime = TimeSpan.FromSeconds(realtimeOptions.TicketLifetimeSeconds);
+    var ticket = await ticketStore.IssueAsync(
+        authentication.Identity!,
+        context.Request.Host.Value ?? string.Empty,
+        lifetime,
+        cancellationToken);
+    return TypedResults.Ok(new ConnectionTicketResponse(ticket, DateTimeOffset.UtcNow.Add(lifetime)));
 });
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>
@@ -106,10 +169,7 @@ app.MapGet("/health/ready", async Task<Results<Ok<HealthStatusResponse>, JsonHtt
 
 app.MapGet("/metrics", ContentHttpResult () =>
 {
-    var body = "# HELP propago_realtime_health_requests_total Health endpoint requests.\n" +
-        "# TYPE propago_realtime_health_requests_total counter\n" +
-        $"propago_realtime_health_requests_total {metrics.HealthRequestCount}\n";
-    return TypedResults.Text(body, "text/plain; version=0.0.4; charset=utf-8");
+    return TypedResults.Text(metrics.RenderPrometheus(), "text/plain; version=0.0.4; charset=utf-8");
 });
 
 app.Run();

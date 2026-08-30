@@ -6,9 +6,9 @@
 
 ## Project responsibilities
 
-- **Gateway** owns hosting, configuration validation, lifecycle state, health endpoints, structured JSON logs, baseline metrics, and the future WebSocket endpoint.
+- **Gateway** owns the WebSocket endpoint, local connection registry, dispatch and authorization, lifecycle state, health endpoints, structured JSON logs, metrics, and traces.
 - **Contracts** owns transport DTOs and the source-generated `System.Text.Json` context required for trimming and Native AOT.
-- **Redis** owns configuration and readiness abstractions. The actual session and messaging implementation is intentionally delivered by PBV7-486.
+- **Redis** owns reconnecting connections, session and single-use ticket validation, namespaced Pub/Sub, and optional durable Streams.
 - **Tests** separate fast unit checks, in-process HTTP integration checks, Kubernetes contract checks, and load-harness contracts.
 
 ## Health model
@@ -20,6 +20,12 @@ Startup, liveness, and readiness have deliberately different meanings:
 3. Readiness requires startup completion, a non-draining host, and successful registered dependency probes.
 
 Kubernetes must remove the pod from ready endpoints before shutdown. PBV7-486 extends the draining state to active WebSocket connections; PBV7-487 supplies the probes and termination configuration.
+
+## Connection and messaging model
+
+Every gateway owns its live WebSocket objects, subscription set, correlation history, and bounded outbound queues in local memory. Redis stores authentication state and messaging data only. A Pub/Sub subscriber on each gateway filters every received event by server-derived tenant, current user when applicable, and local subscription before enqueueing it.
+
+Pub/Sub is lossy real-time fan-out. Optional Streams are an independent at-least-once path for an explicit allowlist of durable event classes. Consumer groups acknowledge completed work, reclaim idle pending entries after a crashed consumer, use expiring idempotency markers, and quarantine malformed entries in a bounded poison stream.
 
 ## Native AOT constraints
 

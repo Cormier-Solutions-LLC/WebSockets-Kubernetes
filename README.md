@@ -29,8 +29,10 @@ The gateway listens on the ASP.NET Core configured address and exposes:
 - `/health/live` — process liveness only.
 - `/health/ready` — traffic readiness, including draining state.
 - `/metrics` — Prometheus text-format foundation metrics.
+- `/realtime/ws` — authenticated WebSocket endpoint using `propago.realtime.v1`.
+- `/realtime/tickets` — issues a short-lived, single-use connection ticket from a same-origin session.
 
-See [developer guide](docs/developer-guide.md) and [architecture](docs/architecture.md) for the complete workflow and design boundaries.
+See [wire protocol](docs/protocol.md), [developer guide](docs/developer-guide.md), and [architecture](docs/architecture.md) for the complete behavior and design boundaries.
 
 ## Build and verify
 

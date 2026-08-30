@@ -13,8 +13,10 @@ public sealed class GatewayDrainServiceTests
         var state = new GatewayState(
             new ReadyRedisProbe(),
             Options.Create(new RedisOptions()));
+        using var metrics = new GatewayMetrics();
         var service = new GatewayDrainService(
             state,
+            new RealtimeConnectionRegistry(metrics),
             Options.Create(new GatewayOptions { ShutdownDrainSeconds = 300 }),
             NullLogger<GatewayDrainService>.Instance);
         using var cancellation = new CancellationTokenSource();

@@ -4,6 +4,7 @@ namespace Propago.Realtime.Gateway;
 
 public sealed class GatewayDrainService(
     GatewayState state,
+    RealtimeConnectionRegistry registry,
     IOptions<GatewayOptions> options,
     ILogger<GatewayDrainService> logger) : IHostedLifecycleService
 {
@@ -26,16 +27,19 @@ public sealed class GatewayDrainService(
     public async Task StoppingAsync(CancellationToken cancellationToken)
     {
         state.BeginDrain();
+        await registry.NotifyServiceRestartAsync();
 
         try
         {
             await Task.Delay(
                 TimeSpan.FromSeconds(options.Value.ShutdownDrainSeconds),
                 cancellationToken);
+            await registry.CloseAllAsync(cancellationToken);
             LogDrainComplete(logger, options.Value.ServiceName, null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            await registry.CloseAllAsync(CancellationToken.None);
             LogDrainCancelled(logger, options.Value.ServiceName, null);
         }
     }

@@ -14,6 +14,7 @@ public sealed class ProtocolContractTests
             "test.event",
             "correlation-1",
             DateTimeOffset.UnixEpoch,
+            "topics/test",
             payload);
 
         var json = JsonSerializer.Serialize(envelope, RealtimeJsonSerializerContext.Default.MessageEnvelope);

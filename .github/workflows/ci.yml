@@ -13,6 +13,16 @@ permissions:
 jobs:
   build-test-aot:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -27,6 +37,8 @@ jobs:
       - name: Build
         run: dotnet build Propago.Realtime.sln --configuration Release --no-restore
       - name: Test
+        env:
+          REDIS_TEST_ENDPOINT: localhost:6379
         run: dotnet test Propago.Realtime.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
       - name: Native AOT publish
         run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore --output artifacts/native

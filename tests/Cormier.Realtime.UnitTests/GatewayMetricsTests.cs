@@ -21,6 +21,7 @@ public sealed class GatewayMetricsTests
         Assert.Contains("operation=\"other\"", rendered, StringComparison.Ordinal);
         Assert.Contains("direction=\"other\",outcome=\"other\"", rendered, StringComparison.Ordinal);
         Assert.Contains("code=\"4008\"", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_abnormal_websocket_closes_total 1", rendered, StringComparison.Ordinal);
         Assert.Contains("le=\"0.025\"", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("attacker-controlled", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("tenant/secret/topic", rendered, StringComparison.Ordinal);
@@ -72,6 +73,19 @@ public sealed class GatewayMetricsTests
         var rendered = metrics.RenderPrometheus();
         Assert.Contains("cormier_realtime_queue_depth 0", rendered, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_queue_dropped_total 0", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AlertRelevantCounterSeriesExistAtZeroBeforeFirstEvent()
+    {
+        using var metrics = new GatewayMetrics();
+        var rendered = metrics.RenderPrometheus();
+
+        Assert.Contains("cormier_realtime_slow_consumer_disconnects_total 0", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_authentication_total{method=\"session\",outcome=\"failure\"} 0", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_redis_operations_total{operation=\"ticket_consume\",outcome=\"failure\"} 0", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"4008\"} 0", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_abnormal_websocket_closes_total 0", rendered, StringComparison.Ordinal);
     }
 
     [Fact]

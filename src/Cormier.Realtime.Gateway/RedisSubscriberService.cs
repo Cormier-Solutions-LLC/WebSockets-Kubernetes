@@ -42,14 +42,18 @@ public sealed class RedisSubscriberService(
                     metrics.RecordRedisSubscriptionState(active);
                 }
 
-                void OnConnectionFailed(object? _, ConnectionFailedEventArgs __)
+                void OnConnectionFailed(object? _, ConnectionFailedEventArgs eventArgs)
                 {
-                    MarkSubscription(false);
+                    if (eventArgs.ConnectionType == ConnectionType.Subscription)
+                    {
+                        MarkSubscription(false);
+                    }
                 }
 
-                void OnConnectionRestored(object? _, ConnectionFailedEventArgs __)
+                void OnConnectionRestored(object? _, ConnectionFailedEventArgs eventArgs)
                 {
-                    if (Volatile.Read(ref subscriptionEstablished) == 1 && connection.IsConnected)
+                    if (eventArgs.ConnectionType == ConnectionType.Subscription &&
+                        Volatile.Read(ref subscriptionEstablished) == 1)
                     {
                         MarkSubscription(true);
                     }

@@ -150,7 +150,6 @@ app.Map(realtimeOptions.EndpointPath, async (HttpContext context, RealtimeWebSoc
 app.MapPost("/realtime/tickets", async Task<Results<Ok<ConnectionTicketResponse>, UnauthorizedHttpResult>> (
     HttpContext context,
     RealtimeAuthenticator authenticator,
-    IConnectionTicketStore ticketStore,
     CancellationToken cancellationToken) =>
 {
     var authentication = await authenticator.AuthenticateSessionAsync(context.Request, cancellationToken);
@@ -171,7 +170,7 @@ app.MapPost("/realtime/tickets", async Task<Results<Ok<ConnectionTicketResponse>
         return TypedResults.Unauthorized();
     }
 
-    var ticket = await ticketStore.IssueAsync(
+    var ticket = await authenticator.IssueTicketAsync(
         authentication.Identity!,
         context.Request.Host.Value ?? string.Empty,
         lifetime,

@@ -56,6 +56,10 @@ public sealed class GatewayMetrics : IDisposable
     private static readonly HashSet<string> MessageOutcomes = new(StringComparer.Ordinal) { "accepted", "sent", "malformed", "invalid", "duplicate", "rejected", "error" };
     private static readonly HashSet<string> AuthenticationMethods = new(StringComparer.Ordinal) { "session", "ticket", "origin" };
     private static readonly HashSet<string> RedisOperations = new(StringComparer.Ordinal) { "publish", "subscribe", "stream_append", "stream_ack", "stream_claim", "session_read", "ticket_issue", "ticket_consume" };
+    private static readonly string[] ConnectionCloseReasons = ["client_disconnect", "client_close", "cancelled", "abrupt_disconnect", "socket_closed", "service_restart", "authentication_expired", "authentication_invalid", "authentication_unavailable", "heartbeat_timeout", "slow_consumer", "invalid_message_type", "message_too_large", "fragmented_message"];
+    private static readonly string[] AuthorizationOperations = ["publish", "subscribe", "unsubscribe", "ping"];
+    private static readonly string[] HandshakeReasons = ["accepted", "draining", "not_websocket", "subprotocol", "authentication", "registration"];
+    private static readonly int[] CloseCodes = [1000, 1001, 1002, 1003, 1009, 1011, 1012, 4003, 4008, 4009];
     private readonly ConcurrentDictionary<string, long> _series = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, HistogramState> _histograms = new(StringComparer.Ordinal);
     private readonly Meter _meter = new(
@@ -99,6 +103,44 @@ public sealed class GatewayMetrics : IDisposable
         _closeCodes = _meter.CreateCounter<long>("gateway.websocket.closes");
         _handlerCancellations = _meter.CreateCounter<long>("gateway.handlers.cancelled");
         _drainTransitions = _meter.CreateCounter<long>("gateway.drain.transitions");
+
+        InitializeCounter("cormier_realtime_connections_opened_total");
+        InitializeCounter("cormier_realtime_slow_consumer_disconnects_total");
+        InitializeCounter("cormier_realtime_heartbeat_timeouts_total");
+        InitializeCounter("cormier_realtime_abnormal_websocket_closes_total");
+        InitializeCounter("cormier_realtime_handler_cancellations_total");
+        foreach (var reason in ConnectionCloseReasons)
+        {
+            InitializeCounter("cormier_realtime_connections_closed_total", ("reason", reason));
+        }
+        foreach (var direction in Directions)
+        foreach (var outcome in MessageOutcomes)
+        {
+            InitializeCounter("cormier_realtime_messages_total", ("direction", direction), ("outcome", outcome));
+        }
+        foreach (var method in AuthenticationMethods)
+        foreach (var outcome in new[] { "success", "failure" })
+        {
+            InitializeCounter("cormier_realtime_authentication_total", ("method", method), ("outcome", outcome));
+        }
+        foreach (var operation in AuthorizationOperations)
+        {
+            InitializeCounter("cormier_realtime_authorization_failures_total", ("operation", operation));
+        }
+        foreach (var outcome in new[] { "accepted", "rejected" })
+        foreach (var reason in HandshakeReasons)
+        {
+            InitializeCounter("cormier_realtime_handshakes_total", ("outcome", outcome), ("reason", reason));
+        }
+        foreach (var operation in RedisOperations)
+        foreach (var outcome in new[] { "success", "failure" })
+        {
+            InitializeCounter("cormier_realtime_redis_operations_total", ("operation", operation), ("outcome", outcome));
+        }
+        foreach (var code in CloseCodes)
+        {
+            InitializeCounter("cormier_realtime_websocket_closes_total", ("code", code.ToString(CultureInfo.InvariantCulture)));
+        }
     }
 
     public long HealthRequestCount => Interlocked.Read(ref _healthRequestCount);
@@ -129,7 +171,7 @@ public sealed class GatewayMetrics : IDisposable
         {
             Interlocked.Exchange(ref _activeConnections, 0);
         }
-        var normalizedReason = Normalize(reason, "client_disconnect", "client_close", "cancelled", "abrupt_disconnect", "socket_closed", "service_restart", "authentication_expired", "authentication_invalid", "authentication_unavailable", "heartbeat_timeout", "slow_consumer", "invalid_message_type", "message_too_large", "fragmented_message");
+        var normalizedReason = Normalize(reason, ConnectionCloseReasons);
         Increment("cormier_realtime_connections_closed_total", ("reason", normalizedReason));
         if (duration is not null)
         {
@@ -168,7 +210,7 @@ public sealed class GatewayMetrics : IDisposable
     public void RecordAuthorizationFailure(string operation)
     {
         Interlocked.Increment(ref _authorizationFailureCount);
-        operation = Normalize(operation, "publish", "subscribe", "unsubscribe", "ping");
+        operation = Normalize(operation, AuthorizationOperations);
         Increment("cormier_realtime_authorization_failures_total", ("operation", operation));
         _authorizationFailures.Add(1, new KeyValuePair<string, object?>("operation", operation));
     }
@@ -207,7 +249,7 @@ public sealed class GatewayMetrics : IDisposable
     public void RecordHandshake(string outcome, string reason)
     {
         outcome = Normalize(outcome, "accepted", "rejected");
-        reason = Normalize(reason, "accepted", "draining", "not_websocket", "subprotocol", "authentication", "registration");
+        reason = Normalize(reason, HandshakeReasons);
         Increment("cormier_realtime_handshakes_total", ("outcome", outcome), ("reason", reason));
     }
 
@@ -245,6 +287,10 @@ public sealed class GatewayMetrics : IDisposable
     {
         _closeCodes.Add(1, new KeyValuePair<string, object?>("code", status));
         Increment("cormier_realtime_websocket_closes_total", ("code", status.ToString(CultureInfo.InvariantCulture)));
+        if (status is not (1000 or 1001 or 1012))
+        {
+            Increment("cormier_realtime_abnormal_websocket_closes_total");
+        }
     }
 
     public void RecordHandlerCancellation()
@@ -279,6 +325,7 @@ public sealed class GatewayMetrics : IDisposable
             "cormier_realtime_slow_consumer_disconnects_total", "cormier_realtime_heartbeat_timeouts_total",
             "cormier_realtime_handshakes_total", "cormier_realtime_redis_operations_total",
             "cormier_realtime_redis_errors_total", "cormier_realtime_websocket_closes_total",
+            "cormier_realtime_abnormal_websocket_closes_total",
             "cormier_realtime_handler_cancellations_total",
         })
         {
@@ -306,6 +353,9 @@ public sealed class GatewayMetrics : IDisposable
 
     private void Increment(string name, params (string Name, string Value)[] labels) =>
         _series.AddOrUpdate(Series(name, labels), 1, static (_, current) => current + 1);
+
+    private void InitializeCounter(string name, params (string Name, string Value)[] labels) =>
+        _series.TryAdd(Series(name, labels), 0);
 
     private void Observe(string name, double value, params (string Name, string Value)[] labels)
     {

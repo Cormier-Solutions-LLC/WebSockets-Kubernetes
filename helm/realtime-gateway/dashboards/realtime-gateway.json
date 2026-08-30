@@ -124,15 +124,15 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(cormier_realtime_connections_opened_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum(rate(cormier_realtime_connections_opened_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "opened"
         },
         {
-          "expr": "sum by (reason) (rate(cormier_realtime_connections_closed_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum by (reason) (rate(cormier_realtime_connections_closed_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "closed {{reason}}"
         },
         {
-          "expr": "histogram_quantile(0.95,sum by (le) (rate(cormier_realtime_connection_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95,sum by (le) (rate(cormier_realtime_connection_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
           "legendFormat": "duration p95"
         }
       ]
@@ -149,15 +149,15 @@
       },
       "targets": [
         {
-          "expr": "sum by (outcome,reason) (rate(cormier_realtime_handshakes_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum by (outcome,reason) (rate(cormier_realtime_handshakes_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "handshake {{outcome}} {{reason}}"
         },
         {
-          "expr": "sum by (method,outcome) (rate(cormier_realtime_authentication_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum by (method,outcome) (rate(cormier_realtime_authentication_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "auth {{method}} {{outcome}}"
         },
         {
-          "expr": "sum by (operation) (rate(cormier_realtime_authorization_failures_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum by (operation) (rate(cormier_realtime_authorization_failures_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "authorization {{operation}}"
         }
       ]
@@ -174,12 +174,16 @@
       },
       "targets": [
         {
-          "expr": "sum by (code) (rate(cormier_realtime_websocket_closes_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\",code!=\"\"}[$__rate_interval]))",
+          "expr": "sum by (code) (rate(cormier_realtime_websocket_closes_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\",code!=\"\"}[$__rate_interval]))",
           "legendFormat": "close {{code}}"
         },
         {
-          "expr": "sum(rate(cormier_realtime_heartbeat_timeouts_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum(rate(cormier_realtime_heartbeat_timeouts_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "heartbeat timeout"
+        },
+        {
+          "expr": "sum(rate(cormier_realtime_abnormal_websocket_closes_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "legendFormat": "abnormal closes"
         }
       ]
     },
@@ -195,15 +199,15 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50,sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50,sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95,sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95,sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99,sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99,sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
           "legendFormat": "p99"
         }
       ]
@@ -220,15 +224,15 @@
       },
       "targets": [
         {
-          "expr": "sum(cormier_realtime_queue_depth{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"})",
+          "expr": "sum(cormier_realtime_queue_depth{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"})",
           "legendFormat": "depth"
         },
         {
-          "expr": "sum(rate(cormier_realtime_queue_dropped_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum(rate(cormier_realtime_queue_dropped_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "drops"
         },
         {
-          "expr": "sum(rate(cormier_realtime_slow_consumer_disconnects_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum(rate(cormier_realtime_slow_consumer_disconnects_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "slow consumers"
         }
       ]
@@ -245,15 +249,15 @@
       },
       "targets": [
         {
-          "expr": "sum by (operation,outcome) (rate(cormier_realtime_redis_operations_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "expr": "sum by (operation,outcome) (rate(cormier_realtime_redis_operations_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "{{operation}} {{outcome}}"
         },
         {
-          "expr": "min(cormier_realtime_redis_subscription_active{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"})",
+          "expr": "min(cormier_realtime_redis_subscription_active{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"})",
           "legendFormat": "subscription"
         },
         {
-          "expr": "histogram_quantile(0.99,sum by (le,operation) (rate(cormier_realtime_redis_operation_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99,sum by (le,operation) (rate(cormier_realtime_redis_operation_duration_seconds_bucket{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval])))",
           "legendFormat": "{{operation}} p99"
         }
       ]
@@ -299,7 +303,7 @@
           "legendFormat": "{{pod}} restarts"
         },
         {
-          "expr": "kube_deployment_status_replicas_unavailable{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "kube_deployment_status_replicas_unavailable{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",deployment=\"__SERVICE_NAME__\"}",
           "legendFormat": "unavailable"
         }
       ]
@@ -467,7 +471,7 @@
         "name": "instance",
         "label": "Instance",
         "type": "query",
-        "query": "label_values(up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"},instance)",
+        "query": "label_values(up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",service=\"__SERVICE_NAME__\"},instance)",
         "includeAll": true,
         "allValue": ".*"
       },
@@ -475,7 +479,7 @@
         "name": "pod",
         "label": "Pod",
         "type": "query",
-        "query": "label_values(kube_pod_info{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"},pod)",
+        "query": "label_values(kube_pod_info{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"__SERVICE_NAME__.*\"},pod)",
         "includeAll": true,
         "allValue": ".*"
       }

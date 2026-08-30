@@ -36,6 +36,9 @@ public sealed class LoadTestContractTests
         Assert.Contains("connectionDeadline", runner, StringComparison.Ordinal);
         Assert.Contains("slow-client:deadline-expired", runner, StringComparison.Ordinal);
         Assert.Contains("fanout:deadline-expired", runner, StringComparison.Ordinal);
+        Assert.Contains("ValidateSlowConsumerCloseAsync", runner, StringComparison.Ordinal);
+        Assert.Contains("expectedCloseCode = 4008", runner, StringComparison.Ordinal);
+        Assert.Contains("verifiedSlowConsumerCloses", runner, StringComparison.Ordinal);
         Assert.Contains("subscribe:{exception.GetType().Name}", runner, StringComparison.Ordinal);
         Assert.Contains("FailPending", runner, StringComparison.Ordinal);
     }

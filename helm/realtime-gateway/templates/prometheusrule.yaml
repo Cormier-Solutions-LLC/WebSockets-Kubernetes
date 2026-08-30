@@ -18,7 +18,7 @@ spec:
     - name: realtime-gateway.availability
       rules:
         - alert: RealtimeGatewayUnavailable
-          expr: (sum(up{namespace={{ .Release.Namespace | quote }},service=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}) < 1) or absent(up{namespace={{ .Release.Namespace | quote }},service=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}})
+          expr: (sum(up{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}) < 1) or absent(up{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}})
           for: 2m
           labels:
             severity: critical
@@ -47,7 +47,7 @@ spec:
     - name: realtime-gateway.performance
       rules:
         - alert: RealtimeGatewayAbnormalDisconnects
-          expr: (sum(rate(cormier_realtime_websocket_closes_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},code!~"1000|1001|1012"}[5m])) > 1) or (sum(rate(cormier_realtime_connections_closed_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},reason=~"abrupt_disconnect|socket_closed"}[5m])) > 1)
+          expr: (sum(rate(cormier_realtime_abnormal_websocket_closes_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) > 1) or (sum(rate(cormier_realtime_connections_closed_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},reason=~"abrupt_disconnect|socket_closed"}[5m])) > 1)
           for: 10m
           labels:
             severity: warning
@@ -83,8 +83,8 @@ spec:
             summary: Realtime authorization failures are elevated
             runbook_url: {{ printf "%s/authorization" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayQueueDrops
-          expr: sum(rate(cormier_realtime_queue_dropped_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) > 0
-          for: 5m
+          expr: sum(increase(cormier_realtime_queue_dropped_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[10m])) > 0
+          for: 1m
           labels:
             severity: critical
             {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}

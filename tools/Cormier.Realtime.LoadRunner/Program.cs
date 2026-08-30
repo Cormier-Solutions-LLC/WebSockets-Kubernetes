@@ -16,6 +16,7 @@ var runTimer = Stopwatch.StartNew();
 long sent = 0;
 long received = 0;
 long eventsReceived = 0;
+long slowConsumerCloses = 0;
 
 await Task.WhenAll(Enumerable.Range(0, options.Connections).Select(async index =>
 {
@@ -99,6 +100,11 @@ else
             {
                 break;
             }
+            catch (Exception) when (options.Scenario == "slow-client")
+            {
+                // The server may stop accepting sends after initiating the expected slow-consumer close.
+                break;
+            }
             catch (Exception exception)
             {
                 errors.Add($"send:{exception.GetType().Name}");
@@ -118,6 +124,7 @@ else
         {
             errors.Add("slow-client:deadline-expired");
         }
+        await Task.WhenAll(orderedClients.Select(ValidateSlowConsumerCloseAsync));
     }
     else if (options.Scenario == "fanout")
     {
@@ -171,6 +178,7 @@ var result = new
     messagesSent = Interlocked.Read(ref sent),
     messagesReceived = Interlocked.Read(ref received),
     eventMessagesReceived = Interlocked.Read(ref eventsReceived),
+    verifiedSlowConsumerCloses = Interlocked.Read(ref slowConsumerCloses),
     payloadBytes = options.PayloadBytes,
     operationsPerSecond = runTimer.Elapsed.TotalSeconds > 0 ? Math.Round(Interlocked.Read(ref sent) / runTimer.Elapsed.TotalSeconds, 3) : 0,
     connectionLatencyMilliseconds = Percentiles(connectionLatencies),
@@ -261,6 +269,52 @@ async Task ReceiveAsync(ClientState client, CancellationToken cancellationToken)
             return;
         }
     }
+}
+
+async Task ValidateSlowConsumerCloseAsync(ClientState client)
+{
+    const int expectedCloseCode = 4008;
+    if ((int?)client.Socket.CloseStatus == expectedCloseCode)
+    {
+        Interlocked.Increment(ref slowConsumerCloses);
+        return;
+    }
+
+    using var closeTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+    closeTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+    var buffer = new byte[131072];
+    try
+    {
+        while (client.Socket.State is WebSocketState.Open or WebSocketState.CloseSent or WebSocketState.CloseReceived)
+        {
+            var result = await client.Socket.ReceiveAsync(buffer, closeTimeout.Token);
+            if (result.MessageType != WebSocketMessageType.Close) continue;
+            if ((int?)client.Socket.CloseStatus == expectedCloseCode)
+            {
+                Interlocked.Increment(ref slowConsumerCloses);
+            }
+            else
+            {
+                errors.Add($"slow-client:unexpected-close:{(int?)client.Socket.CloseStatus ?? 0}");
+            }
+            return;
+        }
+    }
+    catch (OperationCanceledException) when (closeTimeout.IsCancellationRequested)
+    {
+        errors.Add("slow-client:close-timeout");
+        return;
+    }
+    catch (WebSocketException)
+    {
+        if ((int?)client.Socket.CloseStatus == expectedCloseCode)
+        {
+            Interlocked.Increment(ref slowConsumerCloses);
+            return;
+        }
+    }
+
+    errors.Add($"slow-client:missing-close:{(int?)client.Socket.CloseStatus ?? 0}");
 }
 
 static void FailPending(ClientState client, Exception exception)

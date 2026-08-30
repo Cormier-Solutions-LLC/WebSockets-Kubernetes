@@ -150,7 +150,15 @@ public sealed class DeploymentContractTests
                      .Where(expression => expression.Contains("cormier_realtime_", StringComparison.Ordinal)))
         {
             Assert.Contains("service=\"__SERVICE_NAME__\"", expression, StringComparison.Ordinal);
+            Assert.Contains("instance=~\"$instance\"", expression, StringComparison.Ordinal);
         }
+        Assert.Contains(
+            dashboard.RootElement.GetProperty("templating").GetProperty("list").EnumerateArray(),
+            variable => variable.GetProperty("query").GetString()!.Contains("pod=~\"__SERVICE_NAME__.*\"", StringComparison.Ordinal));
+        Assert.Contains(
+            dashboard.RootElement.GetProperty("panels").EnumerateArray()
+                .SelectMany(panel => panel.GetProperty("targets").EnumerateArray()),
+            target => target.GetProperty("expr").GetString()!.Contains("deployment=\"__SERVICE_NAME__\"", StringComparison.Ordinal));
 
         var rules = Read("helm/realtime-gateway/templates/prometheusrule.yaml");
         foreach (var alert in new[] { "RealtimeGatewayUnavailable", "RealtimeGatewayReadinessFailure", "RealtimeGatewayCrashLooping", "RealtimeGatewayAbnormalDisconnects", "RealtimeGatewayReconnectStorm", "RealtimeGatewayAuthenticationFailures", "RealtimeGatewayAuthorizationFailures", "RealtimeGatewayQueueDrops", "RealtimeGatewayQueueSaturation", "RealtimeGatewaySlowConsumers", "RealtimeGatewayHandlerLatency", "RealtimeGatewayRedisErrors", "RealtimeGatewayRedisDisconnected", "RealtimeGatewayRedisLatency", "RealtimeGatewayCertificateExpiring", "RealtimeGatewayCertificateNotReady", "RealtimeGatewayEdgeErrors", "RealtimeGatewayVipAdvertisementLost", "RealtimeGatewayRolloutFailed" })
@@ -164,6 +172,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("metalLbAdvertisementMode", rules, StringComparison.Ordinal);
         Assert.Contains("metallb_layer2_responses_sent", rules, StringComparison.Ordinal);
         Assert.Contains("sum(increase(cormier_realtime_connections_opened_total", rules, StringComparison.Ordinal);
+        Assert.Contains("increase(cormier_realtime_queue_dropped_total", rules, StringComparison.Ordinal);
         Assert.Contains("name={{ $certificateName", rules, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_connections_closed_total", rules, StringComparison.Ordinal);
         Assert.Contains("reason=~\"abrupt_disconnect|socket_closed\"", rules, StringComparison.Ordinal);
@@ -204,12 +213,19 @@ public sealed class DeploymentContractTests
         var subscriber = Read("src/Cormier.Realtime.Gateway/RedisSubscriberService.cs");
         Assert.Contains("ConnectionFailed +=", subscriber, StringComparison.Ordinal);
         Assert.Contains("ConnectionRestored +=", subscriber, StringComparison.Ordinal);
+        Assert.Contains("eventArgs.ConnectionType == ConnectionType.Subscription", subscriber, StringComparison.Ordinal);
         Assert.Contains("MarkSubscription(false)", subscriber, StringComparison.Ordinal);
         Assert.Contains("RecordRedisDuration(\"subscribe\", Stopwatch.GetElapsedTime(subscribeStarted), false)", subscriber, StringComparison.Ordinal);
 
         var dashboardTemplate = Read("helm/realtime-gateway/templates/grafana-dashboard.yaml");
         Assert.Contains("sha256sum $dashboardIdentity", dashboardTemplate, StringComparison.Ordinal);
         Assert.Contains("replace \"__DASHBOARD_UID__\"", dashboardTemplate, StringComparison.Ordinal);
+
+        var authentication = Read("src/Cormier.Realtime.Gateway/RealtimeAuthentication.cs");
+        Assert.Contains("ObserveRedisAsync", authentication, StringComparison.Ordinal);
+        Assert.Contains("\"session_read\"", authentication, StringComparison.Ordinal);
+        Assert.Contains("\"ticket_consume\"", authentication, StringComparison.Ordinal);
+        Assert.Contains("\"ticket_issue\"", authentication, StringComparison.Ordinal);
     }
 
     [Fact]

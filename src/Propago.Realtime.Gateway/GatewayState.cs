@@ -1,5 +1,4 @@
 using System.Diagnostics.Metrics;
-using System.Reflection;
 using Microsoft.Extensions.Options;
 using Propago.Realtime.Redis;
 

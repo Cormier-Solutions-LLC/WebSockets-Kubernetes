@@ -8,7 +8,11 @@ using Propago.Realtime.Redis;
 var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole(options => options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ");
+builder.Logging.AddJsonConsole(options =>
+{
+    options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
+    options.UseUtcTimestamp = true;
+});
 
 builder.Services
     .AddOptions<GatewayOptions>()
@@ -28,8 +32,10 @@ var configuredDrainSeconds = builder.Configuration.GetValue<int?>(
     $"{GatewayOptions.SectionName}:ShutdownDrainSeconds") ?? 25;
 builder.Services.Configure<HostOptions>(options =>
 {
-    options.ShutdownTimeout = TimeSpan.FromSeconds(
-        configuredDrainSeconds is >= 1 and <= 300 ? configuredDrainSeconds : 25);
+    var drainSeconds = configuredDrainSeconds is >= 1 and <= 300
+        ? configuredDrainSeconds
+        : 25;
+    options.ShutdownTimeout = TimeSpan.FromSeconds(drainSeconds + 5);
 });
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -54,6 +60,10 @@ var logDraining = LoggerMessage.Define<string>(
     LogLevel.Information,
     new EventId(1001, "GatewayDraining"),
     "Gateway {ServiceName} is draining for shutdown");
+var logDrainComplete = LoggerMessage.Define<string>(
+    LogLevel.Information,
+    new EventId(1002, "GatewayDrainComplete"),
+    "Gateway {ServiceName} completed its shutdown drain interval");
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
@@ -64,6 +74,8 @@ app.Lifetime.ApplicationStopping.Register(() =>
 {
     state.BeginDrain();
     logDraining(logger, gatewayOptions.ServiceName, null);
+    Thread.Sleep(TimeSpan.FromSeconds(gatewayOptions.ShutdownDrainSeconds));
+    logDrainComplete(logger, gatewayOptions.ServiceName, null);
 });
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>

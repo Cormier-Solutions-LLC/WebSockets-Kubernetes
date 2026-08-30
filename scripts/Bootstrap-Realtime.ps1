@@ -88,7 +88,8 @@ function Write-Log {
         [Parameter(Mandatory)][string]$Message
     )
 
-    $redacted = $Message -replace '(?i)(authorization|password|token|secret|cookie)\s*[:=]\s*\S+', '$1=[REDACTED]'
+    $redacted = $Message -replace '(?i)(authorization\s*[:=]\s*)(?:(?:bearer|basic|digest)\s+)?\S+', '$1[REDACTED]'
+    $redacted = $redacted -replace '(?i)((?:password|token|secret|cookie)\s*[:=]\s*)(?:"[^"]*"|''[^'']*''|\S+)', '$1[REDACTED]'
     $line = '[{0}] [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $redacted
     $line | Tee-Object -FilePath $logPath -Append
 }
@@ -155,7 +156,7 @@ function Invoke-CheckedCommand {
 }
 
 function Invoke-LogHousekeeping {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param()
 
     $cutoff = (Get-Date).AddDays(-7)
@@ -166,9 +167,18 @@ function Invoke-LogHousekeeping {
         return
     }
 
+    $archivePath = Join-Path $archiveDirectory ("Bootstrap-Logs-{0}.zip" -f $timestamp)
+    if ($DryRun -or -not $PSCmdlet.ShouldProcess(
+            ("{0} completed logs" -f $oldLogs.Count),
+            ("Archive to {0}, validate, and remove sources" -f $archivePath))) {
+        $script:Summary.Skipped += $oldLogs.Count
+        Write-Log -Level 'INFO' -Message (
+            "SKIPPED: would archive, validate, and remove {0} completed logs" -f $oldLogs.Count)
+        return
+    }
+
     Assert-Command -Name 'Compress-Archive'
     Ensure-Directory -Path $archiveDirectory
-    $archivePath = Join-Path $archiveDirectory ("Bootstrap-Logs-{0}.zip" -f $timestamp)
     Compress-Archive -LiteralPath $oldLogs.FullName -DestinationPath $archivePath -CompressionLevel Optimal
 
     $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
@@ -193,6 +203,8 @@ if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
 }
 
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+$exitCode = 0
+Push-Location -LiteralPath $resolvedRoot
 
 try {
     Write-Phase -Name 'Prerequisite validation'
@@ -253,11 +265,15 @@ try {
         Write-Log -Level 'INFO' -Message ("{0}: {1}" -f $entry.Key, $entry.Value)
     }
     Write-Log -Level 'PASS' -Message ("Status: SUCCESS. Log: {0}" -f $logPath)
-    exit 0
 }
 catch {
     $script:Summary.Errors++
     Write-Log -Level 'FATAL' -Message $_.Exception.Message
     Write-Log -Level 'ERROR' -Message ("Status: FAILURE. Log: {0}" -f $logPath)
-    exit 1
+    $exitCode = 1
 }
+finally {
+    Pop-Location
+}
+
+exit $exitCode

@@ -121,9 +121,56 @@ try {
         try {
             $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")
             $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
-            Start-Sleep -Seconds $LongConnectionSeconds
-            if ($socket.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'WSS connection did not remain open for the requested validation interval.' }
-            Write-Result PASS "Authenticated WSS connection remained open for $LongConnectionSeconds seconds."
+            $validationDeadline = [DateTimeOffset]::UtcNow.AddSeconds($LongConnectionSeconds)
+            $receiveBuffer = [byte[]]::new(16384)
+            do {
+                $correlationId = [Guid]::NewGuid().ToString('N')
+                $ping = [ordered]@{
+                    version = '1.0'
+                    type = 'ping'
+                    correlationId = $correlationId
+                    timestamp = [DateTimeOffset]::UtcNow.ToString('O')
+                    route = 'system/heartbeat'
+                } | ConvertTo-Json -Compress
+                $pingBytes = [Text.Encoding]::UTF8.GetBytes($ping)
+                $acknowledged = $false
+                $receiveTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
+                try {
+                    $socket.SendAsync(
+                        [ArraySegment[byte]]::new($pingBytes),
+                        [Net.WebSockets.WebSocketMessageType]::Text,
+                        $true,
+                        $receiveTimeout.Token).GetAwaiter().GetResult()
+                    while (-not $acknowledged) {
+                        $result = $socket.ReceiveAsync(
+                            [ArraySegment[byte]]::new($receiveBuffer),
+                            $receiveTimeout.Token).GetAwaiter().GetResult()
+                        if ($result.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close) {
+                            throw "WSS connection closed during validation with status $($socket.CloseStatus)."
+                        }
+                        if ($result.MessageType -ne [Net.WebSockets.WebSocketMessageType]::Text -or -not $result.EndOfMessage) {
+                            throw 'WSS server returned an invalid validation response.'
+                        }
+
+                        $message = [Text.Encoding]::UTF8.GetString($receiveBuffer, 0, $result.Count) | ConvertFrom-Json
+                        if ($message.correlationId -eq $correlationId) {
+                            if ($message.type -ne 'ack') {
+                                throw "WSS ping was not acknowledged; received '$($message.type)'."
+                            }
+                            $acknowledged = $true
+                        }
+                    }
+                }
+                finally {
+                    $receiveTimeout.Dispose()
+                }
+
+                $remainingSeconds = ($validationDeadline - [DateTimeOffset]::UtcNow).TotalSeconds
+                if ($remainingSeconds -gt 0) {
+                    Start-Sleep -Seconds ([Math]::Min(10, $remainingSeconds))
+                }
+            } while ([DateTimeOffset]::UtcNow -lt $validationDeadline)
+            Write-Result PASS "Authenticated WSS connection exchanged ping traffic for $LongConnectionSeconds seconds."
         }
         finally {
             try { $connectionTimeout.Dispose() } catch {}

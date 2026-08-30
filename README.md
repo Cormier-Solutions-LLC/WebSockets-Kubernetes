@@ -23,12 +23,14 @@ pwsh ./scripts/Bootstrap-Realtime.ps1
 dotnet run --project ./src/Cormier.Realtime.Gateway
 ```
 
-Use an optional DNS-label suffix for a separately named distribution or deployment. The bootstrap writes the resulting, non-secret naming contract to ignored `.bootstrap/naming.json`:
+Use an optional DNS-label suffix of at most 38 characters for a separately named distribution or deployment. The bootstrap writes the resulting, non-secret naming contract to ignored `.bootstrap/naming.json` and MSBuild properties to `.bootstrap/naming.props`:
 
 ```powershell
 pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a
 # application: realtime-customer-a; service: cormier-realtime-customer-a-gateway
 ```
+
+`Deploy-Realtime.ps1` consumes the generated Kubernetes application and Redis prefix unless those parameters are explicitly supplied. .NET container publishing imports the generated container repository; an explicit MSBuild property can still override it.
 
 Domains, origins, host/server names, IPs, CIDRs, ports, Redis endpoints, image repositories, and Kubernetes identities are configuration inputs. Override the development examples through `appsettings`, environment variables (double underscores separate .NET configuration keys), Helm values, or deployment-script parameters; do not compile environment-specific network identities into the application.
 

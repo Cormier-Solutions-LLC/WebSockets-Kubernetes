@@ -46,11 +46,35 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$namingPath = Join-Path $root '.bootstrap/naming.json'
+$naming = if (Test-Path -LiteralPath $namingPath -PathType Leaf) {
+    Get-Content -LiteralPath $namingPath -Raw | ConvertFrom-Json
+}
+else {
+    $null
+}
+if (-not $PSBoundParameters.ContainsKey('Application') -and $null -ne $naming) {
+    $configuredApplication = [string]$naming.kubernetesApplication
+    if ($configuredApplication.Length -gt 63 -or $configuredApplication -notmatch '^[a-z0-9][a-z0-9-]*$') {
+        throw "INVALID: kubernetesApplication in $namingPath is not a valid DNS label."
+    }
+    $Application = $configuredApplication
+}
 $target = "$Environment-$Application"
 $namespace = $target
 $redisRelease = "$target-redis"
 if (-not $RedisSecretName) { $RedisSecretName = "$target-redis" }
-if (-not $RedisInstancePrefix) { $RedisInstancePrefix = "${Environment}:$Application" }
+if (-not $RedisInstancePrefix) {
+    $RedisInstancePrefix = if ($null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {
+        [string]$naming.redisInstancePrefix
+    }
+    else {
+        "${Environment}:$Application"
+    }
+}
+if ([string]::IsNullOrWhiteSpace($RedisInstancePrefix) -or $RedisInstancePrefix -notmatch '^[a-zA-Z0-9:_-]+$') {
+    throw "INVALID: Redis instance prefix is empty or contains unsupported characters."
+}
 $chart = Join-Path $root 'helm/realtime-gateway'
 $redisValues = Join-Path $root 'cluster/redis/managed-values.yaml'
 $logDir = Join-Path $root '.logs'

@@ -11,7 +11,7 @@ public sealed partial class BrandingConfigurationTests
     {
         var excludedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".git", ".bootstrap", ".logs", "artifacts", "bin", "obj", "refs"
+            ".backups", ".git", ".bootstrap", ".logs", "artifacts", "bin", "obj", "refs"
         };
         var candidates = Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories)
             .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(excludedDirectories.Contains));
@@ -44,12 +44,15 @@ public sealed partial class BrandingConfigurationTests
     {
         var bootstrap = Read("scripts/Bootstrap-Realtime.ps1");
 
-        Assert.Contains("[ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)*$')]", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("[ValidatePattern('^(?=.{1,38}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]", bootstrap, StringComparison.Ordinal);
         Assert.Contains("realtime-$NameSuffix", bootstrap, StringComparison.Ordinal);
         Assert.Contains(".bootstrap", bootstrap, StringComparison.Ordinal);
         Assert.Contains("naming.json", bootstrap, StringComparison.Ordinal);
         Assert.Contains("redisInstancePrefix", bootstrap, StringComparison.Ordinal);
         Assert.Contains("kubernetesApplication", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("naming.props", bootstrap, StringComparison.Ordinal);
+        Assert.Contains(".bootstrap/naming.props", Read("Directory.Build.props"), StringComparison.Ordinal);
+        Assert.Contains("$PSBoundParameters.ContainsKey('Application')", Read("scripts/Deploy-Realtime.ps1"), StringComparison.Ordinal);
         Assert.Contains(".bootstrap/", Read(".gitignore"), StringComparison.Ordinal);
     }
 

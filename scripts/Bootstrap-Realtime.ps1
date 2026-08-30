@@ -46,7 +46,7 @@ param(
     [string]$Configuration = 'Release',
 
     [Parameter()]
-    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)*$')]
+    [ValidatePattern('^(?=.{1,38}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]
     [string]$NameSuffix,
 
     [Parameter()]
@@ -69,6 +69,7 @@ $resolvedRoot = [System.IO.Path]::GetFullPath($RepositoryRoot)
 $solutionPath = Join-Path $resolvedRoot 'Cormier.Realtime.sln'
 $bootstrapDirectory = Join-Path $resolvedRoot '.bootstrap'
 $namingPath = Join-Path $bootstrapDirectory 'naming.json'
+$namingPropsPath = Join-Path $bootstrapDirectory 'naming.props'
 $applicationName = if ([string]::IsNullOrWhiteSpace($NameSuffix)) { 'realtime' } else { "realtime-$NameSuffix" }
 $logDirectory = Join-Path $resolvedRoot '.logs'
 $archiveDirectory = Join-Path $logDirectory 'Archive'
@@ -138,6 +139,46 @@ function Ensure-Directory {
     Write-Log -Level 'PASS' -Message ("CREATED: directory {0}" -f $Path)
 }
 
+function Ensure-GeneratedFile {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Content,
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    $existing = if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        [System.IO.File]::ReadAllText($Path)
+    }
+    else {
+        $null
+    }
+
+    if ($existing -eq $Content) {
+        $script:Summary.Unchanged++
+        Write-Log -Level 'PASS' -Message ("UNCHANGED: {0} {1}" -f $Description, $Path)
+        return
+    }
+
+    $action = if ($null -eq $existing) { "Create $Description" } else { "Update $Description" }
+    if ($DryRun -or -not $PSCmdlet.ShouldProcess($Path, $action)) {
+        $script:Summary.Skipped++
+        Write-Log -Level 'INFO' -Message ("SKIPPED: would {0} {1}" -f $action.ToLowerInvariant(), $Path)
+        return
+    }
+
+    [System.IO.Directory]::CreateDirectory($bootstrapDirectory) | Out-Null
+    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+    if ($null -eq $existing) {
+        $script:Summary.Created++
+        Write-Log -Level 'PASS' -Message ("CREATED: {0} {1}" -f $Description, $Path)
+    }
+    else {
+        $script:Summary.Updated++
+        Write-Log -Level 'PASS' -Message ("UPDATED: {0} {1}" -f $Description, $Path)
+    }
+}
+
 function Ensure-NamingManifest {
     [CmdletBinding(SupportsShouldProcess)]
     param()
@@ -156,36 +197,16 @@ function Ensure-NamingManifest {
         kubernetesApplication = $applicationName
     }
     $content = ($manifest | ConvertTo-Json) + [Environment]::NewLine
-    $existing = if (Test-Path -LiteralPath $namingPath -PathType Leaf) {
-        [System.IO.File]::ReadAllText($namingPath)
-    }
-    else {
-        $null
-    }
+    $propsContent = @"
+<Project>
+  <PropertyGroup>
+    <ContainerRepository>$($manifest.containerRepository)</ContainerRepository>
+  </PropertyGroup>
+</Project>
+"@ + [Environment]::NewLine
 
-    if ($existing -eq $content) {
-        $script:Summary.Unchanged++
-        Write-Log -Level 'PASS' -Message ("UNCHANGED: naming manifest {0}" -f $namingPath)
-        return
-    }
-
-    $action = if ($null -eq $existing) { 'Create naming manifest' } else { 'Update naming manifest' }
-    if ($DryRun -or -not $PSCmdlet.ShouldProcess($namingPath, $action)) {
-        $script:Summary.Skipped++
-        Write-Log -Level 'INFO' -Message ("SKIPPED: would {0} {1}" -f $action.ToLowerInvariant(), $namingPath)
-        return
-    }
-
-    [System.IO.Directory]::CreateDirectory($bootstrapDirectory) | Out-Null
-    [System.IO.File]::WriteAllText($namingPath, $content, [System.Text.UTF8Encoding]::new($false))
-    if ($null -eq $existing) {
-        $script:Summary.Created++
-        Write-Log -Level 'PASS' -Message ("CREATED: naming manifest {0}" -f $namingPath)
-    }
-    else {
-        $script:Summary.Updated++
-        Write-Log -Level 'PASS' -Message ("UPDATED: naming manifest {0}" -f $namingPath)
-    }
+    Ensure-GeneratedFile -Path $namingPath -Content $content -Description 'naming manifest'
+    Ensure-GeneratedFile -Path $namingPropsPath -Content $propsContent -Description 'MSBuild naming properties'
 }
 
 function Invoke-CheckedCommand {

@@ -1,14 +1,14 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: realtime-propago-local
+  name: realtime-cormier-local
   namespace: development-realtime
   labels:
-    propago.io/environment: development
+    cormier.io/environment: development
 spec:
-  secretName: realtime-propago-local-tls
+  secretName: realtime-cormier-local-tls
   dnsNames:
-    - realtime.propago.local
+    - realtime.cormier.local
   issuerRef:
     kind: ClusterIssuer
-    name: propago-local-ca
+    name: cormier-local-ca

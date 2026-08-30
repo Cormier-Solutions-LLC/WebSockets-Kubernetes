@@ -1,6 +1,6 @@
 gateway:
   allowedOrigins:
-    - https://propago.local
+    - https://cormier.local
   shutdownDrainSeconds: 25
 
 networkPolicy:
@@ -13,6 +13,6 @@ networkPolicy:
 
 ingressRoute:
   enabled: true
-  host: realtime.propago.local
+  host: realtime.cormier.local
   path: /realtime/ws
-  tlsSecretName: realtime-propago-local-tls
+  tlsSecretName: realtime-cormier-local-tls

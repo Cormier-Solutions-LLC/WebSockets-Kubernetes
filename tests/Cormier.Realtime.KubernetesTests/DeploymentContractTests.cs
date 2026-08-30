@@ -72,7 +72,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("BackupRedis", script, StringComparison.Ordinal);
         Assert.Contains("RestoreRedis", script, StringComparison.Ordinal);
         Assert.Contains("'delete','hpa'", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("'rollout','restart'", script, StringComparison.Ordinal);
+        Assert.Contains("'rollout','restart'", script, StringComparison.Ordinal);
         Assert.Contains("Rollback gateway to its previous Helm revision", script, StringComparison.Ordinal);
         Assert.Contains("RedisPasswordKey", script, StringComparison.Ordinal);
         Assert.Contains("AddDays(-7)", script, StringComparison.Ordinal);
@@ -93,19 +93,19 @@ public sealed class DeploymentContractTests
         Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
         Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)", route, StringComparison.Ordinal);
         Assert.Contains("flushInterval: -1", route, StringComparison.Ordinal);
-        Assert.Contains("realtime.propago.local", gatewayValues, StringComparison.Ordinal);
+        Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);
         Assert.Contains("externalTrafficPolicy: Local", traefikValues, StringComparison.Ordinal);
         Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
         Assert.Contains("defaultMode: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("RequestPath: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("RequestPort: drop", traefikValues, StringComparison.Ordinal);
-        Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.propago.local", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.cormier.local", traefikValues, StringComparison.Ordinal);
         Assert.Contains("prometheus:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("idletimeout=120s", traefikValues, StringComparison.Ordinal);
         Assert.Contains("topologySpreadConstraints:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("development-traefik", metalLb, StringComparison.Ordinal);
         Assert.Contains("kind: L2Advertisement", metalLb, StringComparison.Ordinal);
-        Assert.Contains("realtime.propago.local", certificate, StringComparison.Ordinal);
+        Assert.Contains("realtime.cormier.local", certificate, StringComparison.Ordinal);
     }
 
     [Fact]

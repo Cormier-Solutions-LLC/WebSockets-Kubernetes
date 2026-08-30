@@ -4,7 +4,7 @@ metadata:
   name: development-traefik
   namespace: metallb-system
   labels:
-    propago.io/environment: development
+    cormier.io/environment: development
 spec:
   addresses:
     - 192.168.50.240-192.168.50.250
@@ -22,7 +22,7 @@ metadata:
   name: development-traefik
   namespace: metallb-system
   labels:
-    propago.io/environment: development
+    cormier.io/environment: development
 spec:
   ipAddressPools:
     - development-traefik

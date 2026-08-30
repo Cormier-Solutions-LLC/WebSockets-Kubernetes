@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Validates the deployed Propago realtime Traefik and MetalLB edge.
+  Validates the deployed Cormier realtime Traefik and MetalLB edge.
 .DESCRIPTION
   Performs non-mutating DNS, TLS, routing, readiness, and optional authenticated
   WSS long-connection validation. The ticket is read only from an environment
@@ -23,11 +23,11 @@ param(
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayNamespace = 'development-realtime',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikNamespace = 'traefik',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayRelease = 'development-realtime',
-    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateName = 'realtime-propago-local',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateName = 'realtime-cormier-local',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikService = 'traefik',
-    [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.propago.local',
+    [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.cormier.local',
     [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
-    [Parameter()][ValidatePattern('^https://[a-z0-9.-]+$')][string]$Origin = 'https://propago.local',
+    [Parameter()][ValidatePattern('^https://[a-z0-9.-]+$')][string]$Origin = 'https://cormier.local',
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
     [Parameter()][ValidateRange(5,300)][int]$LongConnectionSeconds = 30,
     [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120
@@ -96,7 +96,7 @@ try {
         '--header', 'Upgrade: websocket',
         '--header', 'Sec-WebSocket-Version: 13',
         '--header', "Sec-WebSocket-Key: $webSocketKey",
-        '--header', 'Sec-WebSocket-Protocol: propago.realtime.v1',
+        '--header', 'Sec-WebSocket-Protocol: cormier.realtime.v1',
         '--header', "Origin: $Origin",
         '--output', '/dev/null',
         '--write-out', '%{http_code}',
@@ -116,7 +116,7 @@ try {
     else {
         $socket = [Net.WebSockets.ClientWebSocket]::new()
         $connectionTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
-        $socket.Options.AddSubProtocol('propago.realtime.v1')
+        $socket.Options.AddSubProtocol('cormier.realtime.v1')
         $socket.Options.SetRequestHeader('Origin', $Origin)
         try {
             $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")

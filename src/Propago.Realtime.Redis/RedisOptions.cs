@@ -12,6 +12,10 @@ public sealed class RedisOptions
 
     public bool Ssl { get; set; }
 
+    public string? SentinelServiceName { get; set; }
+
+    public string? SentinelPassword { get; set; }
+
     public string InstancePrefix { get; set; } = "propago:realtime";
 
     public bool RequiredForReadiness { get; set; }

@@ -11,4 +11,4 @@ helm lint ./helm/realtime-gateway --strict
 helm template dev-realtime ./helm/realtime-gateway --namespace dev-realtime --values ./cluster/redis/managed-gateway-values.example.yaml
 ```
 
-Production releases should pin `image.digest`, use namespace-specific ingress selectors, specify narrow Redis egress CIDRs/selectors, and supply pre-created Secrets. The chart never creates credentials.
+Production releases should pin `image.digest`, use namespace-specific ingress selectors, specify narrow Redis egress CIDRs/selectors, and supply pre-created Secrets. Managed gateway pods receive the release-specific Redis client label and discover the writable node through Sentinel. Use the lifecycle script for upgrades so Secret rotations force a gateway rollout. The chart never creates credentials.

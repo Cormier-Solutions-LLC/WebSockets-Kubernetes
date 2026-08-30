@@ -17,6 +17,9 @@ spec:
     metadata:
       labels:
         {{- include "realtime-gateway.selectorLabels" . | nindent 8 }}
+        {{- if eq .Values.redis.mode "managed" }}
+        {{ printf "%s-client" .Values.redis.managedReleaseName }}: "true"
+        {{- end }}
         {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
@@ -59,12 +62,14 @@ spec:
           envFrom:
             - configMapRef: { name: {{ include "realtime-gateway.fullname" . }} }
           env:
-            - name: Redis__User
-              valueFrom:
-                secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.credentialsSecret.usernameKey }} }
             - name: Redis__Password
               valueFrom:
                 secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.credentialsSecret.passwordKey }} }
+            {{- if eq .Values.redis.mode "managed" }}
+            - name: Redis__SentinelPassword
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.managedAdminPasswordKey }} }
+            {{- end }}
             - name: Redis__Ssl
               value: {{ .Values.redis.tls | quote }}
           startupProbe:

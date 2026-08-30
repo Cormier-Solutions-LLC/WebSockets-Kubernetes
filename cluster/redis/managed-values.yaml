@@ -5,6 +5,16 @@ auth:
   sentinel: true
   existingSecret: propago-redis-auth
   existingSecretPasswordKey: redis-password
+  acl:
+    enabled: true
+    sentinel: false
+    userSecret: propago-redis-auth
+    users:
+      - username: realtime
+        enabled: "on"
+        commands: "+@read +@write +@connection +@pubsub +@scripting +@stream"
+        keys: "~propago:realtime:*"
+        channels: "&propago:realtime:*"
 tls: { enabled: false }
 master:
   persistence: { enabled: true, size: 8Gi }

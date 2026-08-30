@@ -1,0 +1,123 @@
+<#
+.SYNOPSIS
+  Validates the deployed Propago realtime Traefik and MetalLB edge.
+.DESCRIPTION
+  Performs non-mutating DNS, TLS, routing, readiness, and optional authenticated
+  WSS long-connection validation. The ticket is read only from an environment
+  variable and is never logged.
+.PARAMETER ExpectedContext
+  Required kubectl context; prevents validation against an unintended cluster.
+.PARAMETER GatewayNamespace
+  Namespace containing the gateway deployment and Certificate.
+.PARAMETER TraefikNamespace
+  Namespace containing the Traefik LoadBalancer Service.
+.PARAMETER TicketEnvironmentVariable
+  Environment variable that holds an ephemeral single-use WSS ticket.
+.NOTES
+  Requires: PowerShell 7, kubectl, curl, a reachable Kubernetes cluster and DNS.
+  Standard: refs/scripts-standard-v4.2.md
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string]$ExpectedContext,
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayNamespace = 'development-realtime',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikNamespace = 'traefik',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayRelease = 'development-realtime',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateName = 'realtime-propago-local',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikService = 'traefik',
+    [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.propago.local',
+    [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
+    [Parameter()][ValidatePattern('^https://[a-z0-9.-]+$')][string]$Origin = 'https://propago.local',
+    [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
+    [Parameter()][ValidateRange(5,110)][int]$LongConnectionSeconds = 30,
+    [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$summary = [ordered]@{ Passed = 0; Skipped = 0; Failed = 0 }
+
+function Write-Result([ValidateSet('PASS', 'SKIP', 'FAIL')][string]$Status, [string]$Message) {
+    $summary[($Status -replace 'PASS', 'Passed' -replace 'SKIP', 'Skipped' -replace 'FAIL', 'Failed')]++
+    Write-Host "[$Status] $Message"
+}
+
+function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
+    $output = @(& $File @Arguments 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "$Description failed with exit code $LASTEXITCODE." }
+    return ($output -join [Environment]::NewLine)
+}
+
+function Get-Json([string[]]$Arguments, [string]$Description) {
+    return (Invoke-Checked kubectl ($Arguments + @('-o', 'json')) $Description | ConvertFrom-Json)
+}
+
+try {
+    foreach ($command in @('kubectl', 'curl')) {
+        if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "MISSING: $command is required." }
+    }
+    if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'UNSUPPORTED: PowerShell 7 or later is required.' }
+    $context = Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context'
+    if ($context.Trim() -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$($context.Trim())'." }
+
+    $service = Get-Json @('get', 'service', $TraefikService, '-n', $TraefikNamespace) 'Read Traefik Service'
+    if ($service.spec.type -ne 'LoadBalancer') { throw 'Traefik Service is not a LoadBalancer.' }
+    if ($service.spec.externalTrafficPolicy -ne 'Local') { throw 'Traefik Service does not preserve source IP with externalTrafficPolicy Local.' }
+    $pool = $service.metadata.annotations.'metallb.io/address-pool'
+    if ([string]::IsNullOrWhiteSpace($pool)) { throw 'Traefik Service does not select a MetalLB address pool.' }
+    $vip = @($service.status.loadBalancer.ingress | ForEach-Object { $_.ip } | Where-Object { $_ })[0]
+    if ([string]::IsNullOrWhiteSpace($vip)) { throw 'Traefik LoadBalancer has no assigned VIP.' }
+    Write-Result PASS "Traefik has VIP $vip from MetalLB pool $pool and preserves source IP."
+
+    $certificate = Get-Json @('get', 'certificate', $CertificateName, '-n', $GatewayNamespace) 'Read edge Certificate'
+    $ready = @($certificate.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' })
+    if ($ready.Count -ne 1) { throw 'Edge Certificate is not Ready.' }
+    Write-Result PASS 'Certificate is Ready.'
+
+    $gateway = Get-Json @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Deployment'
+    if ($gateway.status.availableReplicas -lt 2) { throw 'Fewer than two gateway replicas are available for failover.' }
+    $gatewayService = Get-Json @('get', 'service', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Service'
+    if ($gatewayService.spec.type -ne 'ClusterIP') { throw 'Gateway Service must remain private with type ClusterIP.' }
+    $endpointSlices = Get-Json @('get', 'endpointslice', '-n', $GatewayNamespace, '-l', "kubernetes.io/service-name=$GatewayRelease") 'Read gateway EndpointSlices'
+    $readyEndpoints = @($endpointSlices.items.endpoints | Where-Object { $_.conditions.ready -eq $true -and $_.conditions.terminating -ne $true })
+    if ($readyEndpoints.Count -lt 2) { throw 'Fewer than two non-terminating gateway endpoints are routable.' }
+    Write-Result PASS 'At least two ready, non-terminating gateway endpoints are routable.'
+
+    $dnsAddresses = @(Resolve-DnsName -Name $HostName -Type A -ErrorAction Stop | Where-Object Type -eq 'A' | Select-Object -ExpandProperty IPAddress)
+    if ($dnsAddresses -notcontains $vip) { throw "DNS for $HostName does not contain assigned VIP $vip." }
+    Write-Result PASS "DNS resolves $HostName to the assigned VIP."
+
+    $routeStatus = Invoke-Checked curl @('--silent', '--show-error', '--http1.1', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--header', 'Connection: Upgrade', '--header', 'Upgrade: websocket', '--header', 'Sec-WebSocket-Version: 13', '--header', 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==', '--header', 'Sec-WebSocket-Protocol: propago.realtime.v1', '--header', "Origin: $Origin", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}${Path}") 'Validate TLS route'
+    if ($routeStatus.Trim() -notin @('401', '426')) { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
+    Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
+    $invalidStatus = Invoke-Checked curl @('--silent', '--show-error', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}/not-a-realtime-route") 'Validate invalid route rejection'
+    if ($invalidStatus.Trim() -ne '404') { throw "Invalid route returned unexpected status $($invalidStatus.Trim())." }
+    Write-Result PASS 'Invalid route is rejected.'
+
+    $ticket = [Environment]::GetEnvironmentVariable($TicketEnvironmentVariable)
+    if ([string]::IsNullOrWhiteSpace($ticket)) {
+        Write-Result SKIP "Authenticated WSS validation skipped because $TicketEnvironmentVariable is unset."
+    }
+    else {
+        $socket = [Net.WebSockets.ClientWebSocket]::new()
+        $socket.Options.AddSubProtocol('propago.realtime.v1')
+        $socket.Options.SetRequestHeader('Origin', $Origin)
+        try {
+            $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$ticket")
+            $socket.ConnectAsync($uri, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+            Start-Sleep -Seconds $LongConnectionSeconds
+            if ($socket.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'WSS connection did not remain open for the requested validation interval.' }
+            Write-Result PASS "Authenticated WSS connection remained open for $LongConnectionSeconds seconds."
+        }
+        finally {
+            $socket.Dispose()
+        }
+    }
+}
+catch {
+    Write-Result FAIL $_.Exception.Message
+    exit 1
+}
+finally {
+    $summary.GetEnumerator() | ForEach-Object { Write-Host "$($_.Key): $($_.Value)" }
+}

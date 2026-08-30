@@ -90,9 +90,26 @@ public sealed class DeploymentContractTests
         Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.propago.local", traefikValues, StringComparison.Ordinal);
         Assert.Contains("prometheus:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("idletimeout=120s", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("topologySpreadConstraints:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("development-traefik", metalLb, StringComparison.Ordinal);
         Assert.Contains("kind: L2Advertisement", metalLb, StringComparison.Ordinal);
         Assert.Contains("realtime.propago.local", certificate, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EdgeValidationAutomationProtectsTargetAndSecrets()
+    {
+        var script = Read("scripts/Test-RealtimeEdge.ps1");
+
+        Assert.Contains("ExpectedContext", script, StringComparison.Ordinal);
+        Assert.Contains("TARGET MISMATCH", script, StringComparison.Ordinal);
+        Assert.Contains("externalTrafficPolicy", script, StringComparison.Ordinal);
+        Assert.Contains("type ClusterIP", script, StringComparison.Ordinal);
+        Assert.Contains("Resolve-DnsName", script, StringComparison.Ordinal);
+        Assert.Contains("Certificate is Ready", script, StringComparison.Ordinal);
+        Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
+        Assert.Contains("Invalid route is rejected", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Write-Host $ticket", script, StringComparison.Ordinal);
     }
 
     private static string Read(string relative)

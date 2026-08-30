@@ -1,5 +1,15 @@
 deployment:
   replicas: 3
+  podLabels:
+    propago.io/edge: realtime
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
 
 ports:
   web:

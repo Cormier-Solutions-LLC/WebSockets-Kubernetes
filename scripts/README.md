@@ -11,4 +11,4 @@ Examples:
 ./scripts/Deploy-Realtime.ps1 -Action Deploy -Environment prod -ExpectedContext production -ValuesFile ./prod-values.yaml -ManagedRedis
 ```
 
-`Remove` and `RestoreRedis` require `-Force`. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, and validated archive rotation. It does not accept credentials as parameters and never creates Secrets.
+`Remove` and `RestoreRedis` require `-Force`. `RedisUsername`, `RedisPasswordKey`, and `RedisAdminPasswordKey` select Secret keys without accepting their values; in managed mode the password key must match the ACL username as required by the pinned Redis chart. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, validated archive rotation, and forced gateway rollouts after credential rotation. It never creates Secrets.

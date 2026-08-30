@@ -32,6 +32,10 @@ param(
     [Parameter()][string]$ValuesFile,
     [Parameter()][switch]$ManagedRedis,
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$RedisSecretName,
+    [Parameter()][ValidatePattern('^[a-zA-Z0-9_-]+$')][string]$RedisUsername = 'realtime',
+    [Parameter()][ValidatePattern('^[a-zA-Z0-9_.-]+$')][string]$RedisPasswordKey = 'realtime',
+    [Parameter()][ValidatePattern('^[a-zA-Z0-9_.-]+$')][string]$RedisAdminPasswordKey = 'redis-password',
+    [Parameter()][ValidatePattern('^[a-zA-Z0-9:_-]+$')][string]$RedisInstancePrefix,
     [Parameter(Mandatory)][string]$ExpectedContext,
     [Parameter()][ValidateRange(60,1800)][int]$TimeoutSeconds = 300,
     [Parameter()][string]$BackupFile,
@@ -46,6 +50,7 @@ $target = "$Environment-$Application"
 $namespace = $target
 $redisRelease = "$target-redis"
 if (-not $RedisSecretName) { $RedisSecretName = "$target-redis" }
+if (-not $RedisInstancePrefix) { $RedisInstancePrefix = "${Environment}:$Application" }
 $chart = Join-Path $root 'helm/realtime-gateway'
 $redisValues = Join-Path $root 'cluster/redis/managed-values.yaml'
 $logDir = Join-Path $root '.logs'
@@ -97,8 +102,11 @@ function Assert-Target {
     }
     if ($secretName) {
         $keys = Invoke-Tool kubectl @('get','secret',$RedisSecretName,'-n',$namespace,'-o','go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}') 'Validate Redis Secret keys' -Capture
-        $requiredKeys = @('realtime-username','realtime-password')
-        if ($ManagedRedis) { $requiredKeys += 'redis-password' }
+        $requiredKeys = @($RedisPasswordKey)
+        if ($ManagedRedis) {
+            if ($RedisPasswordKey -ne $RedisUsername) { throw 'INVALID: managed Redis requires RedisPasswordKey to match RedisUsername for native ACL Secret mapping.' }
+            $requiredKeys += $RedisAdminPasswordKey
+        }
         foreach ($key in $requiredKeys) { if ($keys -notmatch "(?m)^$([regex]::Escape($key))$") { throw "MISSING: key '$key' in Secret '$RedisSecretName'." } }
     }
 }
@@ -126,7 +134,8 @@ function Get-ValueArgs {
     $arguments = @()
     if ($ValuesFile) { $arguments += @('--values',$script:ValuesFile) }
     $arguments += @('--set',"redis.credentialsSecret.name=$RedisSecretName")
-    if ($ManagedRedis) { $arguments += @('--set','redis.mode=managed','--set',"redis.managedReleaseName=$redisRelease") }
+    $arguments += @('--set-string',"redis.username=$RedisUsername",'--set-string',"redis.credentialsSecret.passwordKey=$RedisPasswordKey",'--set-string',"redis.instancePrefix=$RedisInstancePrefix")
+    if ($ManagedRedis) { $arguments += @('--set','redis.mode=managed','--set',"redis.managedReleaseName=$redisRelease",'--set-string',"redis.managedAdminPasswordKey=$RedisAdminPasswordKey") }
     return $arguments
 }
 function Get-RedisPrimaryPod {
@@ -176,7 +185,7 @@ try {
             $restoreName = Split-Path -Leaf $restoreSource
             $podOverrides = @{ spec = @{ securityContext = @{ runAsUser = 1001; runAsGroup = 1001; fsGroup = 1001; seccompProfile = @{ type = 'RuntimeDefault' } }; containers = @(@{ name = $restorePod; image = 'redis@sha256:987c376c727652f99625c7d205a1cba3cb2c53b92b0b62aade2bd48ee1593232'; command = @('/bin/sh','-c','sleep 600'); securityContext = @{ allowPrivilegeEscalation = $false; capabilities = @{ drop = @('ALL') } }; volumeMounts = @(@{ name = 'data'; mountPath = '/data' }) }); volumes = @(@{ name = 'data'; persistentVolumeClaim = @{ claimName = $pvc } }) } } | ConvertTo-Json -Depth 12 -Compress
             try {
-                Invoke-Tool kubectl @('patch','hpa',$target,'-n',$namespace,'--type=merge','-p','{"spec":{"minReplicas":0}}') 'Permit gateway scale to zero'
+                Invoke-Tool kubectl @('delete','hpa',$target,'-n',$namespace,'--ignore-not-found','--wait=true',"--timeout=${TimeoutSeconds}s") 'Suspend gateway autoscaling'
                 Invoke-Tool kubectl @('scale',"deployment/$target",'-n',$namespace,'--replicas=0') 'Drain gateway pods'
                 Invoke-Tool kubectl @('scale',"statefulset/$redisRelease-node",'-n',$namespace,'--replicas=0') 'Stop managed Redis nodes'
                 Invoke-Tool kubectl @('wait','--for=delete','pod','-n',$namespace,'-l',"app.kubernetes.io/instance=$redisRelease,app.kubernetes.io/component=node", "--timeout=${TimeoutSeconds}s") 'Wait for Redis nodes to stop'
@@ -209,16 +218,19 @@ try {
     }
     elseif ($Action -eq 'Rollback') {
         Save-State
-        Invoke-Tool helm @('rollback',$target,'0','-n',$namespace,'--wait','--atomic',"--timeout=${TimeoutSeconds}s") 'Rollback gateway'; $summary.Updated++
+        if ($PSCmdlet.ShouldProcess("$ExpectedContext/$namespace/$target",'Rollback gateway to its previous Helm revision')) {
+            Invoke-Tool helm @('rollback',$target,'0','-n',$namespace,'--wait','--atomic',"--timeout=${TimeoutSeconds}s") 'Rollback gateway'; $summary.Updated++
+        }
     }
     elseif ($Action -eq 'Deploy') {
         Save-State
         if ($DryRun) { Invoke-Tool helm (@('upgrade','--install',$target,$chart,'-n',$namespace,'--create-namespace','--dry-run=server') + (Get-ValueArgs)) 'Dry-run gateway'; $summary.Skipped++ }
         elseif ($PSCmdlet.ShouldProcess("$ExpectedContext/$namespace",'Install or upgrade realtime releases')) {
             if ($ManagedRedis) {
-                Invoke-Tool helm @('upgrade','--install',$redisRelease,'oci://registry-1.docker.io/bitnamicharts/redis','--version','23.1.1','-n',$namespace,'--create-namespace','--values',$redisValues,'--set',"fullnameOverride=$redisRelease",'--set',"auth.existingSecret=$RedisSecretName",'--wait','--atomic',"--timeout=${TimeoutSeconds}s") 'Install or upgrade managed Redis'
+                Invoke-Tool helm @('upgrade','--install',$redisRelease,'oci://registry-1.docker.io/bitnamicharts/redis','--version','23.1.1','-n',$namespace,'--create-namespace','--values',$redisValues,'--set',"fullnameOverride=$redisRelease",'--set',"auth.existingSecret=$RedisSecretName",'--set-string',"auth.existingSecretPasswordKey=$RedisAdminPasswordKey",'--set',"auth.acl.userSecret=$RedisSecretName",'--set-string',"auth.acl.users[0].username=$RedisUsername",'--set-string',"auth.acl.users[0].keys=~${RedisInstancePrefix}:*",'--set-string',"auth.acl.users[0].channels=&${RedisInstancePrefix}:*",'--wait','--atomic',"--timeout=${TimeoutSeconds}s") 'Install or upgrade managed Redis'
             }
             Invoke-Tool helm (@('upgrade','--install',$target,$chart,'-n',$namespace,'--create-namespace','--wait','--atomic',"--timeout=${TimeoutSeconds}s") + (Get-ValueArgs)) 'Install or upgrade gateway'
+            Invoke-Tool kubectl @('rollout','restart',"deployment/$target",'-n',$namespace) 'Restart gateway for credential rotation'
             Invoke-Tool kubectl @('rollout','status',"deployment/$target",'-n',$namespace,"--timeout=${TimeoutSeconds}s") 'Validate gateway rollout'
             $summary.Updated++
         }

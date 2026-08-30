@@ -3,8 +3,8 @@ redis:
   managedReleaseName: prod-realtime-redis
   credentialsSecret:
     name: prod-realtime-redis
-    usernameKey: realtime-username
-    passwordKey: realtime-password
+    passwordKey: realtime
+  username: realtime
   instancePrefix: prod:realtime
 networkPolicy:
   redisPodSelector:

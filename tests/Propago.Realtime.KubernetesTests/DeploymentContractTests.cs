@@ -34,8 +34,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("secretKeyRef:", content, StringComparison.Ordinal);
         Assert.Contains("Redis__Password", content, StringComparison.Ordinal);
         Assert.Contains("Redis__User", content, StringComparison.Ordinal);
-        Assert.Contains("ACL SETUSER", content, StringComparison.Ordinal);
-        Assert.Contains(" resetchannels ", content, StringComparison.Ordinal);
+        Assert.Contains("Redis__SentinelServiceName", content, StringComparison.Ordinal);
+        Assert.Contains("Redis__SentinelPassword", content, StringComparison.Ordinal);
+        Assert.Contains("-client", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("ACL SETUSER", content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -47,6 +49,9 @@ public sealed class DeploymentContractTests
         Assert.Contains("redis@23.1.1", chart, StringComparison.Ordinal);
         Assert.Contains("architecture: replication", values, StringComparison.Ordinal);
         Assert.Contains("sentinel:", values, StringComparison.Ordinal);
+        Assert.Contains("acl:", values, StringComparison.Ordinal);
+        Assert.Contains("userSecret:", values, StringComparison.Ordinal);
+        Assert.Contains("sentinel: true", values, StringComparison.Ordinal);
         Assert.Contains("persistence: { enabled: true", values, StringComparison.Ordinal);
         Assert.Contains("appendonly yes", values, StringComparison.Ordinal);
         Assert.Contains("metrics:", values, StringComparison.Ordinal);
@@ -66,8 +71,13 @@ public sealed class DeploymentContractTests
         Assert.Contains("--atomic", script, StringComparison.Ordinal);
         Assert.Contains("BackupRedis", script, StringComparison.Ordinal);
         Assert.Contains("RestoreRedis", script, StringComparison.Ordinal);
+        Assert.Contains("'delete','hpa'", script, StringComparison.Ordinal);
+        Assert.Contains("'rollout','restart'", script, StringComparison.Ordinal);
+        Assert.Contains("Rollback gateway to its previous Helm revision", script, StringComparison.Ordinal);
+        Assert.Contains("RedisPasswordKey", script, StringComparison.Ordinal);
         Assert.Contains("AddDays(-7)", script, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", script, StringComparison.Ordinal);
+        Assert.Contains(".backups/", Read(".gitignore"), StringComparison.Ordinal);
     }
 
     private static string Read(string relative)

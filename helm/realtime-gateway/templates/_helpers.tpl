@@ -19,5 +19,5 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.serviceAccount.create }}{{ default (include "realtime-gateway.fullname" .) .Values.serviceAccount.name }}{{ else }}{{ required "serviceAccount.name is required when create=false" .Values.serviceAccount.name }}{{ end -}}
 {{- end -}}
 {{- define "realtime-gateway.redisEndpoint" -}}
-{{- if eq .Values.redis.mode "managed" -}}{{ printf "%s:%v" .Values.redis.managedReleaseName .Values.redis.port }}{{- else -}}{{ required "redis.externalEndpoint is required in external mode" .Values.redis.externalEndpoint }}{{- end -}}
+{{- if eq .Values.redis.mode "managed" -}}{{ printf "%s:%v" .Values.redis.managedReleaseName .Values.redis.sentinelPort }}{{- else -}}{{ required "redis.externalEndpoint is required in external mode" .Values.redis.externalEndpoint }}{{- end -}}
 {{- end -}}

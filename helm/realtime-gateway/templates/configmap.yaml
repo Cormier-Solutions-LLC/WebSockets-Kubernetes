@@ -9,11 +9,13 @@ data:
   Gateway__ShutdownDrainSeconds: {{ .Values.gateway.shutdownDrainSeconds | quote }}
   Gateway__DetailedHealthChecks: {{ .Values.gateway.detailedHealthChecks | quote }}
   Redis__Endpoint: {{ include "realtime-gateway.redisEndpoint" . | quote }}
+  Redis__SentinelServiceName: {{ ternary .Values.redis.sentinelServiceName "" (eq .Values.redis.mode "managed") | quote }}
   Redis__RequiredForReadiness: {{ .Values.redis.requiredForReadiness | quote }}
   Redis__InstancePrefix: {{ .Values.redis.instancePrefix | quote }}
   Redis__SessionKeyPrefix: {{ .Values.redis.sessionKeyPrefix | quote }}
   Redis__TicketKeyPrefix: {{ .Values.redis.ticketKeyPrefix | quote }}
   Redis__PubSubChannel: {{ .Values.redis.pubSubChannel | quote }}
+  Redis__User: {{ .Values.redis.username | quote }}
   {{- range $index, $origin := .Values.gateway.allowedOrigins }}
   Realtime__AllowedOrigins__{{ $index }}: {{ $origin | quote }}
   {{- end }}

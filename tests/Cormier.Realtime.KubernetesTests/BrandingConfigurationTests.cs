@@ -44,7 +44,7 @@ public sealed partial class BrandingConfigurationTests
     {
         var bootstrap = Read("scripts/Bootstrap-Realtime.ps1");
 
-        Assert.Contains("[ValidatePattern('^(?=.{1,38}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("[ValidatePattern('^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]", bootstrap, StringComparison.Ordinal);
         Assert.Contains("realtime-$NameSuffix", bootstrap, StringComparison.Ordinal);
         Assert.Contains(".bootstrap", bootstrap, StringComparison.Ordinal);
         Assert.Contains("naming.json", bootstrap, StringComparison.Ordinal);
@@ -55,6 +55,9 @@ public sealed partial class BrandingConfigurationTests
         var deployment = Read("scripts/Deploy-Realtime.ps1");
         Assert.Contains("$PSBoundParameters.ContainsKey('Application')", deployment, StringComparison.Ordinal);
         Assert.Contains("$([string]$naming.redisInstancePrefix):$Environment", deployment, StringComparison.Ordinal);
+        Assert.Contains("[ValidateLength(1,10)]", deployment, StringComparison.Ordinal);
+        Assert.Contains("$target.Length -gt 53", deployment, StringComparison.Ordinal);
+        Assert.Contains("$redisRelease.Length -gt 53", deployment, StringComparison.Ordinal);
         Assert.Contains(".bootstrap/", Read(".gitignore"), StringComparison.Ordinal);
     }
 

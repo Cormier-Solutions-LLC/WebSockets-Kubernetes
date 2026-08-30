@@ -14,8 +14,9 @@
     MSBuild configuration. Defaults to Release.
 
 .PARAMETER NameSuffix
-    Optional DNS-label suffix for independently deployed instances. For example,
-    'customer-a' produces the application name 'realtime-customer-a'.
+    Optional DNS-label suffix of at most 27 characters for independently
+    deployed instances. For example, 'customer-a' produces the application
+    name 'realtime-customer-a'.
 
 .PARAMETER SkipRestore
     Skips NuGet restore.
@@ -46,7 +47,7 @@ param(
     [string]$Configuration = 'Release',
 
     [Parameter()]
-    [ValidatePattern('^(?=.{1,38}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]
+    [ValidatePattern('^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]
     [string]$NameSuffix,
 
     [Parameter()]

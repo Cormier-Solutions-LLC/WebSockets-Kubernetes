@@ -23,7 +23,7 @@ pwsh ./scripts/Bootstrap-Realtime.ps1
 dotnet run --project ./src/Cormier.Realtime.Gateway
 ```
 
-Use an optional DNS-label suffix of at most 38 characters for a separately named distribution or deployment. The bootstrap writes the resulting, non-secret naming contract to ignored `.bootstrap/naming.json` and MSBuild properties to `.bootstrap/naming.props`:
+Use an optional DNS-label suffix of at most 27 characters for a separately named distribution or deployment. Together with deployment environment names of at most 10 characters, this keeps gateway and managed-Redis Helm releases within Helm's 53-character limit. The bootstrap writes the resulting, non-secret naming contract to ignored `.bootstrap/naming.json` and MSBuild properties to `.bootstrap/naming.props`:
 
 ```powershell
 pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a

@@ -8,7 +8,7 @@
 .PARAMETER Action
   Validate, Plan, Deploy, Rollback, Remove, BackupRedis, or RestoreRedis.
 .PARAMETER Environment
-  Lowercase environment identifier.
+  Lowercase environment identifier of at most 10 characters.
 .PARAMETER Application
   Lowercase application identifier. Release/namespace is environment-application.
 .PARAMETER ValuesFile
@@ -27,7 +27,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][ValidateSet('Validate','Plan','Deploy','Rollback','Remove','BackupRedis','RestoreRedis')][string]$Action,
-    [Parameter(Mandatory)][ValidatePattern('^[a-z0-9]+$')][string]$Environment,
+    [Parameter(Mandatory)][ValidateLength(1,10)][ValidatePattern('^[a-z0-9]+$')][string]$Environment,
     [Parameter()][ValidatePattern('^[a-z0-9][a-z0-9-]*$')][string]$Application = 'realtime',
     [Parameter()][string]$ValuesFile,
     [Parameter()][switch]$ManagedRedis,
@@ -63,6 +63,12 @@ if (-not $PSBoundParameters.ContainsKey('Application') -and $null -ne $naming) {
 $target = "$Environment-$Application"
 $namespace = $target
 $redisRelease = "$target-redis"
+if ($target.Length -gt 53) {
+    throw "INVALID: Helm release '$target' exceeds the 53-character limit. Shorten Environment or Application."
+}
+if ($ManagedRedis -and $redisRelease.Length -gt 53) {
+    throw "INVALID: managed Redis Helm release '$redisRelease' exceeds the 53-character limit. Shorten Environment or Application."
+}
 if (-not $RedisSecretName) { $RedisSecretName = "$target-redis" }
 if (-not $RedisInstancePrefix) {
     $RedisInstancePrefix = if ($null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {

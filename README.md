@@ -38,7 +38,10 @@ See [developer guide](docs/developer-guide.md) and [architecture](docs/architect
 dotnet restore ./Propago.Realtime.sln --locked-mode
 dotnet build ./Propago.Realtime.sln -c Release --no-restore
 dotnet test ./Propago.Realtime.sln -c Release --no-build
-dotnet publish ./src/Propago.Realtime.Gateway -c Release -r win-x64 --self-contained
+
+# Choose the RID matching the build host: win-x64, linux-x64, osx-x64, or osx-arm64.
+$runtimeIdentifier = 'win-x64'
+dotnet publish ./src/Propago.Realtime.Gateway -c Release -r $runtimeIdentifier --self-contained
 ```
 
 Linux CI publishes a `linux-x64` Native AOT executable and an OCI archive from the .NET SDK. Versions begin at `0.1.0` and are controlled centrally by `Directory.Build.props`.

@@ -88,7 +88,7 @@ function Write-Log {
         [Parameter(Mandatory)][string]$Message
     )
 
-    $redacted = $Message -replace '(?i)(authorization\s*[:=]\s*)(?:(?:bearer|basic|digest)\s+)?\S+', '$1[REDACTED]'
+    $redacted = $Message -replace '(?i)(authorization\s*[:=]\s*).+$', '$1[REDACTED]'
     $redacted = $redacted -replace '(?i)((?:password|token|secret|cookie)\s*[:=]\s*)(?:"[^"]*"|''[^'']*''|\S+)', '$1[REDACTED]'
     $line = '[{0}] [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $redacted
     $line | Tee-Object -FilePath $logPath -Append
@@ -177,7 +177,6 @@ function Invoke-LogHousekeeping {
         return
     }
 
-    Assert-Command -Name 'Compress-Archive'
     Ensure-Directory -Path $archiveDirectory
     Compress-Archive -LiteralPath $oldLogs.FullName -DestinationPath $archivePath -CompressionLevel Optimal
 
@@ -215,6 +214,7 @@ try {
 
     Assert-Command -Name 'dotnet'
     Assert-Command -Name 'git'
+    Assert-Command -Name 'Compress-Archive'
     $dotnetVersion = & dotnet --version
     if ($LASTEXITCODE -ne 0 -or $dotnetVersion -notmatch '^10\.') {
         throw "UNSUPPORTED: .NET SDK 10.x is required; detected '$dotnetVersion'."

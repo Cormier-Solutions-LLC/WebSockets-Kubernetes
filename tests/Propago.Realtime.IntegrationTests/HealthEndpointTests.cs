@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Propago.Realtime.Contracts;
+using Propago.Realtime.Redis;
 
 namespace Propago.Realtime.IntegrationTests;
 
@@ -57,5 +60,21 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("propago_realtime_health_requests_total", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApplicationConfigurationOverridesBindToRedisOptions()
+    {
+        using var baseFactory = new WebApplicationFactory<Program>();
+        using var factory = baseFactory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, configuration) =>
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Redis:Endpoint"] = "configured.example:6380",
+                })));
+
+        Assert.Equal(
+            "configured.example:6380",
+            factory.Services.GetRequiredService<RedisOptions>().Endpoint);
     }
 }

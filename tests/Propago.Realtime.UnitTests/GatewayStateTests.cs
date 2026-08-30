@@ -44,7 +44,8 @@ public sealed class GatewayStateTests
         var probe = new ControlledRedisReadinessProbe();
         var state = new GatewayState(
             probe,
-            Options.Create(new RedisOptions { RequiredForReadiness = true }));
+            Options.Create(new RedisOptions { RequiredForReadiness = true }),
+            ActiveSubscription());
         state.MarkStarted();
 
         var readiness = state.IsReadyAsync(CancellationToken.None).AsTask();
@@ -58,7 +59,34 @@ public sealed class GatewayStateTests
     private static GatewayState CreateState(bool redisRequired, bool redisReady) =>
         new(
             new StubRedisReadinessProbe(redisReady),
-            Options.Create(new RedisOptions { RequiredForReadiness = redisRequired }));
+            Options.Create(new RedisOptions { RequiredForReadiness = redisRequired }),
+            ActiveSubscription());
+
+    [Fact]
+    public async Task ReadinessRequiresActiveRedisSubscription()
+    {
+        var subscription = new RedisSubscriptionState();
+        var state = new GatewayState(
+            new StubRedisReadinessProbe(true),
+            Options.Create(new RedisOptions { RequiredForReadiness = true }),
+            subscription);
+        state.MarkStarted();
+
+        Assert.False(await state.IsReadyAsync(CancellationToken.None));
+
+        subscription.MarkActive();
+        Assert.True(await state.IsReadyAsync(CancellationToken.None));
+
+        subscription.MarkInactive();
+        Assert.False(await state.IsReadyAsync(CancellationToken.None));
+    }
+
+    private static RedisSubscriptionState ActiveSubscription()
+    {
+        var state = new RedisSubscriptionState();
+        state.MarkActive();
+        return state;
+    }
 
     private sealed class StubRedisReadinessProbe(bool ready) : IRedisReadinessProbe
     {

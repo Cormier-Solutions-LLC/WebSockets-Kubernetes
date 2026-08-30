@@ -12,9 +12,13 @@ public sealed class GatewayDrainServiceTests
     {
         var state = new GatewayState(
             new ReadyRedisProbe(),
-            Options.Create(new RedisOptions()));
+            Options.Create(new RedisOptions()),
+            new RedisSubscriptionState());
+        using var metrics = new GatewayMetrics();
         var service = new GatewayDrainService(
             state,
+            new RealtimeConnectionRegistry(metrics),
+            metrics,
             Options.Create(new GatewayOptions { ShutdownDrainSeconds = 300 }),
             NullLogger<GatewayDrainService>.Instance);
         using var cancellation = new CancellationTokenSource();
@@ -26,6 +30,7 @@ public sealed class GatewayDrainServiceTests
         Assert.Same(stopTask, completedTask);
         await stopTask;
         Assert.True(state.IsDraining);
+        Assert.Contains("propago_realtime_draining 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
     }
 
     private sealed class ReadyRedisProbe : IRedisReadinessProbe

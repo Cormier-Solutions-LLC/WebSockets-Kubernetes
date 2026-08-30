@@ -13,6 +13,16 @@ permissions:
 jobs:
   build-test-aot:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -27,6 +37,8 @@ jobs:
       - name: Build
         run: dotnet build Propago.Realtime.sln --configuration Release --no-restore
       - name: Test
+        env:
+          REDIS_TEST_ENDPOINT: localhost:6379
         run: dotnet test Propago.Realtime.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
       - name: Native AOT publish
         run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore --output artifacts/native
@@ -81,6 +93,8 @@ jobs:
             --tmpfs /tmp:rw,noexec,nosuid,size=16m \
             --cap-drop ALL \
             --security-opt no-new-privileges:true \
+            --add-host host.docker.internal:host-gateway \
+            --env Redis__Endpoint=host.docker.internal:6379 \
             --publish 127.0.0.1:18080:8080 \
             "$image_ref"
 
@@ -119,15 +133,14 @@ jobs:
           severity: HIGH,CRITICAL
           limit-severities-for-sarif: true
           exit-code: '1'
-          skip-setup-trivy: true
       - name: Upload filesystem scan results
-        if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ always() && hashFiles('artifacts/trivy-filesystem.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: artifacts/trivy-filesystem.sarif
           category: trivy-filesystem
       - name: Upload image scan results
-        if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ always() && hashFiles('artifacts/trivy-image.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: artifacts/trivy-image.sarif

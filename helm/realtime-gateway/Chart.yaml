@@ -7,4 +7,3 @@ appVersion: "0.1.0"
 kubeVersion: ">=1.29.0-0"
 annotations:
   propago.io/redis-chart: "oci://registry-1.docker.io/bitnamicharts/redis@23.1.1"
-

@@ -41,4 +41,3 @@ commonConfiguration: |-
   appendonly yes
   appendfsync everysec
   maxmemory-policy noeviction
-

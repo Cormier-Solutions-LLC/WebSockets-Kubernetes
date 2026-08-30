@@ -10,4 +10,3 @@ redis:
   instancePrefix: prod:realtime
 networkPolicy:
   externalRedisCidrs: [10.40.0.0/16]
-

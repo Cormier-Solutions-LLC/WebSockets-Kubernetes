@@ -9,4 +9,3 @@ spec:
     matchLabels:
       {{- include "realtime-gateway.selectorLabels" . | nindent 6 }}
 {{- end }}
-

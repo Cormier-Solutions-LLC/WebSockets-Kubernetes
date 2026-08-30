@@ -162,6 +162,53 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task RevokedSessionCannotPublishAndIsClosed()
+    {
+        await using var factory = new RealtimeFactory();
+        using var socket = await ConnectAsync(
+            factory,
+            origin: "https://gateway.example",
+            useTicket: false,
+            forwardedHost: "gateway.example");
+        factory.SessionStore.Revoked = true;
+
+        await SendAsync(socket, Envelope(ProtocolMessageTypes.Publish, "revoked-command"));
+        await WaitForCloseAsync(socket);
+
+        Assert.Equal(RealtimeCloseStatus.AuthenticationExpired, socket.CloseStatus);
+        Assert.Empty(factory.Bus.Published);
+    }
+
+    [Fact]
+    public async Task RevokedSessionCannotReceiveSubscribedDeliveryAndIsClosed()
+    {
+        await using var factory = new RealtimeFactory();
+        using var socket = await ConnectAsync(
+            factory,
+            origin: "https://gateway.example",
+            useTicket: false,
+            forwardedHost: "gateway.example");
+        await SendAsync(socket, Envelope(ProtocolMessageTypes.Subscribe, "subscribe-before-revocation"));
+        Assert.Equal(ProtocolMessageTypes.Acknowledge, (await ReceiveEnvelopeAsync(socket)).Type);
+        factory.SessionStore.Revoked = true;
+
+        await factory.Services.GetRequiredService<RealtimeConnectionRegistry>().DeliverAsync(
+            new RealtimeBusMessage(
+                "revoked-delivery",
+                "tenant-1",
+                null,
+                "orders",
+                "revoked-delivery-correlation",
+                DateTimeOffset.UtcNow,
+                JsonSerializer.SerializeToElement(new { value = 42 }),
+                "integration-test"),
+            CancellationToken.None);
+        await WaitForCloseAsync(socket);
+
+        Assert.Equal(RealtimeCloseStatus.AuthenticationExpired, socket.CloseStatus);
+    }
+
+    [Fact]
     public async Task MalformedTrafficDoesNotRefreshIdleActivity()
     {
         await using var factory = new RealtimeFactory();
@@ -300,6 +347,8 @@ public sealed class WebSocketProtocolTests
     {
         public FakeMessageBus Bus { get; } = new();
 
+        public FakeSessionStore SessionStore { get; } = new();
+
         private TimeSpan IdentityLifetime { get; } = identityLifetime ?? TimeSpan.FromMinutes(5);
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -328,7 +377,7 @@ public sealed class WebSocketProtocolTests
                     HeartbeatSeconds = 1,
                     IdleTimeoutSeconds = 2,
                 }));
-                services.AddSingleton<IRealtimeSessionStore, FakeSessionStore>();
+                services.AddSingleton<IRealtimeSessionStore>(SessionStore);
                 services.AddSingleton<IConnectionTicketStore>(new FakeTicketStore(
                     IdentityLifetime,
                     authenticationDelay ?? TimeSpan.Zero));
@@ -338,10 +387,12 @@ public sealed class WebSocketProtocolTests
         }
     }
 
-    private sealed class FakeSessionStore : IRealtimeSessionStore
+    public sealed class FakeSessionStore : IRealtimeSessionStore
     {
+        public bool Revoked { get; set; }
+
         public ValueTask<RealtimeIdentity?> ValidateAsync(string sessionId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<RealtimeIdentity?>(sessionId == "valid-session-123456"
+            ValueTask.FromResult<RealtimeIdentity?>(sessionId == "valid-session-123456" && !Revoked
                 ? new RealtimeIdentity("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.AddMinutes(5))
                 : null);
     }

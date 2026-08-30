@@ -1,9 +1,13 @@
 using System.Collections.Concurrent;
+using System.Net.WebSockets;
 using Propago.Realtime.Contracts;
+using StackExchange.Redis;
 
 namespace Propago.Realtime.Gateway;
 
-public sealed class RealtimeConnectionRegistry(GatewayMetrics metrics)
+public sealed class RealtimeConnectionRegistry(
+    GatewayMetrics metrics,
+    RealtimeAuthenticator? authenticator = null)
 {
     private static readonly ReconnectAdvice RestartAdvice = new(500, 30_000, 0.2, true);
     private readonly ConcurrentDictionary<string, RealtimeConnection> _connections = new(StringComparer.Ordinal);
@@ -62,9 +66,52 @@ public sealed class RealtimeConnectionRegistry(GatewayMetrics metrics)
 
         foreach (var connection in _connections.Values)
         {
-            if (!string.Equals(connection.Identity.TenantId, message.TenantId, StringComparison.Ordinal) ||
+            var identity = connection.Identity;
+            if (connection.SessionId is not null && authenticator is not null)
+            {
+                try
+                {
+                    var refreshed = await authenticator.RevalidateSessionAsync(
+                        connection.SessionId,
+                        cancellationToken);
+                    if (refreshed is null ||
+                        !string.Equals(refreshed.TenantId, identity.TenantId, StringComparison.Ordinal) ||
+                        !string.Equals(refreshed.UserId, identity.UserId, StringComparison.Ordinal))
+                    {
+                        await connection.RequestCloseAsync(
+                            RealtimeCloseStatus.AuthenticationExpired,
+                            "authentication_expired",
+                            cancellationToken);
+                        continue;
+                    }
+
+                    connection.UpdateIdentity(refreshed);
+                    identity = refreshed;
+                }
+                catch (RedisException)
+                {
+                    await connection.RequestCloseAsync(
+                        WebSocketCloseStatus.InternalServerError,
+                        "authentication_unavailable",
+                        cancellationToken);
+                    continue;
+                }
+            }
+
+            if (DateTimeOffset.UtcNow >= identity.ExpiresAt)
+            {
+                await connection.RequestCloseAsync(
+                    RealtimeCloseStatus.AuthenticationExpired,
+                    "authentication_expired",
+                    cancellationToken);
+                continue;
+            }
+
+            if (!string.Equals(identity.TenantId, message.TenantId, StringComparison.Ordinal) ||
                 message.UserId is not null &&
-                !string.Equals(connection.Identity.UserId, message.UserId, StringComparison.Ordinal) ||
+                !string.Equals(identity.UserId, message.UserId, StringComparison.Ordinal) ||
+                !identity.AllowedTopics.Any(allowed =>
+                    allowed == "*" || string.Equals(allowed, message.Topic, StringComparison.Ordinal)) ||
                 !connection.IsSubscribed(message.Topic, message.UserId))
             {
                 continue;

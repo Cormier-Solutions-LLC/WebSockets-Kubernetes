@@ -3,7 +3,10 @@ using Propago.Realtime.Redis;
 
 namespace Propago.Realtime.Gateway;
 
-public sealed record AuthenticationResult(RealtimeIdentity? Identity, string? FailureCode)
+public sealed record AuthenticationResult(
+    RealtimeIdentity? Identity,
+    string? FailureCode,
+    string? SessionId = null)
 {
     public bool Succeeded => Identity is not null;
 }
@@ -54,8 +57,13 @@ public sealed class RealtimeAuthenticator(
         metrics.RecordAuthentication(sessionIdentity is not null, "session");
         return sessionIdentity is null
             ? new AuthenticationResult(null, "session_invalid")
-            : new AuthenticationResult(sessionIdentity, null);
+            : new AuthenticationResult(sessionIdentity, null, sessionId);
     }
+
+    public ValueTask<RealtimeIdentity?> RevalidateSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken) =>
+        sessionStore.ValidateAsync(sessionId, cancellationToken);
 
     public bool IsAllowedOrigin(string origin)
     {

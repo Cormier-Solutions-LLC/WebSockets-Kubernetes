@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Propago.Realtime.Contracts;
+using StackExchange.Redis;
 
 namespace Propago.Realtime.Gateway;
 
@@ -56,7 +57,8 @@ public sealed class RealtimeWebSocketHandler(
             socket,
             authentication.Identity!,
             options,
-            metrics);
+            metrics,
+            authentication.SessionId);
         if (!registry.Add(connection))
         {
             await connection.RequestCloseAsync(
@@ -191,6 +193,20 @@ public sealed class RealtimeWebSocketHandler(
                     continue;
                 }
 
+                var revalidation = await RevalidateIdentityAsync(connection, cancellationToken);
+                if (revalidation is not true)
+                {
+                    await connection.RequestCloseAsync(
+                        revalidation is false
+                            ? RealtimeCloseStatus.AuthenticationExpired
+                            : WebSocketCloseStatus.InternalServerError,
+                        revalidation is false
+                            ? "authentication_invalid"
+                            : "authentication_unavailable",
+                        cancellationToken);
+                    return revalidation is false ? "authentication_invalid" : "authentication_unavailable";
+                }
+
                 connection.RecordActivity();
 
                 if (!connection.TryTrackCorrelation(envelope!.CorrelationId))
@@ -223,6 +239,21 @@ public sealed class RealtimeWebSocketHandler(
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatSeconds));
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
+            var revalidation = await RevalidateIdentityAsync(connection, cancellationToken);
+            if (revalidation is not true)
+            {
+                await connection.RequestCloseAsync(
+                    revalidation is false
+                        ? RealtimeCloseStatus.AuthenticationExpired
+                        : WebSocketCloseStatus.InternalServerError,
+                    revalidation is false
+                        ? "authentication_invalid"
+                        : "authentication_unavailable",
+                    cancellationToken);
+                connectionCancellation.Cancel();
+                return;
+            }
+
             if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
             {
                 await connection.RequestCloseAsync(
@@ -258,6 +289,36 @@ public sealed class RealtimeWebSocketHandler(
                 connectionCancellation.Cancel();
                 return;
             }
+        }
+    }
+
+    private async ValueTask<bool?> RevalidateIdentityAsync(
+        RealtimeConnection connection,
+        CancellationToken cancellationToken)
+    {
+        if (connection.SessionId is null)
+        {
+            return DateTimeOffset.UtcNow < connection.Identity.ExpiresAt;
+        }
+
+        try
+        {
+            var refreshed = await authenticator.RevalidateSessionAsync(
+                connection.SessionId,
+                cancellationToken);
+            if (refreshed is null ||
+                !string.Equals(refreshed.TenantId, connection.Identity.TenantId, StringComparison.Ordinal) ||
+                !string.Equals(refreshed.UserId, connection.Identity.UserId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            connection.UpdateIdentity(refreshed);
+            return true;
+        }
+        catch (RedisException)
+        {
+            return null;
         }
     }
 }

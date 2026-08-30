@@ -181,7 +181,7 @@ public sealed class ProtocolSecurityTests
         new(version, type, "correlation-1", Now, "topics/orders", Payload);
 
     private static RealtimeIdentity Identity() =>
-        new("tenant-1", "user-1", ["orders"], Now.AddHours(1));
+        new("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.AddHours(1));
 
     private sealed class OpenWebSocket : WebSocket
     {

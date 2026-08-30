@@ -24,6 +24,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _correlations = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _correlationOrder = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private RealtimeIdentity _identity;
     private long _lastActivityTicks = DateTimeOffset.UtcNow.UtcTicks;
     private int _slowConsumerStrikes;
     private int _closeRequested;
@@ -32,10 +33,12 @@ public sealed class RealtimeConnection : IAsyncDisposable
         WebSocket socket,
         RealtimeIdentity identity,
         RealtimeOptions options,
-        GatewayMetrics metrics)
+        GatewayMetrics metrics,
+        string? sessionId = null)
     {
         _socket = socket;
-        Identity = identity;
+        _identity = identity;
+        SessionId = sessionId;
         _options = options;
         _metrics = metrics;
         Id = Guid.NewGuid().ToString("N");
@@ -50,7 +53,9 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public string Id { get; }
 
-    public RealtimeIdentity Identity { get; }
+    public RealtimeIdentity Identity => Volatile.Read(ref _identity);
+
+    public string? SessionId { get; }
 
     public WebSocket Socket => _socket;
 
@@ -59,6 +64,8 @@ public sealed class RealtimeConnection : IAsyncDisposable
     public bool IsOpen => _socket.State == WebSocketState.Open && Volatile.Read(ref _closeRequested) == 0;
 
     public void RecordActivity() => Interlocked.Exchange(ref _lastActivityTicks, DateTimeOffset.UtcNow.UtcTicks);
+
+    public void UpdateIdentity(RealtimeIdentity identity) => Volatile.Write(ref _identity, identity);
 
     public bool TryTrackCorrelation(string correlationId)
     {

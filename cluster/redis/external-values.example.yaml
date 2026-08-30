@@ -5,8 +5,8 @@ redis:
   tls: true
   credentialsSecret:
     name: prod-realtime-redis
-    usernameKey: realtime-username
-    passwordKey: realtime-password
+    passwordKey: realtime
+  username: realtime
   instancePrefix: prod:realtime
 networkPolicy:
   externalRedisCidrs: [10.40.0.0/16]

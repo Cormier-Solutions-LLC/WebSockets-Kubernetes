@@ -42,17 +42,18 @@ redis:
   externalEndpoint: redis.example.internal:6379
   managedReleaseName: propago-redis
   port: 6379
+  sentinelPort: 26379
+  sentinelServiceName: mymaster
   tls: false
   requiredForReadiness: true
   credentialsSecret:
     name: propago-realtime-redis
-    usernameKey: realtime-username
-    passwordKey: realtime-password
+    passwordKey: realtime
+  username: realtime
   instancePrefix: propago:realtime
   sessionKeyPrefix: sessions
   ticketKeyPrefix: tickets
   pubSubChannel: events
-  aclProvisionerImage: redis@sha256:987c376c727652f99625c7d205a1cba3cb2c53b92b0b62aade2bd48ee1593232
   managedAdminPasswordKey: redis-password
 
 resources:

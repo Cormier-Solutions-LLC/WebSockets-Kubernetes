@@ -11,7 +11,7 @@ Examples:
 ./scripts/Deploy-Realtime.ps1 -Action Deploy -Environment prod -ExpectedContext production -ValuesFile ./prod-values.yaml -ManagedRedis
 ```
 
-`Remove` and `RestoreRedis` require `-Force`. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, and validated archive rotation. It does not accept credentials as parameters and never creates Secrets.
+`Remove` and `RestoreRedis` require `-Force`. `RedisUsername`, `RedisPasswordKey`, and `RedisAdminPasswordKey` select Secret keys without accepting their values; in managed mode the password key must match the ACL username as required by the pinned Redis chart. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, validated archive rotation, and forced gateway rollouts after credential rotation. It never creates Secrets.
 
 `Test-RealtimeEdge.ps1` performs read-only external edge validation after deployment. It verifies the assigned MetalLB VIP, `externalTrafficPolicy: Local`, certificate readiness, ready non-terminating gateway endpoints, DNS, TLS routing, and optionally an authenticated long-lived WSS connection. Supply the single-use WSS ticket via `REALTIME_EDGE_TICKET`; the script never logs it. The ticket is necessarily sent in the gateway's query-string protocol, so the Traefik values drop request path, address, and port access-log fields in addition to request headers.
 

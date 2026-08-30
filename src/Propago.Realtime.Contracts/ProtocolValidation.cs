@@ -35,8 +35,7 @@ public static class ProtocolValidator
                 $"Message type '{envelope.Type}' is not supported.");
         }
 
-        if (string.IsNullOrWhiteSpace(envelope.CorrelationId) ||
-            envelope.CorrelationId.Length > MaximumCorrelationIdLength)
+        if (!IsValidCorrelationId(envelope.CorrelationId))
         {
             return ProtocolValidationResult.Invalid(
                 ProtocolErrorCodes.InvalidEnvelope,
@@ -67,6 +66,10 @@ public static class ProtocolValidator
 
         return ProtocolValidationResult.Valid;
     }
+
+    public static bool IsValidCorrelationId(string correlationId) =>
+        !string.IsNullOrWhiteSpace(correlationId) &&
+        correlationId.Length <= MaximumCorrelationIdLength;
 
     private static bool IsSupportedClientType(string type) =>
         string.Equals(type, ProtocolMessageTypes.Ping, StringComparison.Ordinal) ||

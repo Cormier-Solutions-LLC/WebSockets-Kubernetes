@@ -54,6 +54,7 @@ public sealed class RealtimeConnectionRegistry(
 
     public async ValueTask DeliverAsync(RealtimeBusMessage message, CancellationToken cancellationToken)
     {
+        List<Task>? closeTasks = null;
         var envelope = new ServerMessageEnvelope(
             ProtocolVersions.Current,
             ProtocolMessageTypes.Event,
@@ -78,7 +79,9 @@ public sealed class RealtimeConnectionRegistry(
                         !string.Equals(refreshed.TenantId, identity.TenantId, StringComparison.Ordinal) ||
                         !string.Equals(refreshed.UserId, identity.UserId, StringComparison.Ordinal))
                     {
-                        await connection.RequestCloseAsync(
+                        AddBoundedClose(
+                            ref closeTasks,
+                            connection,
                             RealtimeCloseStatus.AuthenticationExpired,
                             "authentication_expired",
                             cancellationToken);
@@ -90,7 +93,9 @@ public sealed class RealtimeConnectionRegistry(
                 }
                 catch (RedisException)
                 {
-                    await connection.RequestCloseAsync(
+                    AddBoundedClose(
+                        ref closeTasks,
+                        connection,
                         WebSocketCloseStatus.InternalServerError,
                         "authentication_unavailable",
                         cancellationToken);
@@ -100,7 +105,9 @@ public sealed class RealtimeConnectionRegistry(
 
             if (DateTimeOffset.UtcNow >= identity.ExpiresAt)
             {
-                await connection.RequestCloseAsync(
+                AddBoundedClose(
+                    ref closeTasks,
+                    connection,
                     RealtimeCloseStatus.AuthenticationExpired,
                     "authentication_expired",
                     cancellationToken);
@@ -119,11 +126,51 @@ public sealed class RealtimeConnectionRegistry(
 
             if (!connection.TryEnqueue(envelope) && connection.HasExceededSlowConsumerLimit)
             {
-                await connection.RequestCloseAsync(
+                AddBoundedClose(
+                    ref closeTasks,
+                    connection,
                     RealtimeCloseStatus.SlowConsumer,
                     "slow_consumer",
                     cancellationToken);
             }
+        }
+
+        if (closeTasks is not null)
+        {
+            await Task.WhenAll(closeTasks);
+        }
+    }
+
+    private static void AddBoundedClose(
+        ref List<Task>? closeTasks,
+        RealtimeConnection connection,
+        WebSocketCloseStatus status,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        closeTasks ??= [];
+        closeTasks.Add(CloseWithinTimeoutAsync(
+            connection,
+            status,
+            description,
+            cancellationToken));
+    }
+
+    private static async Task CloseWithinTimeoutAsync(
+        RealtimeConnection connection,
+        WebSocketCloseStatus status,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(1));
+        try
+        {
+            await connection.RequestCloseAsync(status, description, timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            connection.Abort(status);
         }
     }
 

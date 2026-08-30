@@ -6,7 +6,8 @@ namespace Propago.Realtime.Gateway;
 
 public sealed class GatewayState(
     IRedisReadinessProbe redisProbe,
-    IOptions<RedisOptions> redisOptions)
+    IOptions<RedisOptions> redisOptions,
+    RedisSubscriptionState subscriptionState)
 {
     private int _started;
     private int _draining;
@@ -21,7 +22,7 @@ public sealed class GatewayState(
 
     public async ValueTask<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
-        if (!IsStarted || IsDraining)
+        if (!IsStarted || IsDraining || !subscriptionState.IsActive)
         {
             return false;
         }
@@ -31,6 +32,17 @@ public sealed class GatewayState(
 
         return dependenciesReady && !IsDraining;
     }
+}
+
+public sealed class RedisSubscriptionState
+{
+    private int _active;
+
+    public bool IsActive => Volatile.Read(ref _active) == 1;
+
+    public void MarkActive() => Interlocked.Exchange(ref _active, 1);
+
+    public void MarkInactive() => Interlocked.Exchange(ref _active, 0);
 }
 
 public sealed class GatewayMetrics : IDisposable

@@ -156,8 +156,8 @@ public sealed class RedisMessagingTests
         await Task.Delay(options.StreamClaimIdleMilliseconds + 25);
         var recovered = await store.RecoverPendingAsync("audit", "gateways", "instance-b", CancellationToken.None);
         Assert.Contains(recovered, delivery => delivery.EntryId == entryId);
-        Assert.True(await store.TryMarkProcessedAsync("audit", message.MessageId, CancellationToken.None));
-        Assert.False(await store.TryMarkProcessedAsync("audit", message.MessageId, CancellationToken.None));
+        Assert.True(await store.TryMarkCompletedAsync("audit", message.MessageId, CancellationToken.None));
+        Assert.False(await store.TryMarkCompletedAsync("audit", message.MessageId, CancellationToken.None));
         await store.AcknowledgeAsync("audit", "gateways", entryId, CancellationToken.None);
 
         var database = (await provider.GetConnectionAsync(CancellationToken.None)).GetDatabase();
@@ -237,7 +237,7 @@ public sealed class RedisMessagingTests
         "tenant-1",
         "user-1",
         "orders",
-        "correlation-1",
+        "correlation:tenant/orders/1",
         DateTimeOffset.UtcNow,
         JsonSerializer.SerializeToElement(new { value = 42 }),
         "instance-a");

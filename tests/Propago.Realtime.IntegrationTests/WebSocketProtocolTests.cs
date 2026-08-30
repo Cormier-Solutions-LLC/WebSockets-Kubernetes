@@ -228,8 +228,9 @@ public sealed class WebSocketProtocolTests
                     await Task.Delay(250, stopSending.Token);
                 }
             }
-            catch (Exception) when (stopSending.IsCancellationRequested || socket.State != WebSocketState.Open)
+            catch (Exception exception) when (stopSending.IsCancellationRequested || socket.State != WebSocketState.Open)
             {
+                System.Diagnostics.Debug.WriteLine($"Malformed-traffic sender stopped: {exception.Message}");
             }
         });
 
@@ -450,7 +451,7 @@ public sealed class WebSocketProtocolTests
         public ValueTask<IReadOnlyList<DurableDelivery>> RecoverPendingAsync(string eventClass, string group, string consumer, CancellationToken cancellationToken) =>
             ValueTask.FromResult<IReadOnlyList<DurableDelivery>>([]);
 
-        public ValueTask<bool> TryMarkProcessedAsync(string eventClass, string messageId, CancellationToken cancellationToken) =>
+        public ValueTask<bool> TryMarkCompletedAsync(string eventClass, string messageId, CancellationToken cancellationToken) =>
             ValueTask.FromResult(true);
 
         public ValueTask AcknowledgeAsync(string eventClass, string group, string entryId, CancellationToken cancellationToken) =>

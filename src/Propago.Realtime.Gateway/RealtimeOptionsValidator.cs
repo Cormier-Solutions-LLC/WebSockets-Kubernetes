@@ -7,6 +7,24 @@ public sealed class RealtimeOptionsValidator(IOptions<RedisOptions> redisOptions
 {
     public ValidateOptionsResult Validate(string? name, RealtimeOptions options)
     {
+        if (options.MaximumSubscriptions is < 1 or > 10_000)
+        {
+            return ValidateOptionsResult.Fail(
+                "Realtime:MaximumSubscriptions must be between 1 and 10000.");
+        }
+
+        if (options.MaximumTrackedCorrelations is < 1 or > 100_000)
+        {
+            return ValidateOptionsResult.Fail(
+                "Realtime:MaximumTrackedCorrelations must be between 1 and 100000.");
+        }
+
+        if (options.SlowConsumerStrikeLimit is < 1 or > 1_000)
+        {
+            return ValidateOptionsResult.Fail(
+                "Realtime:SlowConsumerStrikeLimit must be between 1 and 1000.");
+        }
+
         if (options.DurableEventClasses.Length > 0 && !redisOptions.Value.StreamsEnabled)
         {
             return ValidateOptionsResult.Fail(

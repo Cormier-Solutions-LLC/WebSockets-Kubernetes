@@ -16,7 +16,9 @@ public sealed class ProtocolSecurityTests
     [Fact]
     public void ProtocolValidatorAcceptsCurrentVersion()
     {
-        var result = ProtocolValidator.Validate(Envelope(), Now);
+        var result = ProtocolValidator.Validate(
+            Envelope(correlationId: "correlation:tenant/orders/1"),
+            Now);
 
         Assert.True(result.IsValid);
     }
@@ -75,6 +77,9 @@ public sealed class ProtocolSecurityTests
         Assert.False(disabled.Validate(null, new RealtimeOptions { DurableEventClasses = ["audit"] }).Succeeded);
         Assert.False(enabled.Validate(null, new RealtimeOptions { DurableEventClasses = ["order.created"] }).Succeeded);
         Assert.True(enabled.Validate(null, new RealtimeOptions { DurableEventClasses = ["order-created"] }).Succeeded);
+        Assert.False(enabled.Validate(null, new RealtimeOptions { MaximumSubscriptions = 0 }).Succeeded);
+        Assert.False(enabled.Validate(null, new RealtimeOptions { MaximumTrackedCorrelations = 0 }).Succeeded);
+        Assert.False(enabled.Validate(null, new RealtimeOptions { SlowConsumerStrikeLimit = 0 }).Succeeded);
     }
 
     [Theory]
@@ -150,6 +155,47 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public async Task StalledSlowConsumerDoesNotBlockOtherFanout()
+    {
+        using var metrics = new GatewayMetrics();
+        var slowSocket = new SignalingWebSocket(blockSend: true);
+        var fastSocket = new SignalingWebSocket(blockSend: false);
+        var options = new RealtimeOptions { OutboundQueueCapacity = 1, SlowConsumerStrikeLimit = 1 };
+        await using var slow = new RealtimeConnection(slowSocket, Identity(), options, metrics);
+        await using var fast = new RealtimeConnection(fastSocket, Identity(), options, metrics);
+        Assert.True(slow.TrySubscribe(new AuthorizedRoute("orders", null)));
+        Assert.True(fast.TrySubscribe(new AuthorizedRoute("orders", null)));
+        var registry = new RealtimeConnectionRegistry(metrics);
+        Assert.True(registry.Add(slow));
+        Assert.True(registry.Add(fast));
+        using var senders = new CancellationTokenSource();
+        Assert.True(slow.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "sending")));
+        var slowSender = slow.RunSenderAsync(senders.Token);
+        await slowSocket.SendEntered.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.True(slow.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "queued")));
+        var fastSender = fast.RunSenderAsync(senders.Token);
+
+        var delivery = registry.DeliverAsync(
+            new RealtimeBusMessage(
+                "message-2",
+                "tenant-1",
+                null,
+                "orders",
+                "correlation-2",
+                Now,
+                Payload,
+                "instance-a"),
+            CancellationToken.None).AsTask();
+
+        await fastSocket.SendEntered.WaitAsync(TimeSpan.FromMilliseconds(500));
+        slowSocket.ReleaseSend();
+        await delivery.WaitAsync(TimeSpan.FromSeconds(2));
+        await senders.CancelAsync();
+        await IgnoreCancellationAsync(slowSender);
+        await IgnoreCancellationAsync(fastSender);
+    }
+
+    [Fact]
     public async Task CanceledCloseCanBeRetried()
     {
         using var metrics = new GatewayMetrics();
@@ -177,13 +223,26 @@ public sealed class ProtocolSecurityTests
 
     private static MessageEnvelope Envelope(
         string version = ProtocolVersions.Current,
-        string type = ProtocolMessageTypes.Publish) =>
-        new(version, type, "correlation-1", Now, "topics/orders", Payload);
+        string type = ProtocolMessageTypes.Publish,
+        string correlationId = "correlation-1") =>
+        new(version, type, correlationId, Now, "topics/orders", Payload);
 
     private static RealtimeIdentity Identity() =>
         new("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.AddHours(1));
 
-    private sealed class OpenWebSocket : WebSocket
+    private static async Task IgnoreCancellationAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+            System.Diagnostics.Debug.WriteLine("Test WebSocket sender canceled as expected.");
+        }
+    }
+
+    private class OpenWebSocket : WebSocket
     {
         private WebSocketCloseStatus? _closeStatus;
         private string? _closeStatusDescription;
@@ -232,5 +291,37 @@ public sealed class ProtocolSecurityTests
             WebSocketMessageType messageType,
             bool endOfMessage,
             CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class SignalingWebSocket(bool blockSend) : OpenWebSocket
+    {
+        private readonly TaskCompletionSource _sendEntered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseSend = CreateRelease(blockSend);
+
+        public Task SendEntered => _sendEntered.Task;
+
+        public void ReleaseSend() => _releaseSend.TrySetResult();
+
+        public override async Task SendAsync(
+            ArraySegment<byte> buffer,
+            WebSocketMessageType messageType,
+            bool endOfMessage,
+            CancellationToken cancellationToken)
+        {
+            _sendEntered.TrySetResult();
+            await _releaseSend.Task.WaitAsync(cancellationToken);
+        }
+
+        private static TaskCompletionSource CreateRelease(bool block)
+        {
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!block)
+            {
+                release.TrySetResult();
+            }
+
+            return release;
+        }
     }
 }

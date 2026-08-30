@@ -17,7 +17,7 @@ Startup, liveness, and readiness have deliberately different meanings:
 
 1. Startup becomes healthy when the host has finished starting.
 2. Liveness means the process can answer requests and does not depend on Redis or downstream services.
-3. Readiness requires startup completion, a non-draining host, and successful registered dependency probes.
+3. Readiness requires startup completion, a non-draining host, an established Redis Pub/Sub subscription, and successful registered dependency probes.
 
 Kubernetes must remove the pod from ready endpoints before shutdown. PBV7-486 extends the draining state to active WebSocket connections; PBV7-487 supplies the probes and termination configuration.
 
@@ -25,7 +25,7 @@ Kubernetes must remove the pod from ready endpoints before shutdown. PBV7-486 ex
 
 Every gateway owns its live WebSocket objects, subscription set, correlation history, and bounded outbound queues in local memory. Redis stores authentication state and messaging data only. A Pub/Sub subscriber on each gateway filters every received event by server-derived tenant, current user when applicable, and local subscription before enqueueing it.
 
-Pub/Sub is lossy real-time fan-out. Optional Streams are an independent at-least-once path for an explicit allowlist of durable event classes. Consumer groups acknowledge completed work, reclaim idle pending entries after a crashed consumer, use expiring idempotency markers, and quarantine malformed entries in a bounded poison stream.
+Pub/Sub is lossy real-time fan-out. Optional Streams are an independent at-least-once path for an explicit allowlist of durable event classes. Consumer groups acknowledge completed work, reclaim idle pending entries after a crashed consumer, record expiring completion markers only after idempotent side effects succeed, and quarantine malformed entries in a bounded poison stream.
 
 ## Native AOT constraints
 

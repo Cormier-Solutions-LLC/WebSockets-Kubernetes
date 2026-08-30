@@ -64,7 +64,7 @@ public sealed class RedisRealtimeMessageBus(
         IsSafeBusIdentifier(message.TenantId) &&
         (message.UserId is null || IsSafeBusIdentifier(message.UserId)) &&
         IsSafeBusIdentifier(message.Topic) &&
-        IsSafeBusIdentifier(message.CorrelationId) &&
+        ProtocolValidator.IsValidCorrelationId(message.CorrelationId) &&
         message.Timestamp != default &&
         message.Payload.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null &&
         !string.IsNullOrWhiteSpace(message.SourceInstance) &&
@@ -99,7 +99,7 @@ public interface IDurableRealtimeStore
         string consumer,
         CancellationToken cancellationToken);
 
-    ValueTask<bool> TryMarkProcessedAsync(
+    ValueTask<bool> TryMarkCompletedAsync(
         string eventClass,
         string messageId,
         CancellationToken cancellationToken);
@@ -201,7 +201,7 @@ public sealed class RedisDurableRealtimeStore(
         return deliveries;
     }
 
-    public async ValueTask<bool> TryMarkProcessedAsync(
+    public async ValueTask<bool> TryMarkCompletedAsync(
         string eventClass,
         string messageId,
         CancellationToken cancellationToken)
@@ -319,7 +319,7 @@ public sealed class RedisDurableRealtimeStore(
         IsSafeIdentifier(message.TenantId) &&
         (message.UserId is null || IsSafeIdentifier(message.UserId)) &&
         IsSafeIdentifier(message.Topic) &&
-        IsSafeIdentifier(message.CorrelationId) &&
+        ProtocolValidator.IsValidCorrelationId(message.CorrelationId) &&
         message.Timestamp != default &&
         message.Payload.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null &&
         !string.IsNullOrWhiteSpace(message.SourceInstance) &&

@@ -12,7 +12,8 @@ public sealed class GatewayDrainServiceTests
     {
         var state = new GatewayState(
             new ReadyRedisProbe(),
-            Options.Create(new RedisOptions()));
+            Options.Create(new RedisOptions()),
+            new RedisSubscriptionState());
         using var metrics = new GatewayMetrics();
         var service = new GatewayDrainService(
             state,

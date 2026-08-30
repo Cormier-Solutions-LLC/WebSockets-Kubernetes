@@ -6,6 +6,7 @@ namespace Propago.Realtime.Gateway;
 public sealed class RedisSubscriberService(
     IRealtimeMessageBus messageBus,
     RealtimeConnectionRegistry registry,
+    RedisSubscriptionState subscriptionState,
     GatewayMetrics metrics,
     ILogger<RedisSubscriberService> logger) : BackgroundService
 {
@@ -24,9 +25,17 @@ public sealed class RedisSubscriberService(
                 await using var subscription = await messageBus.SubscribeAsync(
                     message => registry.DeliverAsync(message, stoppingToken),
                     stoppingToken);
+                subscriptionState.MarkActive();
                 metrics.RecordRedisOperation("subscribe", true);
                 retry = 1;
-                await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+                }
+                finally
+                {
+                    subscriptionState.MarkInactive();
+                }
             }
             catch (RedisException exception)
             {

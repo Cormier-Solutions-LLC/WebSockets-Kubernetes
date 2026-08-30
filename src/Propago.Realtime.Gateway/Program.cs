@@ -7,7 +7,6 @@ using Propago.Realtime.Gateway;
 using Propago.Realtime.Redis;
 
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.Configuration.AddEnvironmentVariables();
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -51,6 +50,9 @@ builder.Services
     .Validate(options => options.MaximumFrameBytes is >= 1024 and <= 1_048_576, "Realtime:MaximumFrameBytes must be between 1024 and 1048576.")
     .Validate(options => options.MaximumMessageBytes >= options.MaximumFrameBytes, "Realtime:MaximumMessageBytes must be at least MaximumFrameBytes.")
     .Validate(options => options.OutboundQueueCapacity is >= 1 and <= 10_000, "Realtime:OutboundQueueCapacity must be between 1 and 10000.")
+    .Validate(options => options.MaximumSubscriptions is >= 1 and <= 10_000, "Realtime:MaximumSubscriptions must be between 1 and 10000.")
+    .Validate(options => options.MaximumTrackedCorrelations is >= 1 and <= 100_000, "Realtime:MaximumTrackedCorrelations must be between 1 and 100000.")
+    .Validate(options => options.SlowConsumerStrikeLimit is >= 1 and <= 1_000, "Realtime:SlowConsumerStrikeLimit must be between 1 and 1000.")
     .Validate(options => options.HeartbeatSeconds is >= 5 and <= 300, "Realtime:HeartbeatSeconds must be between 5 and 300.")
     .Validate(options => options.IdleTimeoutSeconds > options.HeartbeatSeconds, "Realtime:IdleTimeoutSeconds must exceed HeartbeatSeconds.")
     .Validate(options => options.TicketLifetimeSeconds is >= 1 and <= 300, "Realtime:TicketLifetimeSeconds must be between 1 and 300.")
@@ -96,6 +98,7 @@ builder.Services.AddSingleton<IConnectionTicketStore, RedisConnectionTicketStore
 builder.Services.AddSingleton<IRealtimeMessageBus, RedisRealtimeMessageBus>();
 builder.Services.AddSingleton<IDurableRealtimeStore, RedisDurableRealtimeStore>();
 builder.Services.AddSingleton<GatewayState>();
+builder.Services.AddSingleton<RedisSubscriptionState>();
 builder.Services.AddSingleton<GatewayMetrics>();
 builder.Services.AddSingleton<RealtimeConnectionRegistry>();
 builder.Services.AddSingleton<RealtimeAuthenticator>();
@@ -104,6 +107,8 @@ builder.Services.AddSingleton<RealtimeWebSocketHandler>();
 builder.Services.AddHostedService<RedisSubscriberService>();
 builder.Services.AddHostedService<GatewayDrainService>();
 
+builder.Configuration.AddCommandLine(args);
+builder.Configuration.AddEnvironmentVariables();
 var app = builder.Build();
 var state = app.Services.GetRequiredService<GatewayState>();
 var metrics = app.Services.GetRequiredService<GatewayMetrics>();

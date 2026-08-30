@@ -276,6 +276,7 @@ public sealed class WebSocketProtocolTests
         var registry = factory.Services.GetRequiredService<RealtimeConnectionRegistry>();
         using (var drainingSocket = await ConnectAsync(factory))
         {
+            await WaitForRegistryCountAsync(registry, 1);
             Assert.Equal(1, registry.Count);
             await registry.NotifyServiceRestartAsync();
             var restart = await ReceiveEnvelopeAsync(drainingSocket);
@@ -295,6 +296,7 @@ public sealed class WebSocketProtocolTests
         }
 
         using var abruptSocket = await ConnectAsync(factory);
+        await WaitForRegistryCountAsync(registry, 1);
         Assert.Equal(1, registry.Count);
         abruptSocket.Abort();
         for (var attempt = 0; attempt < 50 && registry.Count != 0; attempt++)
@@ -303,6 +305,14 @@ public sealed class WebSocketProtocolTests
         }
 
         Assert.Equal(0, registry.Count);
+    }
+
+    private static async Task WaitForRegistryCountAsync(RealtimeConnectionRegistry registry, int expected)
+    {
+        for (var attempt = 0; attempt < 50 && registry.Count != expected; attempt++)
+        {
+            await Task.Delay(20);
+        }
     }
 
     private static async Task<WebSocket> ConnectAsync(

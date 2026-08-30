@@ -1,0 +1,11 @@
+redis:
+  mode: managed
+  managedReleaseName: prod-realtime-redis
+  credentialsSecret:
+    name: prod-realtime-redis
+    usernameKey: realtime-username
+    passwordKey: realtime-password
+  instancePrefix: prod:realtime
+networkPolicy:
+  redisPodSelector:
+    app.kubernetes.io/instance: prod-realtime-redis

@@ -11,6 +11,34 @@ permissions:
   security-events: write
 
 jobs:
+  helm-and-automation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell lifecycle scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem scripts -Filter '*.ps1' | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { $errors | Format-List; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+      - name: Helm lint, schema, and render validation
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 lint helm/realtime-gateway --strict
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime > /tmp/external.yaml
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime --values cluster/redis/managed-gateway-values.example.yaml > /tmp/managed.yaml
+          grep --quiet 'kind: Deployment' /tmp/external.yaml
+          grep --quiet 'kind: NetworkPolicy' /tmp/managed.yaml
+      - name: Render pinned managed Redis topology
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml
+          grep --quiet 'kind: StatefulSet' /tmp/redis.yaml
+          grep --quiet 'kind: PodDisruptionBudget' /tmp/redis.yaml
+          grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
+
   build-test-aot:
     runs-on: ubuntu-latest
     services:

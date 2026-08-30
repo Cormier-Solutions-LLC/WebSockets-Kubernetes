@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+data:
+  Gateway__ServiceName: {{ include "realtime-gateway.fullname" . | quote }}
+  Gateway__ShutdownDrainSeconds: {{ .Values.gateway.shutdownDrainSeconds | quote }}
+  Gateway__DetailedHealthChecks: {{ .Values.gateway.detailedHealthChecks | quote }}
+  Redis__Endpoint: {{ include "realtime-gateway.redisEndpoint" . | quote }}
+  Redis__RequiredForReadiness: {{ .Values.redis.requiredForReadiness | quote }}
+  Redis__InstancePrefix: {{ .Values.redis.instancePrefix | quote }}
+  Redis__SessionKeyPrefix: {{ .Values.redis.sessionKeyPrefix | quote }}
+  Redis__TicketKeyPrefix: {{ .Values.redis.ticketKeyPrefix | quote }}
+  Redis__PubSubChannel: {{ .Values.redis.pubSubChannel | quote }}
+  {{- range $index, $origin := .Values.gateway.allowedOrigins }}
+  Realtime__AllowedOrigins__{{ $index }}: {{ $origin | quote }}
+  {{- end }}
+  {{- range $index, $network := .Values.gateway.trustedNetworks }}
+  Proxy__TrustedNetworks__{{ $index }}: {{ $network | quote }}
+  {{- end }}

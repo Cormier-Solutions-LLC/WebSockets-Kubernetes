@@ -25,6 +25,9 @@ public sealed class RedisConnectionProvider(RedisOptions options) : IRedisReadin
             }
 
             var configuration = ConfigurationOptions.Parse(options.Endpoint);
+            configuration.User = string.IsNullOrWhiteSpace(options.User) ? null : options.User;
+            configuration.Password = string.IsNullOrWhiteSpace(options.Password) ? null : options.Password;
+            configuration.Ssl = options.Ssl;
             configuration.AbortOnConnectFail = false;
             configuration.ConnectRetry = options.ConnectRetryCount;
             configuration.ConnectTimeout = options.ConnectTimeoutMilliseconds;

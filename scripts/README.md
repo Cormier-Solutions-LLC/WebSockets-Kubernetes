@@ -1,3 +1,14 @@
 # Scripts
 
 All automation in this directory targets PowerShell 7 and follows `refs/scripts-standard-v4.2.md`. Run `Bootstrap-Realtime.ps1` to validate prerequisites, create the stable repository directories, restore packages, and build the solution.
+`Deploy-Realtime.ps1` is the Kubernetes lifecycle entry point. Run `Get-Help ./scripts/Deploy-Realtime.ps1 -Full` for its contract. It requires an explicit context and derives the namespace/release as `<environment>-<application>`.
+
+Examples:
+
+```powershell
+./scripts/Deploy-Realtime.ps1 -Action Validate -Environment dev -ExpectedContext kind-dev
+./scripts/Deploy-Realtime.ps1 -Action Plan -Environment dev -ExpectedContext kind-dev -ValuesFile ./cluster/redis/external-values.example.yaml
+./scripts/Deploy-Realtime.ps1 -Action Deploy -Environment prod -ExpectedContext production -ValuesFile ./prod-values.yaml -ManagedRedis
+```
+
+`Remove` and `RestoreRedis` require `-Force`. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, and validated archive rotation. It does not accept credentials as parameters and never creates Secrets.

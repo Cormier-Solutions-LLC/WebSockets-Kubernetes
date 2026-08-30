@@ -1,0 +1,24 @@
+name: ARC Runner Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  arc-test:
+    runs-on: cormier-runners
+
+    steps:
+      - name: Runner information
+        run: |
+          echo "Hostname: $(hostname)"
+          echo "User: $(whoami)"
+          echo "Kernel: $(uname -a)"
+          echo "Working directory: $(pwd)"
+
+      - name: Kubernetes environment
+        run: |
+          cat /etc/os-release
+          echo
+          df -h
+          echo
+          free -h

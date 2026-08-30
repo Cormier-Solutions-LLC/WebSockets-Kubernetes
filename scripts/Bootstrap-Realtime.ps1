@@ -18,6 +18,10 @@
     deployed instances. For example, 'customer-a' produces the application
     name 'realtime-customer-a'.
 
+.PARAMETER ImageRegistry
+    Configurable container registry and optional namespace used by publishing
+    and deployment. Defaults to the Cormier GitHub Container Registry namespace.
+
 .PARAMETER SkipRestore
     Skips NuGet restore.
 
@@ -51,6 +55,10 @@ param(
     [string]$NameSuffix,
 
     [Parameter()]
+    [ValidatePattern('^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)*$')]
+    [string]$ImageRegistry = 'ghcr.io/cormier-solutions-llc',
+
+    [Parameter()]
     [switch]$SkipRestore,
 
     [Parameter()]
@@ -72,6 +80,10 @@ $bootstrapDirectory = Join-Path $resolvedRoot '.bootstrap'
 $namingPath = Join-Path $bootstrapDirectory 'naming.json'
 $namingPropsPath = Join-Path $bootstrapDirectory 'naming.props'
 $applicationName = if ([string]::IsNullOrWhiteSpace($NameSuffix)) { 'realtime' } else { "realtime-$NameSuffix" }
+$normalizedImageRegistry = $ImageRegistry.TrimEnd('/')
+$registryParts = $normalizedImageRegistry.Split('/', 2)
+$containerRegistry = $registryParts[0]
+$repositoryNamespace = if ($registryParts.Length -eq 2) { $registryParts[1] } else { '' }
 $logDirectory = Join-Path $resolvedRoot '.logs'
 $archiveDirectory = Join-Path $logDirectory 'Archive'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -184,11 +196,20 @@ function Ensure-NamingManifest {
     [CmdletBinding(SupportsShouldProcess)]
     param()
 
+    $repositoryName = "cormier-$applicationName-gateway"
+    $containerRepository = if ([string]::IsNullOrWhiteSpace($repositoryNamespace)) {
+        $repositoryName
+    }
+    else {
+        "$repositoryNamespace/$repositoryName"
+    }
     $manifest = [ordered]@{
         brand = 'Cormier'
         application = $applicationName
         serviceName = "cormier-$applicationName-gateway"
-        containerRepository = "cormier-$applicationName-gateway"
+        containerRegistry = $containerRegistry
+        containerRepository = $containerRepository
+        imageRepository = "$normalizedImageRegistry/$repositoryName"
         redisInstancePrefix = if ([string]::IsNullOrWhiteSpace($NameSuffix)) {
             'cormier:realtime'
         }
@@ -201,6 +222,7 @@ function Ensure-NamingManifest {
     $propsContent = @"
 <Project>
   <PropertyGroup>
+    <ContainerRegistry>$($manifest.containerRegistry)</ContainerRegistry>
     <ContainerRepository>$($manifest.containerRepository)</ContainerRepository>
   </PropertyGroup>
 </Project>

@@ -50,6 +50,8 @@ public sealed partial class BrandingConfigurationTests
         Assert.Contains("naming.json", bootstrap, StringComparison.Ordinal);
         Assert.Contains("redisInstancePrefix", bootstrap, StringComparison.Ordinal);
         Assert.Contains("kubernetesApplication", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("imageRepository", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("ContainerRegistry", bootstrap, StringComparison.Ordinal);
         Assert.Contains("naming.props", bootstrap, StringComparison.Ordinal);
         Assert.Contains(".bootstrap/naming.props", Read("Directory.Build.props"), StringComparison.Ordinal);
         var deployment = Read("scripts/Deploy-Realtime.ps1");
@@ -58,6 +60,7 @@ public sealed partial class BrandingConfigurationTests
         Assert.Contains("[ValidateLength(1,10)]", deployment, StringComparison.Ordinal);
         Assert.Contains("$target.Length -gt 53", deployment, StringComparison.Ordinal);
         Assert.Contains("$redisRelease.Length -gt 53", deployment, StringComparison.Ordinal);
+        Assert.Contains("image.repository=$ImageRepository", deployment, StringComparison.Ordinal);
         Assert.Contains(".bootstrap/", Read(".gitignore"), StringComparison.Ordinal);
     }
 

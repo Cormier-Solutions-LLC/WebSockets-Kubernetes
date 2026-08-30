@@ -13,6 +13,8 @@
   Lowercase application identifier. Release/namespace is environment-application.
 .PARAMETER ValuesFile
   Environment-specific gateway values file.
+.PARAMETER ImageRepository
+  Full registry/repository override. Defaults to the bootstrap naming manifest.
 .PARAMETER ManagedRedis
   Install/upgrade the pinned managed Redis chart before the gateway.
 .PARAMETER ExpectedContext
@@ -30,6 +32,7 @@ param(
     [Parameter(Mandatory)][ValidateLength(1,10)][ValidatePattern('^[a-z0-9]+$')][string]$Environment,
     [Parameter()][ValidatePattern('^[a-z0-9][a-z0-9-]*$')][string]$Application = 'realtime',
     [Parameter()][string]$ValuesFile,
+    [Parameter()][ValidatePattern('^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$')][string]$ImageRepository,
     [Parameter()][switch]$ManagedRedis,
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$RedisSecretName,
     [Parameter()][ValidatePattern('^[a-zA-Z0-9_-]+$')][string]$RedisUsername = 'realtime',
@@ -82,6 +85,12 @@ if (-not $RedisInstancePrefix) {
 }
 if ([string]::IsNullOrWhiteSpace($RedisInstancePrefix) -or $RedisInstancePrefix -notmatch '^[a-zA-Z0-9:_-]+$') {
     throw "INVALID: Redis instance prefix is empty or contains unsupported characters."
+}
+if (-not $ImageRepository -and $null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {
+    $ImageRepository = [string]$naming.imageRepository
+}
+if ($ImageRepository -and $ImageRepository -notmatch '^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$') {
+    throw 'INVALID: image repository must include a valid registry and repository path.'
 }
 $chart = Join-Path $root 'helm/realtime-gateway'
 $redisValues = Join-Path $root 'cluster/redis/managed-values.yaml'
@@ -166,6 +175,7 @@ function Get-ValueArgs {
     $arguments = @()
     if ($ValuesFile) { $arguments += @('--values',$script:ValuesFile) }
     $arguments += @('--set',"redis.credentialsSecret.name=$RedisSecretName")
+    if ($ImageRepository) { $arguments += @('--set-string',"image.repository=$ImageRepository") }
     $arguments += @('--set-string',"redis.username=$RedisUsername",'--set-string',"redis.credentialsSecret.passwordKey=$RedisPasswordKey",'--set-string',"redis.instancePrefix=$RedisInstancePrefix")
     if ($ManagedRedis) { $arguments += @('--set','redis.mode=managed','--set',"redis.managedReleaseName=$redisRelease",'--set-string',"redis.managedAdminPasswordKey=$RedisAdminPasswordKey") }
     return $arguments

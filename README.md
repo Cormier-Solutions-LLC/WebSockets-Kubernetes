@@ -26,11 +26,11 @@ dotnet run --project ./src/Cormier.Realtime.Gateway
 Use an optional DNS-label suffix of at most 27 characters for a separately named distribution or deployment. Together with deployment environment names of at most 10 characters, this keeps gateway and managed-Redis Helm releases within Helm's 53-character limit. The bootstrap writes the resulting, non-secret naming contract to ignored `.bootstrap/naming.json` and MSBuild properties to `.bootstrap/naming.props`:
 
 ```powershell
-pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a
+pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a -ImageRegistry ghcr.io/cormier-solutions-llc
 # application: realtime-customer-a; service: cormier-realtime-customer-a-gateway
 ```
 
-`Deploy-Realtime.ps1` consumes the generated Kubernetes application and scopes the generated Redis prefix by deployment environment unless those parameters are explicitly supplied. .NET container publishing imports the generated container repository; an explicit MSBuild property can still override it.
+`Deploy-Realtime.ps1` consumes the generated Kubernetes application, scopes the Redis prefix by deployment environment, and passes the full generated image repository to Helm unless those parameters are explicitly supplied. .NET container publishing imports the matching registry/repository properties; explicit deployment or MSBuild properties can still override them.
 
 Domains, origins, host/server names, IPs, CIDRs, ports, Redis endpoints, image repositories, and Kubernetes identities are configuration inputs. Override the development examples through `appsettings`, environment variables (double underscores separate .NET configuration keys), Helm values, or deployment-script parameters; do not compile environment-specific network identities into the application.
 

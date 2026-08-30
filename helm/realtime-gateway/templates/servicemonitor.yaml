@@ -1,4 +1,4 @@
-{{- if .Values.observability.serviceMonitor.enabled }}
+{{- if and .Values.observability.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -19,4 +19,9 @@ spec:
       path: /metrics
       interval: {{ .Values.observability.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - targetLabel: environment
+          replacement: {{ .Values.observability.environment | quote }}
 {{- end }}

@@ -27,6 +27,7 @@ ingressRoute:
   tlsSecretName: ""
 
 observability:
+  environment: development
   alertThresholds:
     queueDepth: 100
     handlerLatencySeconds: 0.25
@@ -125,6 +126,12 @@ networkPolicy:
   ingressPodSelector:
     matchLabels:
       app.kubernetes.io/name: traefik
+  monitoringNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+  monitoringPodSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
   redisNamespaceSelector: {}
   redisPodSelector: {}
   allowExternalRedisEgress: true

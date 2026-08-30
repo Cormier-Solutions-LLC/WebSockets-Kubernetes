@@ -13,16 +13,20 @@ on:
         required: true
         type: choice
         options: [development, staging, production]
-      imageRepository:
-        description: Fully qualified image repository without tag or digest
+      publishRunId:
+        description: Trusted publish workflow run containing release evidence
         required: true
         type: string
-      imageDigest:
-        description: Tested sha256 digest to promote
+      sourceCommit:
+        description: Source commit named by the trusted release artifact
         required: true
         type: string
-      previousDigest:
-        description: Previously deployed sha256 digest; required for rollback
+      rollbackPublishRunId:
+        description: Prior trusted publish run; required for rollback
+        required: false
+        type: string
+      rollbackSourceCommit:
+        description: Prior source commit; required for rollback
         required: false
         type: string
       releaseName:
@@ -35,6 +39,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -44,28 +49,62 @@ jobs:
     environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
-      - name: Select and verify immutable digest
+      - name: Select trusted release evidence
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          PUBLISH_RUN_ID: ${{ inputs.publishRunId }}
+          SOURCE_COMMIT: ${{ inputs.sourceCommit }}
+          ROLLBACK_RUN_ID: ${{ inputs.rollbackPublishRunId }}
+          ROLLBACK_COMMIT: ${{ inputs.rollbackSourceCommit }}
+        run: |
+          $runId = if ($env:OPERATION -eq 'rollback') { $env:ROLLBACK_RUN_ID } else { $env:PUBLISH_RUN_ID }
+          $commit = if ($env:OPERATION -eq 'rollback') { $env:ROLLBACK_COMMIT } else { $env:SOURCE_COMMIT }
+          if ($runId -notmatch '^[1-9][0-9]*$') { throw 'A trusted publish workflow run ID is required.' }
+          if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'A full lowercase source commit is required.' }
+          $workflowRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" | ConvertFrom-Json
+          if ($workflowRun.path -ne '.github/workflows/publish.yml' -or $workflowRun.event -ne 'workflow_run' -or $workflowRun.conclusion -ne 'success') {
+            throw 'The selected run is not a successful trusted publish workflow run.'
+          }
+          "run_id=$runId" >> $env:GITHUB_OUTPUT
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ steps.release.outputs.commit }}
+          path: artifacts/release
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.release.outputs.run_id }}
+      - name: Verify immutable digest against trusted release evidence
         id: artifact
         shell: pwsh
         env:
-          REQUESTED_DIGEST: ${{ inputs.imageDigest }}
-          PREVIOUS_DIGEST: ${{ inputs.previousDigest }}
-          OPERATION: ${{ inputs.operation }}
-          IMAGE_REPOSITORY: ${{ inputs.imageRepository }}
+          EXPECTED_COMMIT: ${{ steps.release.outputs.commit }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |
-          $digest = if ($env:OPERATION -eq 'rollback') { $env:PREVIOUS_DIGEST } else { $env:REQUESTED_DIGEST }
-          if ($digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'A valid immutable sha256 digest is required.' }
-          if ($env:IMAGE_REPOSITORY -notmatch '^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$') { throw 'imageRepository must be a lowercase fully qualified repository.' }
+          $manifest = Get-Content -LiteralPath artifacts/release/release-manifest.json -Raw | ConvertFrom-Json
+          if ($manifest.schemaVersion -ne 1 -or $manifest.sourceCommit -ne $env:EXPECTED_COMMIT) { throw 'Release evidence does not match the requested tested commit.' }
+          if ($manifest.digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Release evidence has an invalid immutable digest.' }
+          if ($manifest.image -notmatch '^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$') { throw 'Release evidence has an invalid image repository.' }
+          if ($manifest.archiveSha256 -notmatch '^[a-f0-9]{64}$' -or $manifest.ciRunId -lt 1) { throw 'Release evidence is incomplete.' }
           if ($env:RELEASE_NAME -notmatch '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' -or $env:RELEASE_NAME.Length -gt 53) { throw 'releaseName must be a DNS label of at most 53 characters.' }
           if ($env:NAMESPACE -notmatch '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' -or $env:NAMESPACE.Length -gt 63) { throw 'namespace must be a DNS label of at most 63 characters.' }
-          docker buildx imagetools inspect "$env:IMAGE_REPOSITORY@$digest" | Out-Null
-          "digest=$digest" >> $env:GITHUB_OUTPUT
+          "digest=$($manifest.digest)" >> $env:GITHUB_OUTPUT
+          "repository=$($manifest.image)" >> $env:GITHUB_OUTPUT
+          "registry=$($manifest.image.Split('/')[0])" >> $env:GITHUB_OUTPUT
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.artifact.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+      - name: Verify published manifest exists
+        run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
       - name: Render the exact promotion bundle
         env:
           DIGEST: ${{ steps.artifact.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ inputs.imageRepository }}
+          IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |
@@ -78,7 +117,7 @@ jobs:
         env:
           KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG_CONTENT }}
           DIGEST: ${{ steps.artifact.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ inputs.imageRepository }}
+          IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |

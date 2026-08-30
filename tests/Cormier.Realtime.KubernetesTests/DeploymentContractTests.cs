@@ -151,8 +151,15 @@ public sealed class DeploymentContractTests
         }
         Assert.Contains("runbook_url:", rules, StringComparison.Ordinal);
         Assert.Contains("routingLabels", rules, StringComparison.Ordinal);
+        foreach (var expression in rules.Split('\n').Where(line => line.Contains("expr:", StringComparison.Ordinal) && line.Contains("cormier_realtime_", StringComparison.Ordinal)))
+        {
+            Assert.Contains("namespace=", expression, StringComparison.Ordinal);
+            Assert.Contains("service=", expression, StringComparison.Ordinal);
+        }
         Assert.Contains("urlSecret:", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
         Assert.Contains("kind: ServiceMonitor", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
+        Assert.Contains("Capabilities.APIVersions.Has", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
+        Assert.Contains("monitoringNamespaceSelector", Read("helm/realtime-gateway/templates/networkpolicy.yaml"), StringComparison.Ordinal);
         var hpa = Read("helm/realtime-gateway/templates/hpa.yaml");
         Assert.Contains("cormier_realtime_active_connections", hpa, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_queue_depth", hpa, StringComparison.Ordinal);
@@ -167,7 +174,12 @@ public sealed class DeploymentContractTests
         Assert.Contains("download-artifact", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
         Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
-        Assert.Contains("previousDigest", promote, StringComparison.Ordinal);
+        Assert.Contains("rollbackPublishRunId", promote, StringComparison.Ordinal);
+        Assert.Contains("actions/runs/$runId", promote, StringComparison.Ordinal);
+        Assert.Contains(".github/workflows/publish.yml", promote, StringComparison.Ordinal);
+        Assert.Contains("download-artifact", promote, StringComparison.Ordinal);
+        Assert.Contains("release-manifest.json", promote, StringComparison.Ordinal);
+        Assert.Contains("sourceCommit", promote, StringComparison.Ordinal);
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);
         Assert.Contains("image.digest", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);

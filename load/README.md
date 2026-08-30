@@ -1,6 +1,6 @@
 # Production-readiness load testing
 
-`scripts/Invoke-RealtimeLoad.ps1` executes connection, fan-out, burst, large-message, slow-client, and soak scenarios against a configured deployment. Endpoint, origin, session cookie, topic, concurrency, duration, and output are parameters; the repository contains no production address or credential.
+`scripts/Invoke-RealtimeLoad.ps1` invokes the concurrent .NET load runner for connection, fan-out, burst, permitted-large-message, slow-client, and soak scenarios. Endpoint, origin, session cookie, topic, concurrency, duration, and output are parameters; the repository contains no production address or credential. Each connection owns an asynchronous receive loop and workload task, connection and acknowledged-message latencies are reported separately, and the connection profile sends protocol heartbeats for its full requested duration.
 
 Use an isolated test tenant/session and capture a Grafana snapshot covering the run. Start with the profile in `profiles/production-readiness.json`, then increase connections in 25% steps until one measured guardrail is crossed:
 

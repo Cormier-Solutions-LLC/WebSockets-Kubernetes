@@ -289,6 +289,7 @@ public sealed class RealtimeWebSocketHandler(
 
             if (DateTimeOffset.UtcNow - connection.LastActivity > TimeSpan.FromSeconds(options.IdleTimeoutSeconds))
             {
+                metrics.RecordHeartbeatTimeout();
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.HeartbeatTimeout,
                     "heartbeat_timeout",

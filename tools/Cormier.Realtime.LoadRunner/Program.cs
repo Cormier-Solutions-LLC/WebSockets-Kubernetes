@@ -1,0 +1,246 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+
+var options = LoadOptions.Parse(args);
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(options.DurationSeconds + 60));
+using var receivers = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+var errors = new ConcurrentBag<string>();
+var connectionLatencies = new ConcurrentBag<double>();
+var acknowledgementLatencies = new ConcurrentBag<double>();
+var clients = new ConcurrentBag<ClientState>();
+var startedAt = DateTimeOffset.UtcNow;
+var runTimer = Stopwatch.StartNew();
+long sent = 0;
+long received = 0;
+long eventsReceived = 0;
+
+await Task.WhenAll(Enumerable.Range(0, options.Connections).Select(async index =>
+{
+    var socket = new ClientWebSocket();
+    socket.Options.AddSubProtocol(options.SubProtocol);
+    socket.Options.SetRequestHeader("Origin", options.Origin.AbsoluteUri.TrimEnd('/'));
+    socket.Options.SetRequestHeader("Cookie", $"{options.SessionCookieName}={options.SessionId}");
+    var timer = Stopwatch.StartNew();
+    try
+    {
+        await socket.ConnectAsync(options.Endpoint, timeout.Token);
+        connectionLatencies.Add(timer.Elapsed.TotalMilliseconds);
+        clients.Add(new ClientState(index, socket));
+    }
+    catch (Exception exception) when (exception is WebSocketException or HttpRequestException or OperationCanceledException)
+    {
+        errors.Add($"connect:{exception.GetType().Name}");
+        socket.Dispose();
+    }
+}));
+
+var orderedClients = clients.OrderBy(client => client.Index).ToArray();
+var receiveTasks = options.Scenario == "slow-client"
+    ? Array.Empty<Task>()
+    : orderedClients.Select(client => ReceiveAsync(client, receivers.Token)).ToArray();
+
+if (options.Scenario is "fanout" or "slow-client")
+{
+    await Task.WhenAll(orderedClients.Select(client =>
+        SendCommandAsync(client, "subscribe", 0, awaitAcknowledgement: options.Scenario != "slow-client", timeout.Token)));
+}
+
+var deadline = DateTimeOffset.UtcNow.AddSeconds(options.DurationSeconds);
+if (options.Scenario == "connection")
+{
+    var connectionDeadline = DateTimeOffset.UtcNow.AddSeconds(options.DurationSeconds);
+    await Task.WhenAll(orderedClients.Select(async client =>
+    {
+        while (DateTimeOffset.UtcNow < connectionDeadline)
+        {
+            await SendCommandAsync(client, "ping", 0, awaitAcknowledgement: true, timeout.Token);
+            var remaining = connectionDeadline - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero) await Task.Delay(remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10), timeout.Token);
+        }
+    }));
+}
+else
+{
+    await Task.WhenAll(orderedClients.Select(async client =>
+    {
+        for (var message = 0; message < options.MessagesPerConnection; message++)
+        {
+            if (options.Scenario == "soak" && DateTimeOffset.UtcNow >= deadline) break;
+            try
+            {
+                await SendCommandAsync(client, "publish", options.PayloadBytes, options.Scenario != "slow-client", timeout.Token);
+                Interlocked.Increment(ref sent);
+                if (options.Scenario == "soak") await Task.Delay(TimeSpan.FromMilliseconds(100), timeout.Token);
+            }
+            catch (Exception exception) when (exception is WebSocketException or IOException or OperationCanceledException)
+            {
+                errors.Add($"send:{exception.GetType().Name}");
+                break;
+            }
+        }
+    }));
+
+    if (options.Scenario == "slow-client")
+    {
+        var remaining = deadline - DateTimeOffset.UtcNow;
+        if (remaining > TimeSpan.Zero) await Task.Delay(remaining, timeout.Token);
+    }
+    else if (options.Scenario == "fanout")
+    {
+        var expectedEvents = Interlocked.Read(ref sent) * orderedClients.Length;
+        while (Interlocked.Read(ref eventsReceived) < expectedEvents && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(25), timeout.Token);
+        }
+
+        var deliveredEvents = Interlocked.Read(ref eventsReceived);
+        if (deliveredEvents < expectedEvents) errors.Add($"fanout:incomplete-delivery:{deliveredEvents}/{expectedEvents}");
+    }
+}
+
+foreach (var client in orderedClients)
+{
+    try
+    {
+        if (client.Socket.State == WebSocketState.Open)
+        {
+            await client.Socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "load_complete", CancellationToken.None);
+        }
+    }
+    catch (Exception exception) when (exception is WebSocketException or IOException)
+    {
+        errors.Add($"close:{exception.GetType().Name}");
+    }
+}
+
+receivers.Cancel();
+try { await Task.WhenAll(receiveTasks); }
+catch (OperationCanceledException) when (receivers.IsCancellationRequested) { }
+foreach (var client in orderedClients) client.Socket.Dispose();
+runTimer.Stop();
+
+var result = new
+{
+    schemaVersion = 2,
+    scenario = options.Scenario,
+    startedAt,
+    durationSeconds = Math.Round(runTimer.Elapsed.TotalSeconds, 3),
+    requestedConnections = options.Connections,
+    establishedConnections = orderedClients.Length,
+    messagesSent = Interlocked.Read(ref sent),
+    messagesReceived = Interlocked.Read(ref received),
+    eventMessagesReceived = Interlocked.Read(ref eventsReceived),
+    payloadBytes = options.PayloadBytes,
+    operationsPerSecond = runTimer.Elapsed.TotalSeconds > 0 ? Math.Round(Interlocked.Read(ref sent) / runTimer.Elapsed.TotalSeconds, 3) : 0,
+    connectionLatencyMilliseconds = Percentiles(connectionLatencies),
+    acknowledgedMessageLatencyMilliseconds = Percentiles(acknowledgementLatencies),
+    errorCount = errors.Count,
+    errors = errors.GroupBy(error => error).Select(group => new { error = group.Key, count = group.Count() }).OrderBy(item => item.error).ToArray(),
+};
+var outputPath = Path.GetFullPath(options.OutputPath);
+Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+await File.WriteAllTextAsync(outputPath, json, CancellationToken.None);
+Console.WriteLine(json);
+return errors.IsEmpty ? 0 : 1;
+
+async Task SendCommandAsync(ClientState client, string type, int payloadBytes, bool awaitAcknowledgement, CancellationToken cancellationToken)
+{
+    var correlationId = Guid.NewGuid().ToString("N");
+    TaskCompletionSource<double>? acknowledgement = null;
+    if (awaitAcknowledgement)
+    {
+        acknowledgement = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.Pending[correlationId] = new PendingRequest(Stopwatch.GetTimestamp(), acknowledgement);
+    }
+
+    var envelope = JsonSerializer.Serialize(new
+    {
+        version = "1.0",
+        type,
+        correlationId,
+        timestamp = DateTimeOffset.UtcNow,
+        route = $"topics/{options.Topic}",
+        payload = new { data = new string('x', payloadBytes) },
+    });
+    var bytes = Encoding.UTF8.GetBytes(envelope);
+    try
+    {
+        await client.Socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+        if (acknowledgement is not null)
+        {
+            var latency = await acknowledgement.Task.WaitAsync(cancellationToken);
+            if (type == "publish") acknowledgementLatencies.Add(latency);
+        }
+    }
+    catch
+    {
+        client.Pending.TryRemove(correlationId, out _);
+        throw;
+    }
+}
+
+async Task ReceiveAsync(ClientState client, CancellationToken cancellationToken)
+{
+    var buffer = new byte[131072];
+    while (!cancellationToken.IsCancellationRequested && client.Socket.State is WebSocketState.Open or WebSocketState.CloseSent)
+    {
+        try
+        {
+            var result = await client.Socket.ReceiveAsync(buffer, cancellationToken);
+            if (result.MessageType == WebSocketMessageType.Close) return;
+            if (!result.EndOfMessage) throw new InvalidDataException("The load runner requires unfragmented server messages.");
+            Interlocked.Increment(ref received);
+            using var document = JsonDocument.Parse(buffer.AsMemory(0, result.Count));
+            var root = document.RootElement;
+            if (!root.TryGetProperty("type", out var type)) continue;
+            if (type.GetString() == "event") Interlocked.Increment(ref eventsReceived);
+            if (type.GetString() == "ack" &&
+                root.TryGetProperty("correlationId", out var correlation) &&
+                client.Pending.TryRemove(correlation.GetString() ?? string.Empty, out var pending))
+            {
+                pending.Completion.TrySetResult(Stopwatch.GetElapsedTime(pending.Started).TotalMilliseconds);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
+        catch (Exception exception) when (exception is WebSocketException or IOException or JsonException)
+        {
+            if (!cancellationToken.IsCancellationRequested) errors.Add($"receive:{exception.GetType().Name}");
+            return;
+        }
+    }
+}
+
+static object Percentiles(IEnumerable<double> samples)
+{
+    var ordered = samples.Order().ToArray();
+    double Value(double percentile) => ordered.Length == 0 ? 0 : Math.Round(ordered[Math.Max(0, (int)Math.Ceiling(percentile * ordered.Length) - 1)], 3);
+    return new { count = ordered.Length, p50 = Value(0.50), p95 = Value(0.95), p99 = Value(0.99), maximum = Value(1) };
+}
+
+internal sealed record PendingRequest(long Started, TaskCompletionSource<double> Completion);
+
+internal sealed record ClientState(int Index, ClientWebSocket Socket)
+{
+    public ConcurrentDictionary<string, PendingRequest> Pending { get; } = new(StringComparer.Ordinal);
+}
+
+internal sealed record LoadOptions(Uri Endpoint, Uri Origin, string SessionId, string SessionCookieName, string SubProtocol, string Topic, int Connections, int MessagesPerConnection, int PayloadBytes, string Scenario, int DurationSeconds, string OutputPath)
+{
+    public static LoadOptions Parse(string[] args)
+    {
+        var values = args.Chunk(2).ToDictionary(pair => pair[0], pair => pair.Length == 2 ? pair[1] : string.Empty, StringComparer.Ordinal);
+        string Required(string name) => values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value) ? value : throw new ArgumentException($"{name} is required.");
+        int Number(string name) => int.Parse(Required(name), System.Globalization.CultureInfo.InvariantCulture);
+        var endpoint = new Uri(Required("--endpoint"), UriKind.Absolute);
+        var origin = new Uri(Required("--origin"), UriKind.Absolute);
+        if (endpoint.Scheme is not ("ws" or "wss")) throw new ArgumentException("--endpoint must use ws or wss.");
+        if (origin.Scheme is not ("http" or "https")) throw new ArgumentException("--origin must use http or https.");
+        var scenario = Required("--scenario");
+        if (scenario is not ("connection" or "fanout" or "burst" or "large-message" or "slow-client" or "soak")) throw new ArgumentException("Unsupported scenario.");
+        return new(endpoint, origin, Required("--session-id"), Required("--session-cookie-name"), Required("--subprotocol"), Required("--topic"), Number("--connections"), Number("--messages-per-connection"), Number("--payload-bytes"), scenario, Number("--duration-seconds"), Required("--output"));
+    }
+}

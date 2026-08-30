@@ -137,6 +137,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
                 message,
                 RealtimeJsonSerializerContext.Default.ServerMessageEnvelope);
             await _sendLock.WaitAsync(cancellationToken);
+            var outcome = "failure";
             try
             {
                 if (_socket.State != WebSocketState.Open)
@@ -146,10 +147,16 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
                 await _socket.SendAsync(payload, WebSocketMessageType.Text, true, cancellationToken);
                 _metrics.RecordMessage("outbound", "sent");
-                _metrics.RecordHandlerDuration("send", Stopwatch.GetElapsedTime(started), "success");
+                outcome = "success";
+            }
+            catch (OperationCanceledException)
+            {
+                outcome = "cancelled";
+                throw;
             }
             finally
             {
+                _metrics.RecordHandlerDuration("send", Stopwatch.GetElapsedTime(started), outcome);
                 _sendLock.Release();
             }
         }

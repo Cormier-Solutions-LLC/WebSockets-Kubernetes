@@ -6,6 +6,12 @@ public sealed class RedisOptions
 
     public string Endpoint { get; set; } = "localhost:6379";
 
+    public string? User { get; set; }
+
+    public string? Password { get; set; }
+
+    public bool Ssl { get; set; }
+
     public string InstancePrefix { get; set; } = "propago:realtime";
 
     public bool RequiredForReadiness { get; set; }

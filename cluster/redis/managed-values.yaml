@@ -1,0 +1,43 @@
+# Values for bitnamicharts/redis 23.1.1 (Redis 8.2.1).
+architecture: replication
+auth:
+  enabled: true
+  sentinel: true
+  existingSecret: propago-redis-auth
+  existingSecretPasswordKey: redis-password
+tls: { enabled: false }
+master:
+  persistence: { enabled: true, size: 8Gi }
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+  pdb: { create: true, minAvailable: 1 }
+  topologySpreadConstraints:
+    - { maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway }
+replica:
+  replicaCount: 3
+  persistence: { enabled: true, size: 8Gi }
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+  podAntiAffinityPreset: soft
+  pdb: { create: true, minAvailable: 2 }
+sentinel:
+  enabled: true
+  quorum: 2
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+metrics:
+  enabled: true
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+networkPolicy:
+  enabled: true
+  allowExternal: false
+  allowExternalEgress: false
+commonConfiguration: |-
+  appendonly yes
+  appendfsync everysec
+  maxmemory-policy noeviction

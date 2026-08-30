@@ -160,7 +160,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
                 await _socket.CloseOutputAsync(status, description, cancellationToken);
             }
         }
-        catch (WebSocketException)
+        catch (Exception exception) when (exception is WebSocketException or IOException or ObjectDisposedException)
         {
             _metrics.RecordCloseCode((int)WebSocketCloseStatus.InternalServerError);
         }

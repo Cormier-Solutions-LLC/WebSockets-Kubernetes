@@ -26,6 +26,7 @@ builder.Services
     .AddOptions<RedisOptions>()
     .Bind(builder.Configuration.GetSection(RedisOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.Endpoint), "Redis:Endpoint is required.")
+    .Validate(options => string.IsNullOrWhiteSpace(options.User) == string.IsNullOrWhiteSpace(options.Password), "Redis:User and Redis:Password must be supplied together.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.InstancePrefix), "Redis:InstancePrefix is required.")
     .Validate(options => options.ConnectRetryCount is >= 1 and <= 20, "Redis:ConnectRetryCount must be between 1 and 20.")
     .Validate(options => options.StreamMaxLength is >= 100 and <= 1_000_000, "Redis:StreamMaxLength must be between 100 and 1000000.")

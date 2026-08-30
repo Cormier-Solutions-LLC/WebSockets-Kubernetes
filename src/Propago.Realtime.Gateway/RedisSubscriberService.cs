@@ -45,6 +45,14 @@ public sealed class RedisSubscriberService(
                 await Task.Delay(TimeSpan.FromSeconds(delay), stoppingToken);
                 retry = Math.Min(retry * 2, 30);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (ObjectDisposedException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
     }
 }

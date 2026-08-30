@@ -1,0 +1,58 @@
+{{- if eq .Values.redis.mode "managed" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}-redis-acl
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 180
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "realtime-gateway.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis-acl-provisioner
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: provision
+          image: {{ .Values.redis.aclProvisionerImage | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          env:
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.managedAdminPasswordKey }} }
+            - name: REALTIME_USER
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.credentialsSecret.usernameKey }} }
+            - name: REALTIME_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.credentialsSecret.passwordKey }} }
+            - { name: REDIS_HOST, value: {{ .Values.redis.managedReleaseName | quote }} }
+            - { name: REDIS_PORT, value: {{ .Values.redis.port | quote }} }
+            - { name: INSTANCE_PREFIX, value: {{ .Values.redis.instancePrefix | quote }} }
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping >/dev/null; do sleep 2; done
+              printf '>%s' "$REALTIME_PASSWORD" | redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -x ACL SETUSER "$REALTIME_USER" reset on resetkeys resetchannels "~${INSTANCE_PREFIX}:*" "&${INSTANCE_PREFIX}:*" +@read +@write +@connection +@pubsub +@scripting +@stream
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+{{- end }}

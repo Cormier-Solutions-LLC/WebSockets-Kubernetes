@@ -1,0 +1,94 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/cormier-solutions-llc/propago-realtime-gateway
+  tag: "0.1.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+revisionHistoryLimit: 3
+terminationGracePeriodSeconds: 35
+
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: false
+
+service:
+  port: 80
+  targetPort: 8080
+
+gateway:
+  shutdownDrainSeconds: 25
+  detailedHealthChecks: false
+  allowedOrigins:
+    - https://propago.local
+  trustedNetworks:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+redis:
+  # external: use an existing endpoint; managed: endpoint is derived from managedReleaseName.
+  mode: external
+  externalEndpoint: redis.example.internal:6379
+  managedReleaseName: propago-redis
+  port: 6379
+  tls: false
+  requiredForReadiness: true
+  credentialsSecret:
+    name: propago-realtime-redis
+    usernameKey: realtime-username
+    passwordKey: realtime-password
+  instancePrefix: propago:realtime
+  sessionKeyPrefix: sessions
+  ticketKeyPrefix: tickets
+  pubSubChannel: events
+  aclProvisionerImage: redis@sha256:987c376c727652f99625c7d205a1cba3cb2c53b92b0b62aade2bd48ee1593232
+  managedAdminPasswordKey: redis-password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 75
+
+topologySpreadConstraints:
+  enabled: true
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: kube-system
+  ingressPodSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  redisNamespaceSelector: {}
+  redisPodSelector: {}
+  allowExternalRedisEgress: true
+  externalRedisCidrs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

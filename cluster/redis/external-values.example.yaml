@@ -1,0 +1,12 @@
+redis:
+  mode: external
+  externalEndpoint: redis.example.internal:6380
+  port: 6380
+  tls: true
+  credentialsSecret:
+    name: prod-realtime-redis
+    usernameKey: realtime-username
+    passwordKey: realtime-password
+  instancePrefix: prod:realtime
+networkPolicy:
+  externalRedisCidrs: [10.40.0.0/16]

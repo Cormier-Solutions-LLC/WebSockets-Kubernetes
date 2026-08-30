@@ -1,0 +1,3 @@
+Gateway service: {{ include "realtime-gateway.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}
+Redis mode: {{ .Values.redis.mode }}
+Validate: kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "realtime-gateway.fullname" . }} --timeout=5m

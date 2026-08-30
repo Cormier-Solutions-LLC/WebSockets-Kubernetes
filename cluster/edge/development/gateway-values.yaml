@@ -14,4 +14,5 @@ networkPolicy:
 ingressRoute:
   enabled: true
   host: realtime.propago.local
+  path: /realtime/ws
   tlsSecretName: realtime-propago-local-tls

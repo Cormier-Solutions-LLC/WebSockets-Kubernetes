@@ -35,9 +35,9 @@ metrics:
       enabled: true
 
 additionalArguments:
-  - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=0
-  - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=0
-  - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=0
+  - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=60s
+  - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=60s
+  - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=120s
 
 podDisruptionBudget:
   enabled: true

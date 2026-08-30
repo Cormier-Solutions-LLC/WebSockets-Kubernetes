@@ -16,15 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Parse PowerShell lifecycle scripts
-        shell: pwsh
         run: |
-          $failed = $false
-          Get-ChildItem scripts -Filter '*.ps1' | ForEach-Object {
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) { $errors | Format-List; $failed = $true }
-          }
-          if ($failed) { exit 1 }
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview mcr.microsoft.com/powershell@sha256:042240d57ec9e47e511033b92625a8d95875ee5860af3015992c248b58a8be81 -NoLogo -NoProfile -Command '
+            $failed = $false
+            Get-ChildItem /work/scripts -Filter "*.ps1" | ForEach-Object {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+              if ($errors.Count -gt 0) { $errors | Format-List; $failed = $true }
+            }
+            if ($failed) { exit 1 }
+          '
       - name: Helm lint, schema, and render validation
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json

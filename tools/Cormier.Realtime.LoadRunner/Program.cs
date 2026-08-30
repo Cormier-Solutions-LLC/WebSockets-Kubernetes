@@ -110,14 +110,28 @@ else
     if (options.Scenario == "slow-client")
     {
         var remaining = deadline - DateTimeOffset.UtcNow;
-        if (remaining > TimeSpan.Zero) await Task.Delay(remaining, timeout.Token);
+        try
+        {
+            if (remaining > TimeSpan.Zero) await Task.Delay(remaining, timeout.Token);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            errors.Add("slow-client:deadline-expired");
+        }
     }
     else if (options.Scenario == "fanout")
     {
         var expectedEvents = Interlocked.Read(ref sent) * orderedClients.Length;
-        while (Interlocked.Read(ref eventsReceived) < expectedEvents && DateTimeOffset.UtcNow < deadline)
+        try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(25), timeout.Token);
+            while (Interlocked.Read(ref eventsReceived) < expectedEvents && DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25), timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            errors.Add("fanout:deadline-expired");
         }
 
         var deliveredEvents = Interlocked.Read(ref eventsReceived);

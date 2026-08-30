@@ -143,6 +143,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Certificate expiry", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__LOGS_URL__", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__TRACES_URL__", dashboardText, StringComparison.Ordinal);
+        Assert.Equal("__DASHBOARD_UID__", dashboard.RootElement.GetProperty("uid").GetString());
         foreach (var expression in dashboard.RootElement.GetProperty("panels").EnumerateArray()
                      .SelectMany(panel => panel.GetProperty("targets").EnumerateArray())
                      .Select(target => target.GetProperty("expr").GetString()!)
@@ -168,13 +169,18 @@ public sealed class DeploymentContractTests
         Assert.Contains("reason=~\"abrupt_disconnect|socket_closed\"", rules, StringComparison.Ordinal);
         Assert.Contains("traefikNamespace", rules, StringComparison.Ordinal);
         Assert.Contains("service=~{{ $traefikServicePattern", rules, StringComparison.Ordinal);
+        Assert.Contains("kube_deployment_status_replicas_available", rules, StringComparison.Ordinal);
+        Assert.Contains("kube_deployment_spec_replicas", rules, StringComparison.Ordinal);
+        Assert.Contains("absent(certmanager_certificate_ready_status", rules, StringComparison.Ordinal);
+        Assert.Contains("set .Values.observability.prometheusRule.routingLabels \"namespace\"", rules, StringComparison.Ordinal);
         foreach (var expression in rules.Split('\n').Where(line => line.Contains("expr:", StringComparison.Ordinal) && line.Contains("cormier_realtime_", StringComparison.Ordinal)))
         {
             Assert.Contains("namespace=", expression, StringComparison.Ordinal);
             Assert.Contains("service=", expression, StringComparison.Ordinal);
         }
         Assert.Contains("urlSecret:", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
-        Assert.Contains("required \"observability.prometheusRule.routingLabels.service", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
+        Assert.Contains("default (include \"realtime-gateway.fullname\"", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
+        Assert.Contains("name: namespace", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
         Assert.Contains("kind: ServiceMonitor", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
         Assert.Contains("Capabilities.APIVersions.Has", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
         Assert.Contains("monitoringNamespaceSelector", Read("helm/realtime-gateway/templates/networkpolicy.yaml"), StringComparison.Ordinal);
@@ -190,12 +196,20 @@ public sealed class DeploymentContractTests
         var dispatcher = Read("src/Cormier.Realtime.Gateway/RealtimeDispatcher.cs");
         Assert.Contains("catch (OperationCanceledException)", dispatcher, StringComparison.Ordinal);
         Assert.Contains("outcome = \"cancelled\"", dispatcher, StringComparison.Ordinal);
+        Assert.Contains("messageOutcome = \"rejected\"", dispatcher, StringComparison.Ordinal);
+        Assert.Contains("messageOutcome = \"error\"", dispatcher, StringComparison.Ordinal);
+        Assert.Contains("RecordMessage(\"inbound\", messageOutcome)", dispatcher, StringComparison.Ordinal);
         Assert.Contains("catch\n        {\n            outcome = \"failure\"", dispatcher.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
 
         var subscriber = Read("src/Cormier.Realtime.Gateway/RedisSubscriberService.cs");
         Assert.Contains("ConnectionFailed +=", subscriber, StringComparison.Ordinal);
         Assert.Contains("ConnectionRestored +=", subscriber, StringComparison.Ordinal);
         Assert.Contains("MarkSubscription(false)", subscriber, StringComparison.Ordinal);
+        Assert.Contains("RecordRedisDuration(\"subscribe\", Stopwatch.GetElapsedTime(subscribeStarted), false)", subscriber, StringComparison.Ordinal);
+
+        var dashboardTemplate = Read("helm/realtime-gateway/templates/grafana-dashboard.yaml");
+        Assert.Contains("sha256sum $dashboardIdentity", dashboardTemplate, StringComparison.Ordinal);
+        Assert.Contains("replace \"__DASHBOARD_UID__\"", dashboardTemplate, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -223,6 +237,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("HELM_VALUES_CONTENT", promote, StringComparison.Ordinal);
         Assert.Contains("kubectl get --raw /apis/monitoring.coreos.com/v1", promote, StringComparison.Ordinal);
         Assert.Contains("api_args+=(--api-versions", promote, StringComparison.Ordinal);
+        Assert.Contains("$workflowRun.head_sha -ne $commit", promote, StringComparison.Ordinal);
+        Assert.Contains("ref: ${{ steps.release.outputs.commit }}", promote, StringComparison.Ordinal);
         Assert.Contains("--values", promote, StringComparison.Ordinal);
         Assert.Contains("deployment_name=$(awk", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);

@@ -51,6 +51,7 @@ public sealed class RedisSubscriptionState
 public sealed class GatewayMetrics : IDisposable
 {
     private static readonly double[] DurationBuckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300];
+    private static readonly double[] ConnectionDurationBuckets = [1, 5, 10, 30, 60, 300, 900, 1800, 3600, 7200, 14400, 28800, 86400, 172800, 604800];
     private static readonly HashSet<string> Directions = new(StringComparer.Ordinal) { "inbound", "outbound" };
     private static readonly HashSet<string> MessageOutcomes = new(StringComparer.Ordinal) { "accepted", "sent", "malformed", "invalid", "duplicate", "rejected", "error" };
     private static readonly HashSet<string> AuthenticationMethods = new(StringComparer.Ordinal) { "session", "ticket", "origin" };
@@ -306,8 +307,13 @@ public sealed class GatewayMetrics : IDisposable
     private void Increment(string name, params (string Name, string Value)[] labels) =>
         _series.AddOrUpdate(Series(name, labels), 1, static (_, current) => current + 1);
 
-    private void Observe(string name, double value, params (string Name, string Value)[] labels) =>
-        _histograms.GetOrAdd(Series(name, labels), static _ => new HistogramState()).Observe(value);
+    private void Observe(string name, double value, params (string Name, string Value)[] labels)
+    {
+        var buckets = string.Equals(name, "cormier_realtime_connection_duration_seconds", StringComparison.Ordinal)
+            ? ConnectionDurationBuckets
+            : DurationBuckets;
+        _histograms.GetOrAdd(Series(name, labels), _ => new HistogramState(buckets)).Observe(value);
+    }
 
     private static string Series(string name, params (string Name, string Value)[] labels) => labels.Length == 0
         ? name
@@ -336,9 +342,16 @@ public sealed class GatewayMetrics : IDisposable
 
     private sealed class HistogramState
     {
-        private readonly long[] _buckets = new long[DurationBuckets.Length];
+        private readonly double[] _bounds;
+        private readonly long[] _buckets;
         private long _count;
         private double _sum;
+
+        public HistogramState(double[] bounds)
+        {
+            _bounds = bounds;
+            _buckets = new long[bounds.Length];
+        }
 
         public void Observe(double value)
         {
@@ -346,7 +359,7 @@ public sealed class GatewayMetrics : IDisposable
             {
                 _count++;
                 _sum += value;
-                for (var i = 0; i < DurationBuckets.Length; i++) if (value <= DurationBuckets[i]) _buckets[i]++;
+                for (var i = 0; i < _bounds.Length; i++) if (value <= _bounds[i]) _buckets[i]++;
             }
         }
 
@@ -357,7 +370,7 @@ public sealed class GatewayMetrics : IDisposable
             var labels = brace < 0 ? string.Empty : series[(brace + 1)..^1];
             lock (_buckets)
             {
-                for (var i = 0; i < DurationBuckets.Length; i++) builder.Append(name).Append("_bucket{").Append(labels).Append(labels.Length == 0 ? string.Empty : ",").Append("le=\"").Append(DurationBuckets[i].ToString(CultureInfo.InvariantCulture)).Append("\"} ").Append(_buckets[i]).Append('\n');
+                for (var i = 0; i < _bounds.Length; i++) builder.Append(name).Append("_bucket{").Append(labels).Append(labels.Length == 0 ? string.Empty : ",").Append("le=\"").Append(_bounds[i].ToString(CultureInfo.InvariantCulture)).Append("\"} ").Append(_buckets[i]).Append('\n');
                 builder.Append(name).Append("_bucket{").Append(labels).Append(labels.Length == 0 ? string.Empty : ",").Append("le=\"+Inf\"} ").Append(_count).Append('\n');
                 builder.Append(name).Append("_sum").Append(brace < 0 ? string.Empty : $"{{{labels}}}").Append(' ').Append(_sum.ToString(CultureInfo.InvariantCulture)).Append('\n');
                 builder.Append(name).Append("_count").Append(brace < 0 ? string.Empty : $"{{{labels}}}").Append(' ').Append(_count).Append('\n');

@@ -22,9 +22,9 @@ public sealed class RedisSubscriberService(
         var retry = 1;
         while (!stoppingToken.IsCancellationRequested)
         {
+            var subscribeStarted = Stopwatch.GetTimestamp();
             try
             {
-                var subscribeStarted = Stopwatch.GetTimestamp();
                 var connection = await connectionProvider.GetConnectionAsync(stoppingToken);
                 var subscriptionEstablished = 0;
 
@@ -80,6 +80,7 @@ public sealed class RedisSubscriberService(
             catch (RedisException exception)
             {
                 metrics.RecordRedisOperation("subscribe", false);
+                metrics.RecordRedisDuration("subscribe", Stopwatch.GetElapsedTime(subscribeStarted), false);
                 metrics.RecordRedisSubscriptionState(false);
                 var delay = Math.Min(retry, 30);
                 LogRetry(logger, delay, exception);

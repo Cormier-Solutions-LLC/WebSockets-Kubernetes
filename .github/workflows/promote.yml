@@ -48,7 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v4
       - name: Select trusted release evidence
         id: release
         shell: pwsh
@@ -65,11 +64,14 @@ jobs:
           if ($runId -notmatch '^[1-9][0-9]*$') { throw 'A trusted publish workflow run ID is required.' }
           if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'A full lowercase source commit is required.' }
           $workflowRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" | ConvertFrom-Json
-          if ($workflowRun.path -ne '.github/workflows/publish.yml' -or $workflowRun.event -ne 'workflow_run' -or $workflowRun.conclusion -ne 'success') {
+          if ($workflowRun.path -ne '.github/workflows/publish.yml' -or $workflowRun.event -ne 'workflow_run' -or $workflowRun.conclusion -ne 'success' -or $workflowRun.head_sha -ne $commit) {
             throw 'The selected run is not a successful trusted publish workflow run.'
           }
           "run_id=$runId" >> $env:GITHUB_OUTPUT
           "commit=$commit" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.commit }}
       - uses: actions/download-artifact@v4
         with:
           name: release-${{ steps.release.outputs.commit }}

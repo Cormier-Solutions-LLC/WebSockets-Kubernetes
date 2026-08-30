@@ -486,7 +486,7 @@
     "to": "now"
   },
   "timezone": "browser",
-  "title": "Realtime Gateway Production Diagnostics",
-  "uid": "realtime-gateway-production",
+  "title": "__DASHBOARD_TITLE__",
+  "uid": "__DASHBOARD_UID__",
   "version": 1
 }

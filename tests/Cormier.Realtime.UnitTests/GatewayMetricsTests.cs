@@ -73,4 +73,15 @@ public sealed class GatewayMetricsTests
         Assert.Contains("cormier_realtime_queue_depth 0", rendered, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_queue_dropped_total 0", rendered, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ConnectionDurationHistogramCoversLongLivedSockets()
+    {
+        using var metrics = new GatewayMetrics();
+        metrics.RecordConnectionOpened();
+        metrics.RecordConnectionClosed("client_close", TimeSpan.FromHours(12));
+
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_connection_duration_seconds_bucket{reason=\"client_close\",le=\"86400\"} 1", rendered, StringComparison.Ordinal);
+    }
 }

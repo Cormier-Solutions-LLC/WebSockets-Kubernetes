@@ -1,6 +1,9 @@
 {{- if and .Values.observability.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
 {{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
 {{- $traefikServicePattern := default (printf ".*%s.*" (include "realtime-gateway.fullname" .)) .Values.observability.platformMetrics.traefikServicePattern }}
+{{- $_ := set .Values.observability.prometheusRule.routingLabels "service" (default (include "realtime-gateway.fullname" .) .Values.observability.prometheusRule.routingLabels.service) }}
+{{- $_ := set .Values.observability.prometheusRule.routingLabels "namespace" .Release.Namespace }}
+{{- $_ := set .Values.observability.prometheusRule.routingLabels "environment" .Values.observability.environment }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -24,7 +27,7 @@ spec:
             summary: Realtime gateway has no scrapeable instances
             runbook_url: {{ printf "%s/gateway-unavailable" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayReadinessFailure
-          expr: max_over_time(kube_pod_status_ready{namespace={{ .Release.Namespace | quote }},condition="true",pod=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}[5m]) < 1
+          expr: (max_over_time(kube_pod_status_ready{namespace={{ .Release.Namespace | quote }},condition="true",pod=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}[5m]) < 1) or (max(kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}}) < max(kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}})) or absent(kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}})
           for: 5m
           labels:
             severity: critical
@@ -154,7 +157,7 @@ spec:
             summary: A certificate expires within seven days
             runbook_url: {{ printf "%s/certificates" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayCertificateNotReady
-          expr: min(certmanager_certificate_ready_status{namespace={{ .Release.Namespace | quote }},name={{ $certificateName | quote }},condition="True"}) < 1
+          expr: (min(certmanager_certificate_ready_status{namespace={{ .Release.Namespace | quote }},name={{ $certificateName | quote }},condition="True"}) < 1) or absent(certmanager_certificate_ready_status{namespace={{ .Release.Namespace | quote }},name={{ $certificateName | quote }},condition="True"})
           for: 10m
           labels:
             severity: critical

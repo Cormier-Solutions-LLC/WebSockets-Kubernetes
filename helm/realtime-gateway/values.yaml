@@ -60,7 +60,7 @@ observability:
     additionalLabels: {}
     routingLabels:
       team: platform
-      service: realtime-gateway
+      service: ""
   alertmanagerConfig:
     enabled: false
     receiverName: realtime-platform

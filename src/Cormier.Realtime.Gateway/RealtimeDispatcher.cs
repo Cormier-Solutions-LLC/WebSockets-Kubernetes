@@ -22,6 +22,7 @@ public sealed class RealtimeDispatcher(
     {
         var started = Stopwatch.GetTimestamp();
         var outcome = "success";
+        var messageOutcome = "accepted";
         var redisOperation = "publish";
         var redisStarted = Stopwatch.GetTimestamp();
         try
@@ -39,6 +40,7 @@ public sealed class RealtimeDispatcher(
             if (!RealtimeRouteAuthorizer.TryAuthorize(connection.Identity, envelope.Route, out var route))
             {
                 outcome = "failure";
+                messageOutcome = "rejected";
                 metrics.RecordAuthorizationFailure(envelope.Type);
                 connection.TryEnqueue(Error(
                     envelope,
@@ -52,6 +54,7 @@ public sealed class RealtimeDispatcher(
                 if (!connection.TrySubscribe(route))
                 {
                     outcome = "failure";
+                    messageOutcome = "rejected";
                     connection.TryEnqueue(Error(
                         envelope,
                         ProtocolErrorCodes.InvalidEnvelope,
@@ -73,6 +76,7 @@ public sealed class RealtimeDispatcher(
             if (!string.Equals(envelope.Type, ProtocolMessageTypes.Publish, StringComparison.Ordinal))
             {
                 outcome = "failure";
+                messageOutcome = "rejected";
                 connection.TryEnqueue(Error(
                     envelope,
                     ProtocolErrorCodes.UnsupportedType,
@@ -123,6 +127,7 @@ public sealed class RealtimeDispatcher(
             catch (RedisException)
             {
                 outcome = "failure";
+                messageOutcome = "error";
                 metrics.RecordRedisOperation(redisOperation, false);
                 metrics.RecordRedisDuration(redisOperation, Stopwatch.GetElapsedTime(redisStarted), false);
                 connection.TryEnqueue(Error(
@@ -134,15 +139,18 @@ public sealed class RealtimeDispatcher(
         catch (OperationCanceledException)
         {
             outcome = "cancelled";
+            messageOutcome = "error";
             throw;
         }
         catch
         {
             outcome = "failure";
+            messageOutcome = "error";
             throw;
         }
         finally
         {
+            metrics.RecordMessage("inbound", messageOutcome);
             metrics.RecordHandlerDuration("dispatch", Stopwatch.GetElapsedTime(started), outcome);
         }
     }

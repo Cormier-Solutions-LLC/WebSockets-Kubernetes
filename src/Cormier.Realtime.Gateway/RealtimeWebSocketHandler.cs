@@ -244,7 +244,6 @@ public sealed class RealtimeWebSocketHandler(
                     continue;
                 }
 
-                metrics.RecordMessage("inbound", "accepted");
                 await dispatcher.DispatchAsync(connection, envelope, cancellationToken);
             }
 

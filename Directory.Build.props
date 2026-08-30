@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">0.1.0</ApplicationVersion>
+    <ContainerVersion Condition="'$(ContainerVersion)' == ''">0.1.0</ContainerVersion>
+    <ContractsVersion Condition="'$(ContractsVersion)' == ''">0.1.0</ContractsVersion>
+    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">0.1.0</RedisAdapterVersion>
+    <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">0.1.0</HelmChartVersion>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>

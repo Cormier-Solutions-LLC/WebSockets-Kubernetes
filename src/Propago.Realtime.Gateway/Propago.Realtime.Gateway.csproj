@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <VersionPrefix>$(ApplicationVersion)</VersionPrefix>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <ContainerRepository>propago-realtime-gateway</ContainerRepository>
+    <ContainerImageTags>$(ContainerVersion)</ContainerImageTags>
+    <ContainerBaseImage>mcr.microsoft.com/dotnet/runtime-deps:10.0-noble-chiseled</ContainerBaseImage>
+    <ContainerUser>1654</ContainerUser>
+    <ContainerPort>8080</ContainerPort>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ContainerEnvironmentVariable Include="ASPNETCORE_HTTP_PORTS" Value="8080" />
+    <ContainerEnvironmentVariable Include="DOTNET_EnableDiagnostics" Value="0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Propago.Realtime.Contracts\Propago.Realtime.Contracts.csproj" />
+    <ProjectReference Include="..\Propago.Realtime.Redis\Propago.Realtime.Redis.csproj" />
+  </ItemGroup>
+  
+</Project>

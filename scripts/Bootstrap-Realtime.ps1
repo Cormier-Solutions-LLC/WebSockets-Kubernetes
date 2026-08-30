@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Validates and bootstraps the standalone Propago realtime solution.
+    Validates and bootstraps the standalone Cormier realtime solution.
 
 .DESCRIPTION
     Performs prerequisite validation, creates the stable repository layout,
@@ -12,6 +12,15 @@
 
 .PARAMETER Configuration
     MSBuild configuration. Defaults to Release.
+
+.PARAMETER NameSuffix
+    Optional DNS-label suffix of at most 27 characters for independently
+    deployed instances. For example, 'customer-a' produces the application
+    name 'realtime-customer-a'.
+
+.PARAMETER ImageRegistry
+    Configurable container registry and optional namespace used by publishing
+    and deployment. Defaults to the Cormier GitHub Container Registry namespace.
 
 .PARAMETER SkipRestore
     Skips NuGet restore.
@@ -26,8 +35,8 @@
     Reports planned external operations without running restore or build.
 
 .NOTES
-    Version: 0.1.0
-    Project: Propago Realtime Gateway
+    Version: 0.2.0
+    Project: Cormier Realtime Gateway
     Requires: PowerShell 7.x, .NET SDK 10.x, Git
     Output: .logs/Bootstrap-Realtime-<timestamp>.log
     Standard: refs/scripts-standard-v4.2.md
@@ -40,6 +49,14 @@ param(
     [Parameter()]
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
+
+    [Parameter()]
+    [ValidatePattern('^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]
+    [string]$NameSuffix,
+
+    [Parameter()]
+    [ValidatePattern('^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)*$')]
+    [string]$ImageRegistry = 'ghcr.io/cormier-solutions-llc',
 
     [Parameter()]
     [switch]$SkipRestore,
@@ -58,7 +75,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $resolvedRoot = [System.IO.Path]::GetFullPath($RepositoryRoot)
-$solutionPath = Join-Path $resolvedRoot 'Propago.Realtime.sln'
+$solutionPath = Join-Path $resolvedRoot 'Cormier.Realtime.sln'
+$bootstrapDirectory = Join-Path $resolvedRoot '.bootstrap'
+$namingPath = Join-Path $bootstrapDirectory 'naming.json'
+$namingPropsPath = Join-Path $bootstrapDirectory 'naming.props'
+$applicationName = if ([string]::IsNullOrWhiteSpace($NameSuffix)) { 'realtime' } else { "realtime-$NameSuffix" }
+$normalizedImageRegistry = $ImageRegistry.TrimEnd('/')
+$registryParts = $normalizedImageRegistry.Split('/', 2)
+$containerRegistry = $registryParts[0]
+$repositoryNamespace = if ($registryParts.Length -eq 2) { $registryParts[1] } else { '' }
 $logDirectory = Join-Path $resolvedRoot '.logs'
 $archiveDirectory = Join-Path $logDirectory 'Archive'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -125,6 +150,86 @@ function Ensure-Directory {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
     $script:Summary.Created++
     Write-Log -Level 'PASS' -Message ("CREATED: directory {0}" -f $Path)
+}
+
+function Ensure-GeneratedFile {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Content,
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    $existing = if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        [System.IO.File]::ReadAllText($Path)
+    }
+    else {
+        $null
+    }
+
+    if ($existing -eq $Content) {
+        $script:Summary.Unchanged++
+        Write-Log -Level 'PASS' -Message ("UNCHANGED: {0} {1}" -f $Description, $Path)
+        return
+    }
+
+    $action = if ($null -eq $existing) { "Create $Description" } else { "Update $Description" }
+    if ($DryRun -or -not $PSCmdlet.ShouldProcess($Path, $action)) {
+        $script:Summary.Skipped++
+        Write-Log -Level 'INFO' -Message ("SKIPPED: would {0} {1}" -f $action.ToLowerInvariant(), $Path)
+        return
+    }
+
+    [System.IO.Directory]::CreateDirectory($bootstrapDirectory) | Out-Null
+    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+    if ($null -eq $existing) {
+        $script:Summary.Created++
+        Write-Log -Level 'PASS' -Message ("CREATED: {0} {1}" -f $Description, $Path)
+    }
+    else {
+        $script:Summary.Updated++
+        Write-Log -Level 'PASS' -Message ("UPDATED: {0} {1}" -f $Description, $Path)
+    }
+}
+
+function Ensure-NamingManifest {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $repositoryName = "cormier-$applicationName-gateway"
+    $containerRepository = if ([string]::IsNullOrWhiteSpace($repositoryNamespace)) {
+        $repositoryName
+    }
+    else {
+        "$repositoryNamespace/$repositoryName"
+    }
+    $manifest = [ordered]@{
+        brand = 'Cormier'
+        application = $applicationName
+        serviceName = "cormier-$applicationName-gateway"
+        containerRegistry = $containerRegistry
+        containerRepository = $containerRepository
+        imageRepository = "$normalizedImageRegistry/$repositoryName"
+        redisInstancePrefix = if ([string]::IsNullOrWhiteSpace($NameSuffix)) {
+            'cormier:realtime'
+        }
+        else {
+            "cormier:realtime:$NameSuffix"
+        }
+        kubernetesApplication = $applicationName
+    }
+    $content = ($manifest | ConvertTo-Json) + [Environment]::NewLine
+    $propsContent = @"
+<Project>
+  <PropertyGroup>
+    <ContainerRegistry>$($manifest.containerRegistry)</ContainerRegistry>
+    <ContainerRepository>$($manifest.containerRepository)</ContainerRepository>
+  </PropertyGroup>
+</Project>
+"@ + [Environment]::NewLine
+
+    Ensure-GeneratedFile -Path $namingPath -Content $content -Description 'naming manifest'
+    Ensure-GeneratedFile -Path $namingPropsPath -Content $propsContent -Description 'MSBuild naming properties'
 }
 
 function Invoke-CheckedCommand {
@@ -239,6 +344,7 @@ try {
     foreach ($relativePath in @('src', 'tests', 'helm', 'cluster', 'observability', 'scripts', 'docs')) {
         Ensure-Directory -Path (Join-Path $resolvedRoot $relativePath)
     }
+    Ensure-NamingManifest
 
     Write-Phase -Name 'Restore and build'
     if ($SkipRestore) {

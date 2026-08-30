@@ -2,7 +2,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: ghcr.io/cormier-solutions-llc/propago-realtime-gateway
+  repository: ghcr.io/cormier-solutions-llc/cormier-realtime-gateway
   tag: "0.1.0"
   digest: ""
   pullPolicy: IfNotPresent
@@ -30,7 +30,7 @@ gateway:
   shutdownDrainSeconds: 25
   detailedHealthChecks: false
   allowedOrigins:
-    - https://propago.local
+    - https://cormier.local
   trustedNetworks:
     - 10.0.0.0/8
     - 172.16.0.0/12
@@ -40,17 +40,17 @@ redis:
   # external: use an existing endpoint; managed: endpoint is derived from managedReleaseName.
   mode: external
   externalEndpoint: redis.example.internal:6379
-  managedReleaseName: propago-redis
+  managedReleaseName: cormier-redis
   port: 6379
   sentinelPort: 26379
   sentinelServiceName: mymaster
   tls: false
   requiredForReadiness: true
   credentialsSecret:
-    name: propago-realtime-redis
+    name: cormier-realtime-redis
     passwordKey: realtime
   username: realtime
-  instancePrefix: propago:realtime
+  instancePrefix: cormier:realtime
   sessionKeyPrefix: sessions
   ticketKeyPrefix: tickets
   pubSubChannel: events

@@ -29,7 +29,7 @@ param(
     [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
     [Parameter()][ValidatePattern('^https://[a-z0-9.-]+$')][string]$Origin = 'https://propago.local',
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
-    [Parameter()][ValidateRange(5,110)][int]$LongConnectionSeconds = 30,
+    [Parameter()][ValidateRange(5,300)][int]$LongConnectionSeconds = 30,
     [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120
 )
 
@@ -100,16 +100,18 @@ try {
     }
     else {
         $socket = [Net.WebSockets.ClientWebSocket]::new()
+        $connectionTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
         $socket.Options.AddSubProtocol('propago.realtime.v1')
         $socket.Options.SetRequestHeader('Origin', $Origin)
         try {
             $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$ticket")
-            $socket.ConnectAsync($uri, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+            $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
             Start-Sleep -Seconds $LongConnectionSeconds
             if ($socket.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'WSS connection did not remain open for the requested validation interval.' }
             Write-Result PASS "Authenticated WSS connection remained open for $LongConnectionSeconds seconds."
         }
         finally {
+            $connectionTimeout.Dispose()
             $socket.Dispose()
         }
     }

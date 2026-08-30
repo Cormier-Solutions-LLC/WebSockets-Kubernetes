@@ -108,9 +108,10 @@ public sealed class GatewayMetrics : IDisposable
 
     public void RecordHealthRequest(string endpoint)
     {
+        var normalizedEndpoint = Normalize(endpoint, "startup", "live", "ready");
         Interlocked.Increment(ref _healthRequestCount);
-        Increment("cormier_realtime_health_requests_total", ("endpoint", Normalize(endpoint, "startup", "live", "ready")));
-        _healthRequests.Add(1, new KeyValuePair<string, object?>("endpoint", endpoint));
+        Increment("cormier_realtime_health_requests_total", ("endpoint", normalizedEndpoint));
+        _healthRequests.Add(1, new KeyValuePair<string, object?>("endpoint", normalizedEndpoint));
     }
 
     public void RecordConnectionOpened()

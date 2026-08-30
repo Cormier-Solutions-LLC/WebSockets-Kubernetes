@@ -18,7 +18,7 @@ builder.Logging.AddJsonConsole(options =>
 builder.Services
     .AddOptions<GatewayOptions>()
     .Bind(builder.Configuration.GetSection(GatewayOptions.SectionName))
-    .Validate(options => !string.IsNullOrWhiteSpace(options.ServiceName), "Gateway:ServiceName is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ServiceName) && options.ServiceName.Length <= 128, "Gateway:ServiceName is required and must not exceed 128 characters.")
     .Validate(options => options.ShutdownDrainSeconds is >= 1 and <= 300, "Gateway:ShutdownDrainSeconds must be between 1 and 300.")
     .ValidateOnStart();
 

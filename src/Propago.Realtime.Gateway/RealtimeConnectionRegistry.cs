@@ -68,6 +68,11 @@ public sealed class RealtimeConnectionRegistry(
         foreach (var connection in _connections.Values)
         {
             var identity = connection.Identity;
+            if (!IsPotentialRecipient(connection, identity, message))
+            {
+                continue;
+            }
+
             if (connection.SessionId is not null && authenticator is not null)
             {
                 try
@@ -114,12 +119,7 @@ public sealed class RealtimeConnectionRegistry(
                 continue;
             }
 
-            if (!string.Equals(identity.TenantId, message.TenantId, StringComparison.Ordinal) ||
-                message.UserId is not null &&
-                !string.Equals(identity.UserId, message.UserId, StringComparison.Ordinal) ||
-                !identity.AllowedTopics.Any(allowed =>
-                    allowed == "*" || string.Equals(allowed, message.Topic, StringComparison.Ordinal)) ||
-                !connection.IsSubscribed(message.Topic, message.UserId))
+            if (!IsPotentialRecipient(connection, identity, message))
             {
                 continue;
             }
@@ -140,6 +140,17 @@ public sealed class RealtimeConnectionRegistry(
             await Task.WhenAll(closeTasks);
         }
     }
+
+    private static bool IsPotentialRecipient(
+        RealtimeConnection connection,
+        RealtimeIdentity identity,
+        RealtimeBusMessage message) =>
+        string.Equals(identity.TenantId, message.TenantId, StringComparison.Ordinal) &&
+        (message.UserId is null ||
+            string.Equals(identity.UserId, message.UserId, StringComparison.Ordinal)) &&
+        identity.AllowedTopics.Any(allowed =>
+            allowed == "*" || string.Equals(allowed, message.Topic, StringComparison.Ordinal)) &&
+        connection.IsSubscribed(message.Topic, message.UserId);
 
     private static void AddBoundedClose(
         ref List<Task>? closeTasks,

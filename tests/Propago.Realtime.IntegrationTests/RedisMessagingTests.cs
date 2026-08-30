@@ -166,9 +166,10 @@ public sealed class RedisMessagingTests
         await database.StreamAddAsync(streamKey, "data", "null");
         await database.StreamAddAsync(streamKey, "other", "missing");
         await database.StreamAddAsync(streamKey, "data", "{}");
+        await database.StreamAddAsync(streamKey, "data", "{\"eventClass\":\"audit\"}");
         var poisonRead = await store.ReadAsync("audit", "gateways", "instance-b", CancellationToken.None);
         Assert.Empty(poisonRead);
-        Assert.Equal(4, await database.StreamLengthAsync($"{streamKey}:poison"));
+        Assert.Equal(5, await database.StreamLengthAsync($"{streamKey}:poison"));
 
         for (var index = 0; index < 500; index++)
         {

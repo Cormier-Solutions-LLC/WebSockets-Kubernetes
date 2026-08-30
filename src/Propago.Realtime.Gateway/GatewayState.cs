@@ -60,6 +60,7 @@ public sealed class GatewayMetrics : IDisposable
     private readonly Counter<long> _redisOperations;
     private readonly Counter<long> _closeCodes;
     private readonly Counter<long> _handlerCancellations;
+    private readonly Counter<long> _drainTransitions;
     private long _healthRequestCount;
     private long _activeConnections;
     private long _messageCount;
@@ -69,6 +70,7 @@ public sealed class GatewayMetrics : IDisposable
     private long _redisErrorCount;
     private long _closeCount;
     private long _handlerCancellationCount;
+    private long _draining;
 
     public GatewayMetrics()
     {
@@ -82,6 +84,7 @@ public sealed class GatewayMetrics : IDisposable
         _redisOperations = _meter.CreateCounter<long>("gateway.redis.operations");
         _closeCodes = _meter.CreateCounter<long>("gateway.websocket.closes");
         _handlerCancellations = _meter.CreateCounter<long>("gateway.handlers.cancelled");
+        _drainTransitions = _meter.CreateCounter<long>("gateway.drain.transitions");
     }
 
     public long HealthRequestCount => Interlocked.Read(ref _healthRequestCount);
@@ -165,6 +168,12 @@ public sealed class GatewayMetrics : IDisposable
         _handlerCancellations.Add(1);
     }
 
+    public void RecordDrainStarted()
+    {
+        Interlocked.Exchange(ref _draining, 1);
+        _drainTransitions.Add(1);
+    }
+
     public string RenderPrometheus() =>
         "# HELP propago_realtime_health_requests_total Health endpoint requests.\n" +
         "# TYPE propago_realtime_health_requests_total counter\n" +
@@ -185,7 +194,9 @@ public sealed class GatewayMetrics : IDisposable
         "# TYPE propago_realtime_websocket_closes_total counter\n" +
         $"propago_realtime_websocket_closes_total {Interlocked.Read(ref _closeCount)}\n" +
         "# TYPE propago_realtime_handler_cancellations_total counter\n" +
-        $"propago_realtime_handler_cancellations_total {Interlocked.Read(ref _handlerCancellationCount)}\n";
+        $"propago_realtime_handler_cancellations_total {Interlocked.Read(ref _handlerCancellationCount)}\n" +
+        "# TYPE propago_realtime_draining gauge\n" +
+        $"propago_realtime_draining {Interlocked.Read(ref _draining)}\n";
 
     public void Dispose() => _meter.Dispose();
 }

@@ -79,7 +79,7 @@ public sealed class RealtimeDispatcher(
             envelope.CorrelationId,
             DateTimeOffset.UtcNow,
             envelope.Payload,
-            $"{gatewayOptions.ServiceName}:{Environment.MachineName}");
+            BuildSourceInstance(gatewayOptions.ServiceName, Environment.MachineName));
 
         try
         {
@@ -129,6 +129,22 @@ public sealed class RealtimeDispatcher(
             allowed => string.Equals(allowed, eventClass, StringComparison.Ordinal))
             ? eventClass
             : null;
+    }
+
+    public static string BuildSourceInstance(string serviceName, string machineName)
+    {
+        const int maximumLength = 256;
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
+        if (serviceName.Length > 128)
+        {
+            throw new ArgumentException("Service name must not exceed 128 characters.", nameof(serviceName));
+        }
+
+        var machineLength = Math.Min(
+            machineName.Length,
+            maximumLength - serviceName.Length - 1);
+        return $"{serviceName}:{machineName[..machineLength]}";
     }
 
     private static ServerMessageEnvelope Acknowledge(MessageEnvelope envelope) =>

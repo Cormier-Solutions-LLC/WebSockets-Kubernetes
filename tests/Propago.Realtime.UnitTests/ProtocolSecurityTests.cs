@@ -82,6 +82,17 @@ public sealed class ProtocolSecurityTests
         Assert.False(enabled.Validate(null, new RealtimeOptions { SlowConsumerStrikeLimit = 0 }).Succeeded);
     }
 
+    [Fact]
+    public void SourceInstanceIsBoundedForLongMachineNames()
+    {
+        var source = RealtimeDispatcher.BuildSourceInstance(
+            new string('s', 128),
+            new string('m', 253));
+
+        Assert.Equal(256, source.Length);
+        Assert.StartsWith(new string('s', 128) + ":", source, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("https", "gateway.example", null, "https://gateway.example", true)]
     [InlineData("https", "gateway.example", 8443, "https://gateway.example:8443", true)]

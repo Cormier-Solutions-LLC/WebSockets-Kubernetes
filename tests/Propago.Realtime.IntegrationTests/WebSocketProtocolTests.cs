@@ -209,6 +209,34 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task UnrelatedTenantDeliveryDoesNotRevalidateSession()
+    {
+        await using var factory = new RealtimeFactory();
+        using var socket = await ConnectAsync(
+            factory,
+            origin: "https://gateway.example",
+            useTicket: false,
+            forwardedHost: "gateway.example");
+        await SendAsync(socket, Envelope(ProtocolMessageTypes.Subscribe, "subscribe-before-other-tenant"));
+        Assert.Equal(ProtocolMessageTypes.Acknowledge, (await ReceiveEnvelopeAsync(socket)).Type);
+        var validationCount = factory.SessionStore.ValidationCount;
+
+        await factory.Services.GetRequiredService<RealtimeConnectionRegistry>().DeliverAsync(
+            new RealtimeBusMessage(
+                "other-tenant-delivery",
+                "tenant-2",
+                null,
+                "orders",
+                "other-tenant-correlation",
+                DateTimeOffset.UtcNow,
+                JsonSerializer.SerializeToElement(new { value = 42 }),
+                "integration-test"),
+            CancellationToken.None);
+
+        Assert.Equal(validationCount, factory.SessionStore.ValidationCount);
+    }
+
+    [Fact]
     public async Task MalformedTrafficDoesNotRefreshIdleActivity()
     {
         await using var factory = new RealtimeFactory();
@@ -390,12 +418,19 @@ public sealed class WebSocketProtocolTests
 
     public sealed class FakeSessionStore : IRealtimeSessionStore
     {
+        private int _validationCount;
+
         public bool Revoked { get; set; }
 
-        public ValueTask<RealtimeIdentity?> ValidateAsync(string sessionId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<RealtimeIdentity?>(sessionId == "valid-session-123456" && !Revoked
+        public int ValidationCount => Volatile.Read(ref _validationCount);
+
+        public ValueTask<RealtimeIdentity?> ValidateAsync(string sessionId, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _validationCount);
+            return ValueTask.FromResult<RealtimeIdentity?>(sessionId == "valid-session-123456" && !Revoked
                 ? new RealtimeIdentity("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.AddMinutes(5))
                 : null);
+        }
     }
 
     private sealed class FakeTicketStore(

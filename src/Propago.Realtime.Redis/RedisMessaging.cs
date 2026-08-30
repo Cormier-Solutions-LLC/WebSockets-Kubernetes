@@ -309,7 +309,8 @@ public sealed class RedisDurableRealtimeStore(
 
     private static RedisKey PoisonKey(RedisKey streamKey) => $"{streamKey}:poison";
 
-    private static bool IsSafeIdentifier(string value) =>
+    private static bool IsSafeIdentifier(string? value) =>
+        value is not null &&
         value.Length is >= 1 and <= 128 &&
         value.All(character => char.IsLetterOrDigit(character) || character is '-' or '_' or '.');
 

@@ -194,17 +194,22 @@ public sealed class RealtimeWebSocketHandler(
                 }
 
                 var revalidation = await RevalidateIdentityAsync(connection, cancellationToken);
-                if (revalidation is not true)
+                if (revalidation is false)
                 {
                     await connection.RequestCloseAsync(
-                        revalidation is false
-                            ? RealtimeCloseStatus.AuthenticationExpired
-                            : WebSocketCloseStatus.InternalServerError,
-                        revalidation is false
-                            ? "authentication_invalid"
-                            : "authentication_unavailable",
+                        RealtimeCloseStatus.AuthenticationExpired,
+                        "authentication_invalid",
                         cancellationToken);
-                    return revalidation is false ? "authentication_invalid" : "authentication_unavailable";
+                    return "authentication_invalid";
+                }
+
+                if (revalidation is null)
+                {
+                    await connection.RequestCloseAsync(
+                        WebSocketCloseStatus.InternalServerError,
+                        "authentication_unavailable",
+                        cancellationToken);
+                    return "authentication_unavailable";
                 }
 
                 connection.RecordActivity();
@@ -240,15 +245,21 @@ public sealed class RealtimeWebSocketHandler(
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
             var revalidation = await RevalidateIdentityAsync(connection, cancellationToken);
-            if (revalidation is not true)
+            if (revalidation is false)
             {
                 await connection.RequestCloseAsync(
-                    revalidation is false
-                        ? RealtimeCloseStatus.AuthenticationExpired
-                        : WebSocketCloseStatus.InternalServerError,
-                    revalidation is false
-                        ? "authentication_invalid"
-                        : "authentication_unavailable",
+                    RealtimeCloseStatus.AuthenticationExpired,
+                    "authentication_invalid",
+                    cancellationToken);
+                connectionCancellation.Cancel();
+                return;
+            }
+
+            if (revalidation is null)
+            {
+                await connection.RequestCloseAsync(
+                    WebSocketCloseStatus.InternalServerError,
+                    "authentication_unavailable",
                     cancellationToken);
                 connectionCancellation.Cancel();
                 return;

@@ -5,6 +5,7 @@ namespace Propago.Realtime.Gateway;
 public sealed class GatewayDrainService(
     GatewayState state,
     RealtimeConnectionRegistry registry,
+    GatewayMetrics metrics,
     IOptions<GatewayOptions> options,
     ILogger<GatewayDrainService> logger) : IHostedLifecycleService
 {
@@ -28,6 +29,7 @@ public sealed class GatewayDrainService(
     {
         registry.BeginDrain();
         state.BeginDrain();
+        metrics.RecordDrainStarted();
         await registry.NotifyServiceRestartAsync();
 
         try

@@ -24,10 +24,10 @@ The script validates prerequisites before build work, produces a redacted log un
 ## Local workflow
 
 ```powershell
-dotnet restore ./Propago.Realtime.sln --locked-mode
-dotnet build ./Propago.Realtime.sln -c Release --no-restore
-dotnet test ./Propago.Realtime.sln -c Release --no-build
-dotnet run --project ./src/Propago.Realtime.Gateway
+dotnet restore ./Cormier.Realtime.sln --locked-mode
+dotnet build ./Cormier.Realtime.sln -c Release --no-restore
+dotnet test ./Cormier.Realtime.sln -c Release --no-build
+dotnet run --project ./src/Cormier.Realtime.Gateway
 ```
 
 Configuration uses normal ASP.NET Core providers. Environment variables use double underscores, for example `Gateway__ShutdownDrainSeconds=30` and `Redis__Endpoint=redis:6379`. Never commit Redis credentials or put secrets in command arguments.
@@ -41,9 +41,9 @@ Redis Streams are disabled by default. Enable `Redis__StreamsEnabled=true` and p
 The Redis integration suite expects `REDIS_TEST_ENDPOINT`. A local Docker example is:
 
 ```powershell
-docker run --rm --name propago-realtime-test-redis -p 127.0.0.1:16379:6379 redis:7.4-alpine
+docker run --rm --name cormier-realtime-test-redis -p 127.0.0.1:16379:6379 redis:7.4-alpine
 $env:REDIS_TEST_ENDPOINT = 'localhost:16379'
-dotnet test ./tests/Propago.Realtime.IntegrationTests -c Release
+dotnet test ./tests/Cormier.Realtime.IntegrationTests -c Release
 ```
 
 ## Native AOT publish
@@ -51,7 +51,7 @@ dotnet test ./tests/Propago.Realtime.IntegrationTests -c Release
 Choose a runtime identifier that matches the host:
 
 ```powershell
-dotnet publish ./src/Propago.Realtime.Gateway -c Release -r win-x64 --self-contained
+dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r win-x64 --self-contained
 ```
 
 CI publishes and tests `linux-x64`. Any compiler, analyzer, trimming, or AOT warning is blocking. New JSON DTOs must be added to the source-generation context before use.
@@ -61,7 +61,7 @@ CI publishes and tests `linux-x64`. Any compiler, analyzer, trimming, or AOT war
 The gateway project uses the .NET SDK container publisher, a chiseled `runtime-deps` base, port 8080, and non-root UID 1654. CI produces an OCI archive without requiring a Dockerfile. For a local daemon publish:
 
 ```powershell
-dotnet publish ./src/Propago.Realtime.Gateway -c Release -r linux-x64 --self-contained /t:PublishContainer
+dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r linux-x64 --self-contained /t:PublishContainer
 ```
 
 ## Failure behavior

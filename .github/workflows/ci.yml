@@ -61,21 +61,23 @@ jobs:
       - name: Install Native AOT prerequisites
         run: sudo apt-get update && sudo apt-get install --yes clang zlib1g-dev
       - name: Restore locked dependencies
-        run: dotnet restore Propago.Realtime.sln --runtime linux-x64 --locked-mode
+        run: dotnet restore Cormier.Realtime.sln --runtime linux-x64 --locked-mode
       - name: Build
-        run: dotnet build Propago.Realtime.sln --configuration Release --no-restore
+        run: dotnet build Cormier.Realtime.sln --configuration Release --no-restore
       - name: Test
         env:
           REDIS_TEST_ENDPOINT: localhost:6379
-        run: dotnet test Propago.Realtime.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
+        run: dotnet test Cormier.Realtime.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
       - name: Native AOT publish
-        run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore --output artifacts/native
+        run: dotnet publish src/Cormier.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore --output artifacts/native
       - name: Smoke-test Native AOT executable
         env:
           ASPNETCORE_URLS: http://127.0.0.1:8080
           Gateway__ShutdownDrainSeconds: '1'
+          Redis__Endpoint: localhost:6379
+          Realtime__AllowedOrigins__0: http://127.0.0.1:8080
         run: |
-          artifacts/native/Propago.Realtime.Gateway > artifacts/native-smoke.log 2>&1 &
+          artifacts/native/Cormier.Realtime.Gateway > artifacts/native-smoke.log 2>&1 &
           gateway_pid=$!
           trap 'kill "$gateway_pid" 2>/dev/null || true; wait "$gateway_pid" 2>/dev/null || true' EXIT
           ready=false
@@ -92,13 +94,13 @@ jobs:
           fi
           curl --fail --silent http://127.0.0.1:8080/health/startup >/dev/null
           curl --fail --silent http://127.0.0.1:8080/health/live >/dev/null
-          curl --fail --silent http://127.0.0.1:8080/metrics | grep --quiet propago_realtime_health_requests_total
+          curl --fail --silent http://127.0.0.1:8080/metrics | grep --quiet cormier_realtime_health_requests_total
       - name: Create OCI archive with .NET SDK
-        run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore /t:PublishContainer /p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/propago-realtime-gateway.tar.gz
+        run: dotnet publish src/Cormier.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore /t:PublishContainer /p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/cormier-realtime-gateway.tar.gz
       - name: Smoke-test rootless read-only OCI image
         id: container-smoke
         run: |
-          load_output=$(docker load --input artifacts/propago-realtime-gateway.tar.gz)
+          load_output=$(docker load --input artifacts/cormier-realtime-gateway.tar.gz)
           printf '%s\n' "$load_output"
           image_ref=$(printf '%s\n' "$load_output" | sed -n 's/^Loaded image: //p' | tail -n 1)
           if [ -z "$image_ref" ]; then
@@ -109,7 +111,7 @@ jobs:
           configured_user=$(docker image inspect --format '{{.Config.User}}' "$image_ref")
           test "$configured_user" = "1654"
 
-          container_name="propago-realtime-${GITHUB_RUN_ID}"
+          container_name="cormier-realtime-${GITHUB_RUN_ID}"
           cleanup() {
             docker rm --force "$container_name" >/dev/null 2>&1 || true
           }
@@ -123,6 +125,7 @@ jobs:
             --security-opt no-new-privileges:true \
             --add-host host.docker.internal:host-gateway \
             --env Redis__Endpoint=host.docker.internal:6379 \
+            --env Realtime__AllowedOrigins__0=http://127.0.0.1:18080 \
             --publish 127.0.0.1:18080:8080 \
             "$image_ref"
 
@@ -140,7 +143,7 @@ jobs:
           fi
           curl --fail --silent http://127.0.0.1:18080/health/startup >/dev/null
           curl --fail --silent http://127.0.0.1:18080/health/live >/dev/null
-          curl --fail --silent http://127.0.0.1:18080/metrics | grep --quiet propago_realtime_health_requests_total
+          curl --fail --silent http://127.0.0.1:18080/metrics | grep --quiet cormier_realtime_health_requests_total
       - name: Scan source and artifacts
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -155,7 +158,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          input: artifacts/propago-realtime-gateway.tar.gz
+          input: artifacts/cormier-realtime-gateway.tar.gz
           format: sarif
           output: artifacts/trivy-image.sarif
           severity: HIGH,CRITICAL
@@ -178,22 +181,22 @@ jobs:
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ steps.container-smoke.outputs.image_ref }}
-          artifact-name: propago-realtime-gateway-sbom.spdx.json
-          output-file: artifacts/propago-realtime-gateway.spdx.json
+          artifact-name: cormier-realtime-gateway-sbom.spdx.json
+          output-file: artifacts/cormier-realtime-gateway.spdx.json
           format: spdx-json
       - name: Upload immutable build evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: propago-realtime-${{ github.sha }}
+          name: cormier-realtime-${{ github.sha }}
           path: |
             artifacts/native
-            artifacts/propago-realtime-gateway.tar.gz
+            artifacts/cormier-realtime-gateway.tar.gz
             artifacts/test-results
             artifacts/trivy-filesystem.sarif
             artifacts/trivy-image.sarif
             artifacts/native-smoke.log
-            artifacts/propago-realtime-gateway.spdx.json
+            artifacts/cormier-realtime-gateway.spdx.json
 
   dependency-review:
     if: github.event_name == 'pull_request'

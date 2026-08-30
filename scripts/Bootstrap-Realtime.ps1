@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Validates and bootstraps the standalone Propago realtime solution.
+    Validates and bootstraps the standalone Cormier realtime solution.
 
 .DESCRIPTION
     Performs prerequisite validation, creates the stable repository layout,
@@ -12,6 +12,10 @@
 
 .PARAMETER Configuration
     MSBuild configuration. Defaults to Release.
+
+.PARAMETER NameSuffix
+    Optional DNS-label suffix for independently deployed instances. For example,
+    'customer-a' produces the application name 'realtime-customer-a'.
 
 .PARAMETER SkipRestore
     Skips NuGet restore.
@@ -26,8 +30,8 @@
     Reports planned external operations without running restore or build.
 
 .NOTES
-    Version: 0.1.0
-    Project: Propago Realtime Gateway
+    Version: 0.2.0
+    Project: Cormier Realtime Gateway
     Requires: PowerShell 7.x, .NET SDK 10.x, Git
     Output: .logs/Bootstrap-Realtime-<timestamp>.log
     Standard: refs/scripts-standard-v4.2.md
@@ -40,6 +44,10 @@ param(
     [Parameter()]
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
+
+    [Parameter()]
+    [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)*$')]
+    [string]$NameSuffix,
 
     [Parameter()]
     [switch]$SkipRestore,
@@ -58,7 +66,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $resolvedRoot = [System.IO.Path]::GetFullPath($RepositoryRoot)
-$solutionPath = Join-Path $resolvedRoot 'Propago.Realtime.sln'
+$solutionPath = Join-Path $resolvedRoot 'Cormier.Realtime.sln'
+$bootstrapDirectory = Join-Path $resolvedRoot '.bootstrap'
+$namingPath = Join-Path $bootstrapDirectory 'naming.json'
+$applicationName = if ([string]::IsNullOrWhiteSpace($NameSuffix)) { 'realtime' } else { "realtime-$NameSuffix" }
 $logDirectory = Join-Path $resolvedRoot '.logs'
 $archiveDirectory = Join-Path $logDirectory 'Archive'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -125,6 +136,56 @@ function Ensure-Directory {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
     $script:Summary.Created++
     Write-Log -Level 'PASS' -Message ("CREATED: directory {0}" -f $Path)
+}
+
+function Ensure-NamingManifest {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $manifest = [ordered]@{
+        brand = 'Cormier'
+        application = $applicationName
+        serviceName = "cormier-$applicationName-gateway"
+        containerRepository = "cormier-$applicationName-gateway"
+        redisInstancePrefix = if ([string]::IsNullOrWhiteSpace($NameSuffix)) {
+            'cormier:realtime'
+        }
+        else {
+            "cormier:realtime:$NameSuffix"
+        }
+        kubernetesApplication = $applicationName
+    }
+    $content = ($manifest | ConvertTo-Json) + [Environment]::NewLine
+    $existing = if (Test-Path -LiteralPath $namingPath -PathType Leaf) {
+        [System.IO.File]::ReadAllText($namingPath)
+    }
+    else {
+        $null
+    }
+
+    if ($existing -eq $content) {
+        $script:Summary.Unchanged++
+        Write-Log -Level 'PASS' -Message ("UNCHANGED: naming manifest {0}" -f $namingPath)
+        return
+    }
+
+    $action = if ($null -eq $existing) { 'Create naming manifest' } else { 'Update naming manifest' }
+    if ($DryRun -or -not $PSCmdlet.ShouldProcess($namingPath, $action)) {
+        $script:Summary.Skipped++
+        Write-Log -Level 'INFO' -Message ("SKIPPED: would {0} {1}" -f $action.ToLowerInvariant(), $namingPath)
+        return
+    }
+
+    [System.IO.Directory]::CreateDirectory($bootstrapDirectory) | Out-Null
+    [System.IO.File]::WriteAllText($namingPath, $content, [System.Text.UTF8Encoding]::new($false))
+    if ($null -eq $existing) {
+        $script:Summary.Created++
+        Write-Log -Level 'PASS' -Message ("CREATED: naming manifest {0}" -f $namingPath)
+    }
+    else {
+        $script:Summary.Updated++
+        Write-Log -Level 'PASS' -Message ("UPDATED: naming manifest {0}" -f $namingPath)
+    }
 }
 
 function Invoke-CheckedCommand {
@@ -239,6 +300,7 @@ try {
     foreach ($relativePath in @('src', 'tests', 'helm', 'cluster', 'observability', 'scripts', 'docs')) {
         Ensure-Directory -Path (Join-Path $resolvedRoot $relativePath)
     }
+    Ensure-NamingManifest
 
     Write-Phase -Name 'Restore and build'
     if ($SkipRestore) {

@@ -47,6 +47,7 @@ public sealed class GatewayMetrics : IDisposable
     private readonly Counter<long> _queueDrops;
     private readonly Counter<long> _redisOperations;
     private readonly Counter<long> _closeCodes;
+    private readonly Counter<long> _handlerCancellations;
     private long _healthRequestCount;
     private long _activeConnections;
     private long _messageCount;
@@ -55,6 +56,7 @@ public sealed class GatewayMetrics : IDisposable
     private long _queueDropCount;
     private long _redisErrorCount;
     private long _closeCount;
+    private long _handlerCancellationCount;
 
     public GatewayMetrics()
     {
@@ -67,6 +69,7 @@ public sealed class GatewayMetrics : IDisposable
         _queueDrops = _meter.CreateCounter<long>("gateway.queue.dropped");
         _redisOperations = _meter.CreateCounter<long>("gateway.redis.operations");
         _closeCodes = _meter.CreateCounter<long>("gateway.websocket.closes");
+        _handlerCancellations = _meter.CreateCounter<long>("gateway.handlers.cancelled");
     }
 
     public long HealthRequestCount => Interlocked.Read(ref _healthRequestCount);
@@ -144,6 +147,12 @@ public sealed class GatewayMetrics : IDisposable
         _closeCodes.Add(1, new KeyValuePair<string, object?>("code", status));
     }
 
+    public void RecordHandlerCancellation()
+    {
+        Interlocked.Increment(ref _handlerCancellationCount);
+        _handlerCancellations.Add(1);
+    }
+
     public string RenderPrometheus() =>
         "# HELP propago_realtime_health_requests_total Health endpoint requests.\n" +
         "# TYPE propago_realtime_health_requests_total counter\n" +
@@ -162,7 +171,9 @@ public sealed class GatewayMetrics : IDisposable
         "# TYPE propago_realtime_redis_errors_total counter\n" +
         $"propago_realtime_redis_errors_total {Interlocked.Read(ref _redisErrorCount)}\n" +
         "# TYPE propago_realtime_websocket_closes_total counter\n" +
-        $"propago_realtime_websocket_closes_total {Interlocked.Read(ref _closeCount)}\n";
+        $"propago_realtime_websocket_closes_total {Interlocked.Read(ref _closeCount)}\n" +
+        "# TYPE propago_realtime_handler_cancellations_total counter\n" +
+        $"propago_realtime_handler_cancellations_total {Interlocked.Read(ref _handlerCancellationCount)}\n";
 
     public void Dispose() => _meter.Dispose();
 }

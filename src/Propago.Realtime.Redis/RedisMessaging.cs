@@ -135,6 +135,7 @@ public sealed class RedisDurableRealtimeStore(
         }
         catch (RedisServerException exception) when (exception.Message.Contains("BUSYGROUP", StringComparison.Ordinal))
         {
+            // Consumer-group creation is idempotent; an existing group is ready for reads.
         }
 
         var entries = await database.StreamReadGroupAsync(
@@ -290,6 +291,7 @@ public sealed class RedisDurableRealtimeStore(
         }
         catch (RedisServerException exception) when (exception.Message.Contains("BUSYGROUP", StringComparison.Ordinal))
         {
+            // Consumer-group creation is idempotent; an existing group is ready for recovery.
         }
     }
 

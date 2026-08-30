@@ -86,6 +86,8 @@ public sealed class RealtimeWebSocketHandler(
             }
             catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
             {
+                // Linked cancellation is expected during teardown but remains observable.
+                metrics.RecordHandlerCancellation();
             }
         }
     }

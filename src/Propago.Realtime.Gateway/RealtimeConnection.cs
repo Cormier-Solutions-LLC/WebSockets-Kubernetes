@@ -152,6 +152,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
         }
         catch (WebSocketException)
         {
+            _metrics.RecordCloseCode((int)WebSocketCloseStatus.InternalServerError);
         }
         finally
         {

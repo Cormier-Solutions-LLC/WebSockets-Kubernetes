@@ -101,8 +101,8 @@ spec:
             summary: Realtime outbound queues exceed the configured depth threshold
             runbook_url: {{ printf "%s/backpressure" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewaySlowConsumers
-          expr: sum(rate(cormier_realtime_slow_consumer_disconnects_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) > 0
-          for: 5m
+          expr: sum(increase(cormier_realtime_slow_consumer_disconnects_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[10m])) > 0
+          for: 1m
           labels:
             severity: warning
             {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}

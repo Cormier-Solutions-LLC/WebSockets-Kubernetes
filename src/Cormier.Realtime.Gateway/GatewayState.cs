@@ -141,6 +141,7 @@ public sealed class GatewayMetrics : IDisposable
         {
             InitializeCounter("cormier_realtime_websocket_closes_total", ("code", code.ToString(CultureInfo.InvariantCulture)));
         }
+        InitializeCounter("cormier_realtime_websocket_closes_total", ("code", "other"));
     }
 
     public long HealthRequestCount => Interlocked.Read(ref _healthRequestCount);
@@ -285,8 +286,11 @@ public sealed class GatewayMetrics : IDisposable
 
     public void RecordCloseCode(int status)
     {
-        _closeCodes.Add(1, new KeyValuePair<string, object?>("code", status));
-        Increment("cormier_realtime_websocket_closes_total", ("code", status.ToString(CultureInfo.InvariantCulture)));
+        var normalizedStatus = CloseCodes.Contains(status)
+            ? status.ToString(CultureInfo.InvariantCulture)
+            : "other";
+        _closeCodes.Add(1, new KeyValuePair<string, object?>("code", normalizedStatus));
+        Increment("cormier_realtime_websocket_closes_total", ("code", normalizedStatus));
         if (status is not (1000 or 1001 or 1012))
         {
             Increment("cormier_realtime_abnormal_websocket_closes_total");

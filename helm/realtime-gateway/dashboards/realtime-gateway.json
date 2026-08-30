@@ -399,7 +399,7 @@
       },
       "targets": [
         {
-          "expr": "(certmanager_certificate_expiration_timestamp_seconds{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}-time())/86400",
+          "expr": "(certmanager_certificate_expiration_timestamp_seconds{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",name=\"__CERTIFICATE_NAME__\"}-time())/86400",
           "legendFormat": "{{name}} days"
         }
       ]

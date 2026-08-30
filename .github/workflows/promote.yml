@@ -15,11 +15,11 @@ on:
         options: [development, staging, production]
       publishRunId:
         description: Trusted publish workflow run containing release evidence
-        required: true
+        required: false
         type: string
       sourceCommit:
         description: Source commit named by the trusted release artifact
-        required: true
+        required: false
         type: string
       rollbackPublishRunId:
         description: Prior trusted publish run; required for rollback

@@ -98,4 +98,17 @@ public sealed class GatewayMetricsTests
         var rendered = metrics.RenderPrometheus();
         Assert.Contains("cormier_realtime_connection_duration_seconds_bucket{reason=\"client_close\",le=\"86400\"} 1", rendered, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ClientSuppliedCloseCodesAreBounded()
+    {
+        using var metrics = new GatewayMetrics();
+        metrics.RecordCloseCode(3999);
+        metrics.RecordCloseCode(4000);
+
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"other\"} 2", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("code=\"3999\"", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("code=\"4000\"", rendered, StringComparison.Ordinal);
+    }
 }

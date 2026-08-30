@@ -3,6 +3,7 @@
 {{- $dashboardIdentity := printf "%s/%s" .Release.Namespace (include "realtime-gateway.fullname" .) }}
 {{- $dashboardUid := printf "realtime-%s" (sha256sum $dashboardIdentity | trunc 31) }}
 {{- $dashboardTitle := printf "Realtime Gateway (%s) Production Diagnostics" $dashboardIdentity }}
+{{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,5 +13,5 @@ metadata:
     {{ .Values.observability.grafanaDashboard.label }}: {{ .Values.observability.grafanaDashboard.labelValue | quote }}
 data:
   realtime-gateway.json: |-
-{{ .Files.Get "dashboards/realtime-gateway.json" | replace "__LOGS_URL__" .Values.observability.links.logsUrl | replace "__TRACES_URL__" .Values.observability.links.tracesUrl | replace "__KUBERNETES_URL__" .Values.observability.links.kubernetesUrl | replace "__RUNBOOK_URL__" .Values.observability.links.runbookBaseUrl | replace "__SERVICE_NAME__" (include "realtime-gateway.fullname" .) | replace "__TRAEFIK_NAMESPACE__" .Values.observability.platformMetrics.traefikNamespace | replace "__TRAEFIK_SERVICE_PATTERN__" $traefikServicePattern | replace "__DASHBOARD_UID__" $dashboardUid | replace "__DASHBOARD_TITLE__" $dashboardTitle | indent 4 }}
+{{ .Files.Get "dashboards/realtime-gateway.json" | replace "__LOGS_URL__" .Values.observability.links.logsUrl | replace "__TRACES_URL__" .Values.observability.links.tracesUrl | replace "__KUBERNETES_URL__" .Values.observability.links.kubernetesUrl | replace "__RUNBOOK_URL__" .Values.observability.links.runbookBaseUrl | replace "__SERVICE_NAME__" (include "realtime-gateway.fullname" .) | replace "__TRAEFIK_NAMESPACE__" .Values.observability.platformMetrics.traefikNamespace | replace "__TRAEFIK_SERVICE_PATTERN__" $traefikServicePattern | replace "__CERTIFICATE_NAME__" $certificateName | replace "__DASHBOARD_UID__" $dashboardUid | replace "__DASHBOARD_TITLE__" $dashboardTitle | indent 4 }}
 {{- end }}

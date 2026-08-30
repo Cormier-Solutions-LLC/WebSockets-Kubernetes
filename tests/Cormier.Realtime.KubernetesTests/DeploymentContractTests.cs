@@ -21,6 +21,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("livenessProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("topologySpreadConstraints:", deployment, StringComparison.Ordinal);
         Assert.Contains("resources:", deployment, StringComparison.Ordinal);
+        Assert.Contains("containerPort: {{ .Values.service.targetPort }}", deployment, StringComparison.Ordinal);
+        Assert.Contains("ASPNETCORE_HTTP_PORTS", deployment, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -141,6 +143,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Traefik", dashboardText, StringComparison.Ordinal);
         Assert.Contains("MetalLB", dashboardText, StringComparison.Ordinal);
         Assert.Contains("Certificate expiry", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("__CERTIFICATE_NAME__", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__LOGS_URL__", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__TRACES_URL__", dashboardText, StringComparison.Ordinal);
         Assert.Equal("__DASHBOARD_UID__", dashboard.RootElement.GetProperty("uid").GetString());
@@ -173,6 +176,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("metallb_layer2_responses_sent", rules, StringComparison.Ordinal);
         Assert.Contains("sum(increase(cormier_realtime_connections_opened_total", rules, StringComparison.Ordinal);
         Assert.Contains("increase(cormier_realtime_queue_dropped_total", rules, StringComparison.Ordinal);
+        Assert.Contains("increase(cormier_realtime_slow_consumer_disconnects_total", rules, StringComparison.Ordinal);
         Assert.Contains("name={{ $certificateName", rules, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_connections_closed_total", rules, StringComparison.Ordinal);
         Assert.Contains("reason=~\"abrupt_disconnect|socket_closed\"", rules, StringComparison.Ordinal);
@@ -193,6 +197,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("kind: ServiceMonitor", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
         Assert.Contains("Capabilities.APIVersions.Has", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
         Assert.Contains("monitoringNamespaceSelector", Read("helm/realtime-gateway/templates/networkpolicy.yaml"), StringComparison.Ordinal);
+        Assert.Contains("port: {{ .Values.service.targetPort }}", Read("helm/realtime-gateway/templates/networkpolicy.yaml"), StringComparison.Ordinal);
         var hpa = Read("helm/realtime-gateway/templates/hpa.yaml");
         Assert.Contains("cormier_realtime_active_connections", hpa, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_queue_depth", hpa, StringComparison.Ordinal);
@@ -255,6 +260,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("api_args+=(--api-versions", promote, StringComparison.Ordinal);
         Assert.Contains("$workflowRun.head_sha -ne $commit", promote, StringComparison.Ordinal);
         Assert.Contains("ref: ${{ steps.release.outputs.commit }}", promote, StringComparison.Ordinal);
+        Assert.Contains("publishRunId:\n        description:", promote.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains("publishRunId:\n        description: Trusted publish workflow run containing release evidence\n        required: false", promote.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("--values", promote, StringComparison.Ordinal);
         Assert.Contains("deployment_name=$(awk", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Cormier.Realtime.Redis;
 using StackExchange.Redis;
 
@@ -22,11 +23,14 @@ public sealed class RedisSubscriberService(
         {
             try
             {
+                var subscribeStarted = Stopwatch.GetTimestamp();
                 await using var subscription = await messageBus.SubscribeAsync(
                     message => registry.DeliverAsync(message, stoppingToken),
                     stoppingToken);
                 subscriptionState.MarkActive();
+                metrics.RecordRedisSubscriptionState(true);
                 metrics.RecordRedisOperation("subscribe", true);
+                metrics.RecordRedisDuration("subscribe", Stopwatch.GetElapsedTime(subscribeStarted), true);
                 retry = 1;
                 try
                 {
@@ -35,11 +39,13 @@ public sealed class RedisSubscriberService(
                 finally
                 {
                     subscriptionState.MarkInactive();
+                    metrics.RecordRedisSubscriptionState(false);
                 }
             }
             catch (RedisException exception)
             {
                 metrics.RecordRedisOperation("subscribe", false);
+                metrics.RecordRedisSubscriptionState(false);
                 var delay = Math.Min(retry, 30);
                 LogRetry(logger, delay, exception);
                 await Task.Delay(TimeSpan.FromSeconds(delay), stoppingToken);

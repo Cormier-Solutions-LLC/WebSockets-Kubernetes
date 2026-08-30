@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -28,6 +29,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
     private long _lastActivityTicks = DateTimeOffset.UtcNow.UtcTicks;
     private int _slowConsumerStrikes;
     private int _closeRequested;
+    private int _queuedMessages;
 
     public RealtimeConnection(
         WebSocket socket,
@@ -52,6 +54,8 @@ public sealed class RealtimeConnection : IAsyncDisposable
     }
 
     public string Id { get; }
+
+    public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
 
     public RealtimeIdentity Identity => Volatile.Read(ref _identity);
 
@@ -99,8 +103,17 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public bool TryEnqueue(ServerMessageEnvelope message)
     {
-        if (!IsOpen || !_outbound.Writer.TryWrite(message))
+        if (!IsOpen)
         {
+            return false;
+        }
+
+        Interlocked.Increment(ref _queuedMessages);
+        _metrics.RecordQueueEnqueued();
+        if (!_outbound.Writer.TryWrite(message))
+        {
+            Interlocked.Decrement(ref _queuedMessages);
+            _metrics.RecordQueueDequeued();
             _metrics.RecordQueueDrop();
             Interlocked.Increment(ref _slowConsumerStrikes);
             return false;
@@ -117,6 +130,9 @@ public sealed class RealtimeConnection : IAsyncDisposable
     {
         await foreach (var message in _outbound.Reader.ReadAllAsync(cancellationToken))
         {
+            _metrics.RecordQueueDequeued();
+            Interlocked.Decrement(ref _queuedMessages);
+            var started = Stopwatch.GetTimestamp();
             var payload = JsonSerializer.SerializeToUtf8Bytes(
                 message,
                 RealtimeJsonSerializerContext.Default.ServerMessageEnvelope);
@@ -130,6 +146,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
                 await _socket.SendAsync(payload, WebSocketMessageType.Text, true, cancellationToken);
                 _metrics.RecordMessage("outbound", "sent");
+                _metrics.RecordHandlerDuration("send", Stopwatch.GetElapsedTime(started), "success");
             }
             finally
             {
@@ -193,6 +210,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _outbound.Writer.TryComplete();
+        _metrics.RecordQueueRemoved(Interlocked.Exchange(ref _queuedMessages, 0));
         if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
             await RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "connection_complete", CancellationToken.None);

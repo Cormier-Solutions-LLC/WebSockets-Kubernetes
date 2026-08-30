@@ -1,0 +1,22 @@
+{{- if .Values.observability.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+    {{- with .Values.observability.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "realtime-gateway.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace | quote }}]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.observability.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
+{{- end }}

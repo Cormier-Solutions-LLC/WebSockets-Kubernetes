@@ -71,7 +71,21 @@
       "type": "object",
       "properties": {
         "minReplicas": { "type": "integer", "minimum": 1 },
-        "maxReplicas": { "type": "integer", "minimum": 1 }
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "connectionsMetric": { "type": "object", "required": ["enabled", "targetAverageValue"], "properties": { "enabled": { "type": "boolean" }, "targetAverageValue": { "type": "string", "pattern": "^[1-9][0-9]*$" } } },
+        "queueDepthMetric": { "type": "object", "required": ["enabled", "targetAverageValue"], "properties": { "enabled": { "type": "boolean" }, "targetAverageValue": { "type": "string", "pattern": "^[1-9][0-9]*$" } } }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "required": ["alertThresholds", "links", "serviceMonitor", "grafanaDashboard", "prometheusRule", "alertmanagerConfig"],
+      "properties": {
+        "alertThresholds": { "type": "object", "required": ["queueDepth", "handlerLatencySeconds", "redisLatencySeconds", "reconnectRatio"], "properties": { "queueDepth": { "type": "integer", "minimum": 1 }, "handlerLatencySeconds": { "type": "number", "exclusiveMinimum": 0 }, "redisLatencySeconds": { "type": "number", "exclusiveMinimum": 0 }, "reconnectRatio": { "type": "number", "exclusiveMinimum": 0 } } },
+        "links": { "type": "object", "required": ["logsUrl", "tracesUrl", "kubernetesUrl", "runbookBaseUrl"], "properties": { "logsUrl": { "type": "string", "format": "uri" }, "tracesUrl": { "type": "string", "format": "uri" }, "kubernetesUrl": { "type": "string", "format": "uri" }, "runbookBaseUrl": { "type": "string", "format": "uri" } } },
+        "serviceMonitor": { "type": "object", "required": ["enabled", "interval", "scrapeTimeout"], "properties": { "enabled": { "type": "boolean" }, "interval": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" }, "scrapeTimeout": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" } } },
+        "grafanaDashboard": { "type": "object", "required": ["enabled", "label", "labelValue"], "properties": { "enabled": { "type": "boolean" }, "label": { "type": "string", "minLength": 1 }, "labelValue": { "type": "string", "minLength": 1 } } },
+        "prometheusRule": { "type": "object", "required": ["enabled", "routingLabels"], "properties": { "enabled": { "type": "boolean" }, "routingLabels": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } } } },
+        "alertmanagerConfig": { "type": "object", "required": ["enabled", "receiverName", "webhookSecret"], "properties": { "enabled": { "type": "boolean" }, "receiverName": { "type": "string", "minLength": 1 }, "webhookSecret": { "type": "object", "required": ["name", "key"], "properties": { "name": { "type": "string" }, "key": { "type": "string", "minLength": 1 } } } } }
       }
     }
   }

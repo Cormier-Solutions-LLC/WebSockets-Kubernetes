@@ -1,0 +1,22 @@
+{{- if .Values.observability.alertmanagerConfig.enabled }}
+{{- $secretName := required "observability.alertmanagerConfig.webhookSecret.name is required when routing is enabled" .Values.observability.alertmanagerConfig.webhookSecret.name }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+spec:
+  route:
+    receiver: {{ .Values.observability.alertmanagerConfig.receiverName | quote }}
+    matchers:
+      - name: service
+        value: {{ .Values.observability.prometheusRule.routingLabels.service | quote }}
+  receivers:
+    - name: {{ .Values.observability.alertmanagerConfig.receiverName | quote }}
+      webhookConfigs:
+        - urlSecret:
+            name: {{ $secretName | quote }}
+            key: {{ .Values.observability.alertmanagerConfig.webhookSecret.key | quote }}
+          sendResolved: true
+{{- end }}

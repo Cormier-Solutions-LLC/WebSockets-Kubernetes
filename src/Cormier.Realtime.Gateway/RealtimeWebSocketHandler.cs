@@ -27,18 +27,21 @@ public sealed class RealtimeWebSocketHandler(
     {
         if (state.IsDraining)
         {
+            metrics.RecordHandshake("rejected", "draining");
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return;
         }
 
         if (!context.WebSockets.IsWebSocketRequest)
         {
+            metrics.RecordHandshake("rejected", "not_websocket");
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
 
         if (!context.WebSockets.WebSocketRequestedProtocols.Contains(SubProtocol, StringComparer.Ordinal))
         {
+            metrics.RecordHandshake("rejected", "subprotocol");
             context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
             context.Response.Headers.SecWebSocketProtocol = SubProtocol;
             return;
@@ -49,12 +52,14 @@ public sealed class RealtimeWebSocketHandler(
             context.RequestAborted);
         if (!authentication.Succeeded)
         {
+            metrics.RecordHandshake("rejected", "authentication");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
 
         if (state.IsDraining)
         {
+            metrics.RecordHandshake("rejected", "draining");
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return;
         }
@@ -68,6 +73,7 @@ public sealed class RealtimeWebSocketHandler(
             authentication.SessionId);
         if (!registry.Add(connection))
         {
+            metrics.RecordHandshake("rejected", "registration");
             await connection.RequestCloseAsync(
                 registry.IsDraining
                     ? RealtimeCloseStatus.ServiceRestart
@@ -78,6 +84,7 @@ public sealed class RealtimeWebSocketHandler(
                 context.RequestAborted);
             return;
         }
+        metrics.RecordHandshake("accepted", "accepted");
 
         using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         var sender = connection.RunSenderAsync(connectionCancellation.Token);

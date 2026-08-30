@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    { "scenario": "connection", "connections": 1000, "messagesPerConnection": 0, "payloadBytes": 0, "durationSeconds": 120 },
+    { "scenario": "fanout", "connections": 500, "messagesPerConnection": 100, "payloadBytes": 512, "durationSeconds": 300 },
+    { "scenario": "burst", "connections": 250, "messagesPerConnection": 1000, "payloadBytes": 512, "durationSeconds": 300 },
+    { "scenario": "large-message", "connections": 100, "messagesPerConnection": 100, "payloadBytes": 49152, "durationSeconds": 300 },
+    { "scenario": "slow-client", "connections": 100, "messagesPerConnection": 500, "payloadBytes": 4096, "durationSeconds": 120 },
+    { "scenario": "soak", "connections": 500, "messagesPerConnection": 100000, "payloadBytes": 512, "durationSeconds": 21600 }
+  ]
+}

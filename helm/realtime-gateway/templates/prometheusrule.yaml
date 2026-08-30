@@ -1,0 +1,190 @@
+{{- if .Values.observability.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+    {{- with .Values.observability.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: realtime-gateway.availability
+      rules:
+        - alert: RealtimeGatewayUnavailable
+          expr: sum(up{namespace={{ .Release.Namespace | quote }},service=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}) < 1
+          for: 2m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime gateway has no scrapeable instances
+            runbook_url: {{ printf "%s/gateway-unavailable" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayReadinessFailure
+          expr: max_over_time(kube_pod_status_ready{namespace={{ .Release.Namespace | quote }},condition="true",pod=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}[5m]) < 1
+          for: 5m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime gateway pods are not ready
+            runbook_url: {{ printf "%s/readiness" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace={{ .Release.Namespace | quote }},pod=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}[15m]) > 2
+          for: 5m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime gateway is repeatedly restarting
+            runbook_url: {{ printf "%s/crash-loop" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+    - name: realtime-gateway.performance
+      rules:
+        - alert: RealtimeGatewayAbnormalDisconnects
+          expr: sum(rate(cormier_realtime_websocket_closes_total{code!~"1000|1001|1012"}[5m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Abnormal WebSocket disconnect rate is elevated
+            runbook_url: {{ printf "%s/disconnects" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayReconnectStorm
+          expr: sum(rate(cormier_realtime_connections_opened_total[5m])) / clamp_min(sum(cormier_realtime_active_connections), 1) > {{ .Values.observability.alertThresholds.reconnectRatio }}
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Connection churn indicates an abnormal reconnect storm
+            runbook_url: {{ printf "%s/disconnects" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayAuthenticationFailures
+          expr: sum(rate(cormier_realtime_authentication_total{outcome="failure"}[5m])) > 2
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime authentication failures are elevated
+            runbook_url: {{ printf "%s/authentication" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayAuthorizationFailures
+          expr: sum(rate(cormier_realtime_authorization_failures_total[5m])) > 2
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime authorization failures are elevated
+            runbook_url: {{ printf "%s/authorization" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayQueueDrops
+          expr: sum(rate(cormier_realtime_queue_dropped_total[5m])) > 0
+          for: 5m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime gateway is dropping queued messages
+            runbook_url: {{ printf "%s/backpressure" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayQueueSaturation
+          expr: max(cormier_realtime_queue_depth) > {{ .Values.observability.alertThresholds.queueDepth }}
+          for: 5m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime outbound queues exceed the configured depth threshold
+            runbook_url: {{ printf "%s/backpressure" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewaySlowConsumers
+          expr: sum(rate(cormier_realtime_slow_consumer_disconnects_total[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Slow consumers are being disconnected
+            runbook_url: {{ printf "%s/slow-consumers" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayHandlerLatency
+          expr: histogram_quantile(0.99, sum by (le) (rate(cormier_realtime_handler_duration_seconds_bucket[5m]))) > {{ .Values.observability.alertThresholds.handlerLatencySeconds }}
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime handler p99 latency exceeds the configured threshold
+            runbook_url: {{ printf "%s/latency" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+    - name: realtime-gateway.dependencies
+      rules:
+        - alert: RealtimeGatewayRedisErrors
+          expr: sum(rate(cormier_realtime_redis_operations_total{outcome="failure"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime Redis operations are failing
+            runbook_url: {{ printf "%s/redis" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayRedisDisconnected
+          expr: min(cormier_realtime_redis_subscription_active) < 1
+          for: 2m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime gateway Redis subscription is disconnected
+            runbook_url: {{ printf "%s/redis" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayRedisLatency
+          expr: histogram_quantile(0.99, sum by (le) (rate(cormier_realtime_redis_operation_duration_seconds_bucket[5m]))) > {{ .Values.observability.alertThresholds.redisLatencySeconds }}
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime Redis operation p99 exceeds the configured threshold
+            runbook_url: {{ printf "%s/redis" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayCertificateExpiring
+          expr: min(certmanager_certificate_expiration_timestamp_seconds{namespace={{ .Release.Namespace | quote }}} - time()) < 604800
+          for: 1h
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: A certificate expires within seven days
+            runbook_url: {{ printf "%s/certificates" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayCertificateNotReady
+          expr: min(certmanager_certificate_ready_status{namespace={{ .Release.Namespace | quote }},condition="True"}) < 1
+          for: 10m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: A realtime certificate is not ready
+            runbook_url: {{ printf "%s/certificates" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayEdgeErrors
+          expr: sum(rate(traefik_service_requests_total{namespace={{ .Release.Namespace | quote }},code=~"5.."}[5m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Edge proxy 5xx rate is elevated
+            runbook_url: {{ printf "%s/edge" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayVipAdvertisementLost
+          expr: max(metallb_bgp_session_up{namespace={{ .Release.Namespace | quote }}}) < 1
+          for: 5m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: MetalLB has no healthy BGP advertisement session
+            runbook_url: {{ printf "%s/edge" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        - alert: RealtimeGatewayRolloutFailed
+          expr: max(kube_deployment_status_condition{namespace={{ .Release.Namespace | quote }},condition="Progressing",status="false"}) > 0
+          for: 10m
+          labels:
+            severity: critical
+            {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}
+          annotations:
+            summary: Realtime gateway deployment rollout is not progressing
+            runbook_url: {{ printf "%s/rollout" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+{{- end }}

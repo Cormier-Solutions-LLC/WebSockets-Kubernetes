@@ -1,0 +1,95 @@
+name: Promote or roll back immutable gateway image
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Promote the requested digest or roll back to the previous digest
+        required: true
+        type: choice
+        options: [promote, rollback]
+      environment:
+        description: Protected GitHub deployment environment
+        required: true
+        type: choice
+        options: [development, staging, production]
+      imageRepository:
+        description: Fully qualified image repository without tag or digest
+        required: true
+        type: string
+      imageDigest:
+        description: Tested sha256 digest to promote
+        required: true
+        type: string
+      previousDigest:
+        description: Previously deployed sha256 digest; required for rollback
+        required: false
+        type: string
+      releaseName:
+        description: Configured Helm release name
+        required: true
+        type: string
+      namespace:
+        description: Configured Kubernetes namespace
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select and verify immutable digest
+        id: artifact
+        shell: pwsh
+        env:
+          REQUESTED_DIGEST: ${{ inputs.imageDigest }}
+          PREVIOUS_DIGEST: ${{ inputs.previousDigest }}
+          OPERATION: ${{ inputs.operation }}
+          IMAGE_REPOSITORY: ${{ inputs.imageRepository }}
+          RELEASE_NAME: ${{ inputs.releaseName }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          $digest = if ($env:OPERATION -eq 'rollback') { $env:PREVIOUS_DIGEST } else { $env:REQUESTED_DIGEST }
+          if ($digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'A valid immutable sha256 digest is required.' }
+          if ($env:IMAGE_REPOSITORY -notmatch '^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$') { throw 'imageRepository must be a lowercase fully qualified repository.' }
+          if ($env:RELEASE_NAME -notmatch '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' -or $env:RELEASE_NAME.Length -gt 53) { throw 'releaseName must be a DNS label of at most 53 characters.' }
+          if ($env:NAMESPACE -notmatch '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' -or $env:NAMESPACE.Length -gt 63) { throw 'namespace must be a DNS label of at most 63 characters.' }
+          docker buildx imagetools inspect "$env:IMAGE_REPOSITORY@$digest" | Out-Null
+          "digest=$digest" >> $env:GITHUB_OUTPUT
+      - name: Render the exact promotion bundle
+        env:
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.imageRepository }}
+          RELEASE_NAME: ${{ inputs.releaseName }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          mkdir -p artifacts/promotion
+          helm template "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST" > artifacts/promotion/rendered.yaml
+          printf '{"schemaVersion":1,"operation":"%s","environment":"%s","image":"%s","digest":"%s","release":"%s","namespace":"%s","workflowRunId":%s}\n' "${{ inputs.operation }}" "${{ inputs.environment }}" "$IMAGE_REPOSITORY" "$DIGEST" "$RELEASE_NAME" "$NAMESPACE" "${{ github.run_id }}" > artifacts/promotion/evidence.json
+          grep --quiet "@$DIGEST" artifacts/promotion/rendered.yaml
+      - name: Deploy exact digest when the environment enables deployment
+        if: vars.KUBERNETES_DEPLOY_ENABLED == 'true'
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG_CONTENT }}
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.imageRepository }}
+          RELEASE_NAME: ${{ inputs.releaseName }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          test -n "$KUBECONFIG_CONTENT"
+          kubeconfig_path="$RUNNER_TEMP/kubeconfig"
+          printf '%s' "$KUBECONFIG_CONTENT" > "$kubeconfig_path"
+          chmod 600 "$kubeconfig_path"
+          KUBECONFIG="$kubeconfig_path" helm upgrade --install "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --atomic --wait --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST"
+          KUBECONFIG="$kubeconfig_path" kubectl -n "$NAMESPACE" rollout status deployment/"$RELEASE_NAME" --timeout=5m
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promotion-${{ inputs.environment }}-${{ github.run_id }}
+          path: artifacts/promotion
+          if-no-files-found: error

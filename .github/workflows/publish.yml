@@ -1,0 +1,58 @@
+name: Publish immutable gateway image
+
+on:
+  workflow_run:
+    workflows: [Realtime gateway CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+
+env:
+  CONTAINER_REGISTRY: ${{ vars.CONTAINER_REGISTRY || 'ghcr.io' }}
+  IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY || format('{0}/cormier-realtime-gateway', github.repository_owner) }}
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: cormier-realtime-${{ github.event.workflow_run.head_sha }}
+          path: artifacts
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CONTAINER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push the tested OCI archive without rebuilding
+        id: publish
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          load_output=$(docker load --input artifacts/cormier-realtime-gateway.tar.gz)
+          source_ref=$(printf '%s\n' "$load_output" | sed -n 's/^Loaded image: //p' | tail -n 1)
+          test -n "$source_ref"
+          normalized_repository=$(printf '%s' "$IMAGE_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          target_ref="${CONTAINER_REGISTRY}/${normalized_repository}:${SOURCE_SHA}"
+          docker tag "$source_ref" "$target_ref"
+          docker push "$target_ref"
+          digest=$(docker buildx imagetools inspect "$target_ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test -n "$digest"
+          archive_sha=$(sha256sum artifacts/cormier-realtime-gateway.tar.gz | cut -d' ' -f1)
+          printf '{"schemaVersion":1,"sourceCommit":"%s","image":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.event.workflow_run.head_sha }}
+          path: artifacts/release-manifest.json
+          if-no-files-found: error

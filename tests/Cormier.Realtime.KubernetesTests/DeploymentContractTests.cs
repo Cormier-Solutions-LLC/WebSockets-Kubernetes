@@ -1,5 +1,7 @@
 namespace Cormier.Realtime.KubernetesTests;
 
+using System.Text.Json;
+
 public sealed class DeploymentContractTests
 {
     private static readonly string Root = FindRepositoryRoot();
@@ -122,6 +124,53 @@ public sealed class DeploymentContractTests
         Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
         Assert.Contains("Invalid route is rejected", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Write-Host $ticket", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ObservabilityIsProvisionedWithSafeVariablesAndActionableRouting()
+    {
+        var dashboardText = Read("helm/realtime-gateway/dashboards/realtime-gateway.json");
+        using var dashboard = JsonDocument.Parse(dashboardText);
+        var variables = dashboard.RootElement.GetProperty("templating").GetProperty("list")
+            .EnumerateArray().Select(item => item.GetProperty("name").GetString()!).ToArray();
+        Assert.Equal(["environment", "cluster", "namespace", "instance", "pod"], variables);
+        Assert.DoesNotContain("tenant", dashboardText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("user_id", dashboardText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Message throughput", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("Redis operations", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("Traefik", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("MetalLB", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("Certificate expiry", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("__LOGS_URL__", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("__TRACES_URL__", dashboardText, StringComparison.Ordinal);
+
+        var rules = Read("helm/realtime-gateway/templates/prometheusrule.yaml");
+        foreach (var alert in new[] { "RealtimeGatewayUnavailable", "RealtimeGatewayReadinessFailure", "RealtimeGatewayCrashLooping", "RealtimeGatewayAbnormalDisconnects", "RealtimeGatewayReconnectStorm", "RealtimeGatewayAuthenticationFailures", "RealtimeGatewayAuthorizationFailures", "RealtimeGatewayQueueDrops", "RealtimeGatewayQueueSaturation", "RealtimeGatewaySlowConsumers", "RealtimeGatewayHandlerLatency", "RealtimeGatewayRedisErrors", "RealtimeGatewayRedisDisconnected", "RealtimeGatewayRedisLatency", "RealtimeGatewayCertificateExpiring", "RealtimeGatewayCertificateNotReady", "RealtimeGatewayEdgeErrors", "RealtimeGatewayVipAdvertisementLost", "RealtimeGatewayRolloutFailed" })
+        {
+            Assert.Contains($"alert: {alert}", rules, StringComparison.Ordinal);
+        }
+        Assert.Contains("runbook_url:", rules, StringComparison.Ordinal);
+        Assert.Contains("routingLabels", rules, StringComparison.Ordinal);
+        Assert.Contains("urlSecret:", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
+        Assert.Contains("kind: ServiceMonitor", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
+        var hpa = Read("helm/realtime-gateway/templates/hpa.yaml");
+        Assert.Contains("cormier_realtime_active_connections", hpa, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_queue_depth", hpa, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PromotionReusesAnImmutableDigestAndSupportsRollback()
+    {
+        var publish = Read(".github/workflows/publish.yml");
+        var promote = Read(".github/workflows/promote.yml");
+        Assert.Contains("workflow_run:", publish, StringComparison.Ordinal);
+        Assert.Contains("download-artifact", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
+        Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
+        Assert.Contains("previousDigest", promote, StringComparison.Ordinal);
+        Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);
+        Assert.Contains("image.digest", promote, StringComparison.Ordinal);
+        Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);
     }
 
     private static string Read(string relative)

@@ -1,0 +1,12 @@
+{{- if .Values.observability.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}-dashboard
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+    {{ .Values.observability.grafanaDashboard.label }}: {{ .Values.observability.grafanaDashboard.labelValue | quote }}
+data:
+  realtime-gateway.json: |-
+{{ .Files.Get "dashboards/realtime-gateway.json" | replace "__LOGS_URL__" .Values.observability.links.logsUrl | replace "__TRACES_URL__" .Values.observability.links.tracesUrl | replace "__KUBERNETES_URL__" .Values.observability.links.kubernetesUrl | replace "__RUNBOOK_URL__" .Values.observability.links.runbookBaseUrl | indent 4 }}
+{{- end }}

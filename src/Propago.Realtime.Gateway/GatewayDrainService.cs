@@ -1,0 +1,38 @@
+using Microsoft.Extensions.Options;
+
+namespace Propago.Realtime.Gateway;
+
+public sealed class GatewayDrainService(
+    GatewayState state,
+    IOptions<GatewayOptions> options,
+    ILogger<GatewayDrainService> logger) : IHostedService
+{
+    private static readonly Action<ILogger, string, Exception?> LogDrainComplete = LoggerMessage.Define<string>(
+        LogLevel.Information,
+        new EventId(1002, "GatewayDrainComplete"),
+        "Gateway {ServiceName} completed its shutdown drain interval");
+
+    private static readonly Action<ILogger, string, Exception?> LogDrainCancelled = LoggerMessage.Define<string>(
+        LogLevel.Warning,
+        new EventId(1003, "GatewayDrainCancelled"),
+        "Gateway {ServiceName} shutdown drain interval was cancelled");
+
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        state.BeginDrain();
+
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromSeconds(options.Value.ShutdownDrainSeconds),
+                cancellationToken);
+            LogDrainComplete(logger, options.Value.ServiceName, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            LogDrainCancelled(logger, options.Value.ServiceName, null);
+        }
+    }
+}

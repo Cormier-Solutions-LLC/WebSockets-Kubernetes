@@ -45,6 +45,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddSingleton<IRedisReadinessProbe, DeferredRedisReadinessProbe>();
 builder.Services.AddSingleton<GatewayState>();
 builder.Services.AddSingleton<GatewayMetrics>();
+builder.Services.AddHostedService<GatewayDrainService>();
 
 var app = builder.Build();
 var state = app.Services.GetRequiredService<GatewayState>();
@@ -60,11 +61,6 @@ var logDraining = LoggerMessage.Define<string>(
     LogLevel.Information,
     new EventId(1001, "GatewayDraining"),
     "Gateway {ServiceName} is draining for shutdown");
-var logDrainComplete = LoggerMessage.Define<string>(
-    LogLevel.Information,
-    new EventId(1002, "GatewayDrainComplete"),
-    "Gateway {ServiceName} completed its shutdown drain interval");
-
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     state.MarkStarted();
@@ -74,8 +70,6 @@ app.Lifetime.ApplicationStopping.Register(() =>
 {
     state.BeginDrain();
     logDraining(logger, gatewayOptions.ServiceName, null);
-    Thread.Sleep(TimeSpan.FromSeconds(gatewayOptions.ShutdownDrainSeconds));
-    logDrainComplete(logger, gatewayOptions.ServiceName, null);
 });
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>

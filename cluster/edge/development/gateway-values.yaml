@@ -1,0 +1,17 @@
+gateway:
+  allowedOrigins:
+    - https://propago.local
+  shutdownDrainSeconds: 25
+
+networkPolicy:
+  ingressNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: traefik
+  ingressPodSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+
+ingressRoute:
+  enabled: true
+  host: realtime.propago.local
+  tlsSecretName: realtime-propago-local-tls

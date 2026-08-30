@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: realtime-propago-local
+  namespace: development-realtime
+  labels:
+    propago.io/environment: development
+spec:
+  secretName: realtime-propago-local-tls
+  dnsNames:
+    - realtime.propago.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: propago-local-ca

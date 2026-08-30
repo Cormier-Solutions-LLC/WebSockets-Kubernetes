@@ -1,0 +1,21 @@
+{{- if .Values.ingressRoute.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "realtime-gateway.fullname" . }}
+  labels:
+    {{- include "realtime-gateway.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)
+      kind: Rule
+      services:
+        - name: {{ include "realtime-gateway.fullname" . }}
+          port: http
+          responseForwarding:
+            flushInterval: -1
+  tls:
+    secretName: {{ .Values.ingressRoute.tlsSecretName }}
+{{- end }}

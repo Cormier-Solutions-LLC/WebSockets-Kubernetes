@@ -70,6 +70,30 @@ public sealed class DeploymentContractTests
         Assert.Contains("[REDACTED]", script, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EdgeConfigurationKeepsGatewayPrivateAndTerminatesWssAtTraefik()
+    {
+        var service = Read("helm/realtime-gateway/templates/service.yaml");
+        var route = Read("helm/realtime-gateway/templates/ingressroute.yaml");
+        var gatewayValues = Read("cluster/edge/development/gateway-values.yaml");
+        var traefikValues = Read("cluster/edge/development/traefik-values.yaml");
+        var metalLb = Read("cluster/edge/development/metallb.yaml");
+        var certificate = Read("cluster/edge/development/certificate.yaml");
+
+        Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
+        Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)", route, StringComparison.Ordinal);
+        Assert.Contains("flushInterval: -1", route, StringComparison.Ordinal);
+        Assert.Contains("realtime.propago.local", gatewayValues, StringComparison.Ordinal);
+        Assert.Contains("externalTrafficPolicy: Local", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("defaultMode: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.propago.local", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("prometheus:", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("development-traefik", metalLb, StringComparison.Ordinal);
+        Assert.Contains("kind: L2Advertisement", metalLb, StringComparison.Ordinal);
+        Assert.Contains("realtime.propago.local", certificate, StringComparison.Ordinal);
+    }
+
     private static string Read(string relative)
     {
         var normalizedRelative = relative.Replace('/', Path.DirectorySeparatorChar);

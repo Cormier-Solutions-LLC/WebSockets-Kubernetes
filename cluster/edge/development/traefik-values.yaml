@@ -1,0 +1,44 @@
+deployment:
+  replicas: 3
+
+ports:
+  web:
+    redirectTo:
+      port: websecure
+  websecure:
+    tls:
+      enabled: true
+
+service:
+  type: LoadBalancer
+  annotations:
+    metallb.io/address-pool: development-traefik
+    external-dns.alpha.kubernetes.io/hostname: realtime.propago.local
+  spec:
+    externalTrafficPolicy: Local
+
+providers:
+  kubernetesCRD:
+    namespaces:
+      - development-realtime
+
+logs:
+  access:
+    enabled: true
+    fields:
+      headers:
+        defaultMode: drop
+
+metrics:
+  prometheus:
+    service:
+      enabled: true
+
+additionalArguments:
+  - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=0
+  - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=0
+  - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=0
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2

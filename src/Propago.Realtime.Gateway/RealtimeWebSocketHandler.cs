@@ -145,6 +145,15 @@ public sealed class RealtimeWebSocketHandler(
                 }
 
                 connection.RecordActivity();
+                if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
+                {
+                    await connection.RequestCloseAsync(
+                        RealtimeCloseStatus.AuthenticationExpired,
+                        "authentication_expired",
+                        cancellationToken);
+                    return "authentication_expired";
+                }
+
                 MessageEnvelope? envelope;
                 try
                 {
@@ -203,6 +212,16 @@ public sealed class RealtimeWebSocketHandler(
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatSeconds));
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
+            if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
+            {
+                await connection.RequestCloseAsync(
+                    RealtimeCloseStatus.AuthenticationExpired,
+                    "authentication_expired",
+                    cancellationToken);
+                connectionCancellation.Cancel();
+                return;
+            }
+
             if (DateTimeOffset.UtcNow - connection.LastActivity > TimeSpan.FromSeconds(options.IdleTimeoutSeconds))
             {
                 await connection.RequestCloseAsync(

@@ -123,6 +123,20 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task ExpiredIdentityCannotPublishAndIsClosed()
+    {
+        await using var factory = new RealtimeFactory(TimeSpan.FromMilliseconds(250));
+        using var socket = await ConnectAsync(factory);
+        await Task.Delay(300);
+
+        await SendAsync(socket, Envelope(ProtocolMessageTypes.Publish, "expired-command"));
+        await WaitForCloseAsync(socket);
+
+        Assert.Equal(RealtimeCloseStatus.AuthenticationExpired, socket.CloseStatus);
+        Assert.Empty(factory.Bus.Published);
+    }
+
+    [Fact]
     public async Task RestartGuidanceAndAbruptDisconnectCleanUpLocalRegistry()
     {
         await using var factory = new RealtimeFactory();
@@ -216,9 +230,11 @@ public sealed class WebSocketProtocolTests
         }
     }
 
-    private sealed class RealtimeFactory : WebApplicationFactory<Program>
+    private sealed class RealtimeFactory(TimeSpan? identityLifetime = null) : WebApplicationFactory<Program>
     {
         public FakeMessageBus Bus { get; } = new();
+
+        private TimeSpan IdentityLifetime { get; } = identityLifetime ?? TimeSpan.FromMinutes(5);
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -245,7 +261,7 @@ public sealed class WebSocketProtocolTests
                     IdleTimeoutSeconds = 2,
                 }));
                 services.AddSingleton<IRealtimeSessionStore, FakeSessionStore>();
-                services.AddSingleton<IConnectionTicketStore, FakeTicketStore>();
+                services.AddSingleton<IConnectionTicketStore>(new FakeTicketStore(IdentityLifetime));
                 services.AddSingleton<IRealtimeMessageBus>(Bus);
                 services.AddSingleton<IDurableRealtimeStore, FakeDurableStore>();
             });
@@ -260,14 +276,14 @@ public sealed class WebSocketProtocolTests
                 : null);
     }
 
-    private sealed class FakeTicketStore : IConnectionTicketStore
+    private sealed class FakeTicketStore(TimeSpan identityLifetime) : IConnectionTicketStore
     {
         public ValueTask<string> IssueAsync(RealtimeIdentity identity, string audience, TimeSpan lifetime, CancellationToken cancellationToken) =>
             ValueTask.FromResult("unused-ticket");
 
         public ValueTask<RealtimeIdentity?> ConsumeAsync(string ticket, string audience, CancellationToken cancellationToken) =>
             ValueTask.FromResult<RealtimeIdentity?>(ticket == "valid-ticket"
-                ? new RealtimeIdentity("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.AddMinutes(5))
+                ? new RealtimeIdentity("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.Add(identityLifetime))
                 : null);
     }
 

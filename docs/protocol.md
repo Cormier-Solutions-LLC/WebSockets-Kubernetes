@@ -40,7 +40,7 @@ Stable error codes are `invalid_envelope`, `unsupported_version`, `unsupported_t
 
 The default frame limit is 16 KiB and message limit is 64 KiB. Fragmentation is deliberately rejected, so the effective assembled-message limit is also the frame limit. Binary messages close with `1003`; fragmented or invalid payloads close with `1007`; oversized messages close with `1009`. Clients must send `ping` traffic inside the 45-second idle window. The server emits a heartbeat every 15 seconds and closes idle clients with private code `4009`.
 
-Each connection has a bounded 128-message outbound queue. A full queue drops the new event and increments the queue-drop metric; three consecutive saturation strikes close the slow consumer with `4008`. A pod drain emits `service.restart`, including initial delay 500 ms, maximum delay 30 seconds, jitter ratio 0.2, and reauthentication required, then closes with `1012`.
+Each connection has a bounded 128-message outbound queue. A full queue drops the new event and increments the queue-drop metric; three consecutive saturation strikes close the slow consumer with `4008`. When the authenticated session or ticket identity expires, the gateway rejects further commands and closes with `4003`; the client must reauthenticate. A pod drain emits `service.restart`, including initial delay 500 ms, maximum delay 30 seconds, jitter ratio 0.2, and reauthentication required, then closes with `1012`.
 
 Clients should use exponential reconnect delay capped by the advertised maximum and apply random jitter in the range represented by `jitterRatio`. Reconnects must create a new authenticated connection, resubscribe desired routes, and must not assume they land on the same gateway instance.
 

@@ -9,6 +9,7 @@ namespace Propago.Realtime.Gateway;
 public static class RealtimeCloseStatus
 {
     public const WebSocketCloseStatus ServiceRestart = (WebSocketCloseStatus)1012;
+    public const WebSocketCloseStatus AuthenticationExpired = (WebSocketCloseStatus)4003;
     public const WebSocketCloseStatus SlowConsumer = (WebSocketCloseStatus)4008;
     public const WebSocketCloseStatus HeartbeatTimeout = (WebSocketCloseStatus)4009;
 }

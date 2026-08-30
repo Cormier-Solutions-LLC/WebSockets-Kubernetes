@@ -102,6 +102,13 @@
       "propago.realtime.contracts": {
         "type": "Project"
       },
+      "propago.realtime.gateway": {
+        "type": "Project",
+        "dependencies": {
+          "Propago.Realtime.Contracts": "[0.1.0, )",
+          "Propago.Realtime.Redis": "[0.1.0, )"
+        }
+      },
       "propago.realtime.redis": {
         "type": "Project"
       }

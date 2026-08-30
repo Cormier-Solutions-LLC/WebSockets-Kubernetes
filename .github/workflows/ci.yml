@@ -32,7 +32,7 @@ jobs:
       - name: Create OCI archive with .NET SDK
         run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore /t:PublishContainer /p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/propago-realtime-gateway.tar.gz
       - name: Scan source and artifacts
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .

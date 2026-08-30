@@ -1,9 +1,13 @@
 using System.Diagnostics.Metrics;
+using System.Reflection;
+using Microsoft.Extensions.Options;
 using Propago.Realtime.Redis;
 
 namespace Propago.Realtime.Gateway;
 
-public sealed class GatewayState(IRedisReadinessProbe redisProbe)
+public sealed class GatewayState(
+    IRedisReadinessProbe redisProbe,
+    IOptions<RedisOptions> redisOptions)
 {
     private int _started;
     private int _draining;
@@ -16,13 +20,23 @@ public sealed class GatewayState(IRedisReadinessProbe redisProbe)
 
     public void BeginDrain() => Interlocked.Exchange(ref _draining, 1);
 
-    public async ValueTask<bool> IsReadyAsync(CancellationToken cancellationToken) =>
-        IsStarted && !IsDraining && await redisProbe.IsReadyAsync(cancellationToken);
+    public async ValueTask<bool> IsReadyAsync(CancellationToken cancellationToken)
+    {
+        if (!IsStarted || IsDraining)
+        {
+            return false;
+        }
+
+        return !redisOptions.Value.RequiredForReadiness ||
+            await redisProbe.IsReadyAsync(cancellationToken);
+    }
 }
 
 public sealed class GatewayMetrics : IDisposable
 {
-    private readonly Meter _meter = new("Propago.Realtime.Gateway", "0.1.0");
+    private readonly Meter _meter = new(
+        "Propago.Realtime.Gateway",
+        typeof(GatewayMetrics).Assembly.GetName().Version?.ToString(3));
     private readonly Counter<long> _healthRequests;
     private long _healthRequestCount;
 

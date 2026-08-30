@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Propago.Realtime.Contracts\Propago.Realtime.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Propago.Realtime.Gateway\Propago.Realtime.Gateway.csproj" />
     <ProjectReference Include="..\..\src\Propago.Realtime.Redis\Propago.Realtime.Redis.csproj" />
   </ItemGroup>
 

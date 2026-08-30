@@ -24,6 +24,14 @@ builder.Services
     .Validate(options => !string.IsNullOrWhiteSpace(options.InstancePrefix), "Redis:InstancePrefix is required.")
     .ValidateOnStart();
 
+var configuredDrainSeconds = builder.Configuration.GetValue<int?>(
+    $"{GatewayOptions.SectionName}:ShutdownDrainSeconds") ?? 25;
+builder.Services.Configure<HostOptions>(options =>
+{
+    options.ShutdownTimeout = TimeSpan.FromSeconds(
+        configuredDrainSeconds is >= 1 and <= 300 ? configuredDrainSeconds : 25);
+});
+
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, RealtimeJsonSerializerContext.Default);
@@ -58,10 +66,17 @@ app.Lifetime.ApplicationStopping.Register(() =>
     logDraining(logger, gatewayOptions.ServiceName, null);
 });
 
-app.MapGet("/health/startup", Ok<HealthStatusResponse> () =>
+app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>
 {
     metrics.RecordHealthRequest("startup");
-    return TypedResults.Ok(CreateHealthResponse(state.IsStarted ? "healthy" : "starting"));
+    var started = state.IsStarted;
+    var response = CreateHealthResponse(started ? "healthy" : "starting");
+    return started
+        ? TypedResults.Ok(response)
+        : TypedResults.Json(
+            response,
+            RealtimeJsonSerializerContext.Default.HealthStatusResponse,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
 app.MapGet("/health/live", Ok<HealthStatusResponse> () =>
@@ -93,7 +108,19 @@ app.MapGet("/metrics", ContentHttpResult () =>
 
 app.Run();
 
-HealthStatusResponse CreateHealthResponse(string status) =>
-    new(status, serviceVersion, DateTimeOffset.UtcNow);
+HealthStatusResponse CreateHealthResponse(string status)
+{
+    IReadOnlyDictionary<string, string>? checks = null;
+    if (gatewayOptions.DetailedHealthChecks)
+    {
+        checks = new Dictionary<string, string>
+        {
+            ["started"] = state.IsStarted ? "healthy" : "starting",
+            ["draining"] = state.IsDraining ? "draining" : "accepting-traffic",
+        };
+    }
+
+    return new HealthStatusResponse(status, serviceVersion, DateTimeOffset.UtcNow, checks);
+}
 
 public partial class Program;

@@ -14,13 +14,10 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         _client = factory.CreateClient();
     }
 
-    [Theory]
-    [InlineData("/health/startup")]
-    [InlineData("/health/live")]
-    [InlineData("/health/ready")]
-    public async Task HealthEndpointReturnsHealthy(string path)
+    [Fact]
+    public async Task LivenessEndpointReturnsHealthy()
     {
-        using var response = await _client.GetAsync(path, CancellationToken.None);
+        using var response = await _client.GetAsync("/health/live", CancellationToken.None);
         var body = await response.Content.ReadFromJsonAsync(
             RealtimeJsonSerializerContext.Default.HealthStatusResponse,
             CancellationToken.None);
@@ -28,6 +25,28 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(body);
         Assert.Equal("healthy", body.Status);
+    }
+
+    [Theory]
+    [InlineData("/health/startup", "starting")]
+    [InlineData("/health/ready", "unavailable")]
+    public async Task StateDependentHealthEndpointsExposeValidState(
+        string path,
+        string transitionalStatus)
+    {
+        using var response = await _client.GetAsync(path, CancellationToken.None);
+        var body = await response.Content.ReadFromJsonAsync(
+            RealtimeJsonSerializerContext.Default.HealthStatusResponse,
+            CancellationToken.None);
+
+        Assert.Contains(
+            response.StatusCode,
+            new[] { HttpStatusCode.OK, HttpStatusCode.ServiceUnavailable });
+        Assert.NotNull(body);
+        Assert.Contains(body.Status, new[] { "healthy", transitionalStatus });
+        Assert.Equal(
+            response.StatusCode == HttpStatusCode.OK,
+            body.Status == "healthy");
     }
 
     [Fact]

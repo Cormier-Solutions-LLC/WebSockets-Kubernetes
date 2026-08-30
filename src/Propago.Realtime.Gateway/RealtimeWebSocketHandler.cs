@@ -45,6 +45,12 @@ public sealed class RealtimeWebSocketHandler(
             return;
         }
 
+        if (state.IsDraining)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
+
         using var socket = await context.WebSockets.AcceptWebSocketAsync(SubProtocol);
         await using var connection = new RealtimeConnection(
             socket,
@@ -54,8 +60,12 @@ public sealed class RealtimeWebSocketHandler(
         if (!registry.Add(connection))
         {
             await connection.RequestCloseAsync(
-                WebSocketCloseStatus.InternalServerError,
-                "connection_registration_failed",
+                registry.IsDraining
+                    ? RealtimeCloseStatus.ServiceRestart
+                    : WebSocketCloseStatus.InternalServerError,
+                registry.IsDraining
+                    ? "service_restart"
+                    : "connection_registration_failed",
                 context.RequestAborted);
             return;
         }
@@ -122,6 +132,15 @@ public sealed class RealtimeWebSocketHandler(
                     return "invalid_message_type";
                 }
 
+                if (result.Count > options.MaximumFrameBytes || result.Count > options.MaximumMessageBytes)
+                {
+                    await connection.RequestCloseAsync(
+                        WebSocketCloseStatus.MessageTooBig,
+                        "message_too_large",
+                        cancellationToken);
+                    return "message_too_large";
+                }
+
                 if (!result.EndOfMessage)
                 {
                     connection.TryEnqueue(RealtimeDispatcher.Error(
@@ -135,16 +154,6 @@ public sealed class RealtimeWebSocketHandler(
                     return "fragmented_message";
                 }
 
-                if (result.Count > options.MaximumFrameBytes || result.Count > options.MaximumMessageBytes)
-                {
-                    await connection.RequestCloseAsync(
-                        WebSocketCloseStatus.MessageTooBig,
-                        "message_too_large",
-                        cancellationToken);
-                    return "message_too_large";
-                }
-
-                connection.RecordActivity();
                 if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
                 {
                     await connection.RequestCloseAsync(
@@ -181,6 +190,8 @@ public sealed class RealtimeWebSocketHandler(
                         validation.ErrorMessage!));
                     continue;
                 }
+
+                connection.RecordActivity();
 
                 if (!connection.TryTrackCorrelation(envelope!.CorrelationId))
                 {

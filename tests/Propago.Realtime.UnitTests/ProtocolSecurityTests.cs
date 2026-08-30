@@ -1,8 +1,10 @@
 using System.Net.WebSockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Propago.Realtime.Contracts;
 using Propago.Realtime.Gateway;
+using Propago.Realtime.Redis;
 
 namespace Propago.Realtime.UnitTests;
 
@@ -61,6 +63,18 @@ public sealed class ProtocolSecurityTests
         Assert.False(RealtimeRouteAuthorizer.TryAuthorize(identity, "users/user-2/topics/orders", out _));
         Assert.False(RealtimeRouteAuthorizer.TryAuthorize(identity, "topics/admin", out _));
         Assert.False(RealtimeRouteAuthorizer.TryAuthorize(identity, "tenants/tenant-2/topics/orders", out _));
+    }
+
+    [Fact]
+    public void DurableConfigurationRequiresEnabledStreamsAndSafeClassNames()
+    {
+        var disabled = new RealtimeOptionsValidator(Options.Create(new RedisOptions { StreamsEnabled = false }));
+        var enabled = new RealtimeOptionsValidator(Options.Create(new RedisOptions { StreamsEnabled = true }));
+
+        Assert.True(disabled.Validate(null, new RealtimeOptions()).Succeeded);
+        Assert.False(disabled.Validate(null, new RealtimeOptions { DurableEventClasses = ["audit"] }).Succeeded);
+        Assert.False(enabled.Validate(null, new RealtimeOptions { DurableEventClasses = ["order.created"] }).Succeeded);
+        Assert.True(enabled.Validate(null, new RealtimeOptions { DurableEventClasses = ["order-created"] }).Succeeded);
     }
 
     [Theory]

@@ -26,6 +26,7 @@ public sealed class GatewayDrainService(
 
     public async Task StoppingAsync(CancellationToken cancellationToken)
     {
+        registry.BeginDrain();
         state.BeginDrain();
         await registry.NotifyServiceRestartAsync();
 

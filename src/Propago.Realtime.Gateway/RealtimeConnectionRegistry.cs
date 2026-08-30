@@ -7,13 +7,29 @@ public sealed class RealtimeConnectionRegistry(GatewayMetrics metrics)
 {
     private static readonly ReconnectAdvice RestartAdvice = new(500, 30_000, 0.2, true);
     private readonly ConcurrentDictionary<string, RealtimeConnection> _connections = new(StringComparer.Ordinal);
+    private int _draining;
 
     public int Count => _connections.Count;
 
+    public bool IsDraining => Volatile.Read(ref _draining) == 1;
+
+    public void BeginDrain() => Interlocked.Exchange(ref _draining, 1);
+
     public bool Add(RealtimeConnection connection)
     {
+        if (IsDraining)
+        {
+            return false;
+        }
+
         if (!_connections.TryAdd(connection.Id, connection))
         {
+            return false;
+        }
+
+        if (IsDraining)
+        {
+            _connections.TryRemove(connection.Id, out _);
             return false;
         }
 

@@ -41,3 +41,11 @@ public sealed class RealtimeOptions
 
     public string[] DurableEventClasses { get; init; } = [];
 }
+
+public sealed class ProxyOptions
+{
+    public const string SectionName = "Proxy";
+
+    public string[] TrustedNetworks { get; init; } =
+        ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
+}

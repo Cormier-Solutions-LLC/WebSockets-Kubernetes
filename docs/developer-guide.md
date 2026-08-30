@@ -32,6 +32,8 @@ dotnet run --project ./src/Propago.Realtime.Gateway
 
 Configuration uses normal ASP.NET Core providers. Environment variables use double underscores, for example `Gateway__ShutdownDrainSeconds=30` and `Redis__Endpoint=redis:6379`. Never commit Redis credentials or put secrets in command arguments.
 
+TLS is expected to terminate at a trusted ingress. The gateway processes one `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` hop before origin checks, but only from CIDRs in `Proxy:TrustedNetworks`. Override the private-network defaults to match the cluster's actual ingress network; never configure untrusted public ranges.
+
 For browser WebSocket testing, configure an exact origin in `Realtime__AllowedOrigins__0`, create a namespaced Redis session record, and send its ID in the configured HttpOnly cookie. Cross-origin tools should obtain a one-time ticket from `/realtime/tickets`. The full envelope, route, close-code, reconnect, and delivery contracts are in [protocol.md](protocol.md).
 
 Redis Streams are disabled by default. Enable `Redis__StreamsEnabled=true` and populate `Realtime__DurableEventClasses__0` only for reviewed event classes. `StreamMaxLength`, `StreamClaimIdleMilliseconds`, `StreamIdempotencyTtlSeconds`, and `StreamPoisonMaxLength` must be chosen from the event's retention and recovery requirements.

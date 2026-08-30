@@ -105,6 +105,31 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task TrustedForwardedHeadersSupportTlsTerminatingIngress()
+    {
+        await using var factory = new RealtimeFactory();
+        using var socket = await ConnectAsync(
+            factory,
+            origin: "https://gateway.example",
+            useTicket: false,
+            forwardedHost: "gateway.example");
+
+        Assert.Equal(WebSocketState.Open, socket.State);
+    }
+
+    [Fact]
+    public async Task DrainStartingDuringAuthenticationRejectsUpgrade()
+    {
+        await using var factory = new RealtimeFactory(authenticationDelay: TimeSpan.FromMilliseconds(250));
+        var connection = ConnectAsync(factory);
+        await Task.Delay(50);
+        factory.Services.GetRequiredService<RealtimeConnectionRegistry>().BeginDrain();
+        factory.Services.GetRequiredService<GatewayState>().BeginDrain();
+
+        await Assert.ThrowsAnyAsync<Exception>(() => connection);
+    }
+
+    [Fact]
     public async Task IdleConnectionClosesWithHeartbeatTimeout()
     {
         await using var factory = new RealtimeFactory();
@@ -134,6 +159,38 @@ public sealed class WebSocketProtocolTests
 
         Assert.Equal(RealtimeCloseStatus.AuthenticationExpired, socket.CloseStatus);
         Assert.Empty(factory.Bus.Published);
+    }
+
+    [Fact]
+    public async Task MalformedTrafficDoesNotRefreshIdleActivity()
+    {
+        await using var factory = new RealtimeFactory();
+        using var socket = await ConnectAsync(factory);
+        using var stopSending = new CancellationTokenSource();
+        var sender = Task.Run(async () =>
+        {
+            try
+            {
+                while (!stopSending.IsCancellationRequested)
+                {
+                    await socket.SendAsync(
+                        Encoding.UTF8.GetBytes("{bad-json"),
+                        WebSocketMessageType.Text,
+                        true,
+                        stopSending.Token);
+                    await Task.Delay(250, stopSending.Token);
+                }
+            }
+            catch (Exception) when (stopSending.IsCancellationRequested || socket.State != WebSocketState.Open)
+            {
+            }
+        });
+
+        await WaitForCloseAsync(socket);
+        await stopSending.CancelAsync();
+        await sender;
+
+        Assert.Equal(RealtimeCloseStatus.HeartbeatTimeout, socket.CloseStatus);
     }
 
     [Fact]
@@ -176,13 +233,20 @@ public sealed class WebSocketProtocolTests
         RealtimeFactory factory,
         bool includeCookie = true,
         string origin = "http://localhost",
-        bool useTicket = true)
+        bool useTicket = true,
+        string? forwardedHost = null)
     {
         var client = factory.Server.CreateWebSocketClient();
         client.SubProtocols.Add(RealtimeWebSocketHandler.SubProtocol);
         client.ConfigureRequest = request =>
         {
             request.Headers.Origin = origin;
+            if (forwardedHost is not null)
+            {
+                request.Headers.Append("X-Forwarded-For", "127.0.0.2");
+                request.Headers.Append("X-Forwarded-Proto", "https");
+                request.Headers.Append("X-Forwarded-Host", forwardedHost);
+            }
             if (includeCookie)
             {
                 request.Headers.Append("Cookie", "propago_session=valid-session-123456");
@@ -230,7 +294,9 @@ public sealed class WebSocketProtocolTests
         }
     }
 
-    private sealed class RealtimeFactory(TimeSpan? identityLifetime = null) : WebApplicationFactory<Program>
+    private sealed class RealtimeFactory(
+        TimeSpan? identityLifetime = null,
+        TimeSpan? authenticationDelay = null) : WebApplicationFactory<Program>
     {
         public FakeMessageBus Bus { get; } = new();
 
@@ -242,8 +308,10 @@ public sealed class WebSocketProtocolTests
                 new Dictionary<string, string?>
                 {
                     ["Realtime:AllowedOrigins:0"] = "http://localhost",
+                    ["Realtime:AllowedOrigins:1"] = "https://gateway.example",
                     ["Realtime:MaximumFrameBytes"] = "1024",
                     ["Realtime:MaximumMessageBytes"] = "1024",
+                    ["Proxy:TrustedNetworks:0"] = "127.0.0.0/8",
                 }));
             builder.ConfigureTestServices(services =>
             {
@@ -254,14 +322,16 @@ public sealed class WebSocketProtocolTests
                 services.RemoveAll<IDurableRealtimeStore>();
                 services.AddSingleton<IOptions<RealtimeOptions>>(Options.Create(new RealtimeOptions
                 {
-                    AllowedOrigins = ["http://localhost"],
+                    AllowedOrigins = ["http://localhost", "https://gateway.example"],
                     MaximumFrameBytes = 1024,
                     MaximumMessageBytes = 1024,
                     HeartbeatSeconds = 1,
                     IdleTimeoutSeconds = 2,
                 }));
                 services.AddSingleton<IRealtimeSessionStore, FakeSessionStore>();
-                services.AddSingleton<IConnectionTicketStore>(new FakeTicketStore(IdentityLifetime));
+                services.AddSingleton<IConnectionTicketStore>(new FakeTicketStore(
+                    IdentityLifetime,
+                    authenticationDelay ?? TimeSpan.Zero));
                 services.AddSingleton<IRealtimeMessageBus>(Bus);
                 services.AddSingleton<IDurableRealtimeStore, FakeDurableStore>();
             });
@@ -276,15 +346,27 @@ public sealed class WebSocketProtocolTests
                 : null);
     }
 
-    private sealed class FakeTicketStore(TimeSpan identityLifetime) : IConnectionTicketStore
+    private sealed class FakeTicketStore(
+        TimeSpan identityLifetime,
+        TimeSpan authenticationDelay) : IConnectionTicketStore
     {
         public ValueTask<string> IssueAsync(RealtimeIdentity identity, string audience, TimeSpan lifetime, CancellationToken cancellationToken) =>
             ValueTask.FromResult("unused-ticket");
 
-        public ValueTask<RealtimeIdentity?> ConsumeAsync(string ticket, string audience, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<RealtimeIdentity?>(ticket == "valid-ticket"
+        public async ValueTask<RealtimeIdentity?> ConsumeAsync(
+            string ticket,
+            string audience,
+            CancellationToken cancellationToken)
+        {
+            if (authenticationDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(authenticationDelay, cancellationToken);
+            }
+
+            return ticket == "valid-ticket"
                 ? new RealtimeIdentity("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.Add(identityLifetime))
-                : null);
+                : null;
+        }
     }
 
     private sealed class FakeMessageBus : IRealtimeMessageBus

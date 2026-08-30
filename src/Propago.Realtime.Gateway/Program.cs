@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Propago.Realtime.Contracts;
 using Propago.Realtime.Gateway;
@@ -36,6 +37,12 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<ProxyOptions>()
+    .Bind(builder.Configuration.GetSection(ProxyOptions.SectionName))
+    .Validate(options => options.TrustedNetworks.Length > 0 && options.TrustedNetworks.All(network => System.Net.IPNetwork.TryParse(network, out _)), "Proxy:TrustedNetworks must contain valid CIDR ranges.")
+    .ValidateOnStart();
+
+builder.Services
     .AddOptions<RealtimeOptions>()
     .Bind(builder.Configuration.GetSection(RealtimeOptions.SectionName))
     .Validate(options => options.EndpointPath.StartsWith('/'), "Realtime:EndpointPath must start with '/'.")
@@ -48,6 +55,22 @@ builder.Services
     .Validate(options => options.IdleTimeoutSeconds > options.HeartbeatSeconds, "Realtime:IdleTimeoutSeconds must exceed HeartbeatSeconds.")
     .Validate(options => options.TicketLifetimeSeconds is >= 1 and <= 300, "Realtime:TicketLifetimeSeconds must be between 1 and 300.")
     .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<RealtimeOptions>, RealtimeOptionsValidator>();
+builder.Services
+    .AddOptions<ForwardedHeadersOptions>()
+    .Configure<IOptions<ProxyOptions>>((headers, proxy) =>
+    {
+        headers.ForwardedHeaders =
+            ForwardedHeaders.XForwardedFor |
+            ForwardedHeaders.XForwardedProto |
+            ForwardedHeaders.XForwardedHost;
+        headers.ForwardLimit = 1;
+        headers.KnownIPNetworks.Clear();
+        foreach (var network in proxy.Value.TrustedNetworks)
+        {
+            headers.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(network));
+        }
+    });
 
 var configuredDrainSeconds = builder.Configuration.GetValue<int?>(
     $"{GatewayOptions.SectionName}:ShutdownDrainSeconds") ?? 25;
@@ -107,6 +130,7 @@ app.Lifetime.ApplicationStopping.Register(() =>
     logDraining(logger, gatewayOptions.ServiceName, null);
 });
 
+app.UseForwardedHeaders();
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(realtimeOptions.HeartbeatSeconds),
@@ -127,13 +151,24 @@ app.MapPost("/realtime/tickets", async Task<Results<Ok<ConnectionTicketResponse>
         return TypedResults.Unauthorized();
     }
 
-    var lifetime = TimeSpan.FromSeconds(realtimeOptions.TicketLifetimeSeconds);
+    var now = DateTimeOffset.UtcNow;
+    var expiresAt = DateTimeOffset.Compare(
+        authentication.Identity!.ExpiresAt,
+        now.AddSeconds(realtimeOptions.TicketLifetimeSeconds)) < 0
+        ? authentication.Identity.ExpiresAt
+        : now.AddSeconds(realtimeOptions.TicketLifetimeSeconds);
+    var lifetime = expiresAt - now;
+    if (lifetime <= TimeSpan.Zero)
+    {
+        return TypedResults.Unauthorized();
+    }
+
     var ticket = await ticketStore.IssueAsync(
         authentication.Identity!,
         context.Request.Host.Value ?? string.Empty,
         lifetime,
         cancellationToken);
-    return TypedResults.Ok(new ConnectionTicketResponse(ticket, DateTimeOffset.UtcNow.Add(lifetime)));
+    return TypedResults.Ok(new ConnectionTicketResponse(ticket, expiresAt));
 });
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>

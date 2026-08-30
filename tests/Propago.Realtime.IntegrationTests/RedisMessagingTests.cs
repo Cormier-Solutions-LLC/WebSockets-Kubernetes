@@ -56,6 +56,15 @@ public sealed class RedisMessagingTests
             CancellationToken.None);
         await Task.Delay(150);
         Assert.Null(await tickets.ConsumeAsync(expiredTicket, "gateway.example", CancellationToken.None));
+
+        var shortIdentity = identity with { ExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(150) };
+        var cappedTicket = await tickets.IssueAsync(
+            shortIdentity,
+            "gateway.example",
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+        await Task.Delay(250);
+        Assert.Null(await tickets.ConsumeAsync(cappedTicket, "gateway.example", CancellationToken.None));
     }
 
     [Fact]
@@ -107,6 +116,30 @@ public sealed class RedisMessagingTests
         await publisher.PublishAsync(expected, CancellationToken.None);
 
         Assert.Equal(expected.MessageId, (await received.Task.WaitAsync(TimeSpan.FromSeconds(5))).MessageId);
+    }
+
+    [Fact]
+    public async Task PubSubDiscardsStructurallyInvalidEnvelope()
+    {
+        var options = Options();
+        await using var provider = new RedisConnectionProvider(options);
+        var bus = new RedisRealtimeMessageBus(provider, options);
+        var invoked = false;
+        await using var subscription = await bus.SubscribeAsync(
+            _ =>
+            {
+                invoked = true;
+                return ValueTask.CompletedTask;
+            },
+            CancellationToken.None);
+        var connection = await provider.GetConnectionAsync(CancellationToken.None);
+
+        await connection.GetSubscriber().PublishAsync(
+            RedisChannel.Literal($"{options.InstancePrefix}:{options.PubSubChannel}"),
+            "{}");
+        await Task.Delay(100);
+
+        Assert.False(invoked);
     }
 
     [Fact]

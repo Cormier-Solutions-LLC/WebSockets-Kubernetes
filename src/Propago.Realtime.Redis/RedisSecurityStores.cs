@@ -98,6 +98,16 @@ public sealed class RedisConnectionTicketStore(
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = DateTimeOffset.Compare(identity.ExpiresAt, now.Add(lifetime)) < 0
+            ? identity.ExpiresAt
+            : now.Add(lifetime);
+        var effectiveLifetime = expiresAt - now;
+        if (effectiveLifetime <= TimeSpan.Zero)
+        {
+            throw new ArgumentException("Identity must remain valid for the ticket lifetime.", nameof(identity));
+        }
+
         var ticket = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .TrimEnd('=')
             .Replace('+', '-')
@@ -106,7 +116,7 @@ public sealed class RedisConnectionTicketStore(
             identity.TenantId,
             identity.UserId,
             identity.AllowedTopics,
-            DateTimeOffset.UtcNow.Add(lifetime),
+            expiresAt,
             audience);
         var json = JsonSerializer.Serialize(
             record,
@@ -115,7 +125,7 @@ public sealed class RedisConnectionTicketStore(
         var stored = await connection.GetDatabase().StringSetAsync(
             TicketKey(ticket),
             json,
-            lifetime,
+            effectiveLifetime,
             When.NotExists);
         if (!stored)
         {

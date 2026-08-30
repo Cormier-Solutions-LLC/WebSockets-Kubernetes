@@ -43,7 +43,7 @@ public sealed class RedisRealtimeMessageBus(
                 var parsed = JsonSerializer.Deserialize(
                     message.Message.ToString(),
                     RealtimeJsonSerializerContext.Default.RealtimeBusMessage);
-                if (parsed is not null)
+                if (parsed is not null && IsValidBusMessage(parsed))
                 {
                     await handler(parsed);
                 }
@@ -58,6 +58,22 @@ public sealed class RedisRealtimeMessageBus(
 
     private RedisChannel Channel() =>
         RedisChannel.Literal($"{options.InstancePrefix}:{options.PubSubChannel}");
+
+    private static bool IsValidBusMessage(RealtimeBusMessage message) =>
+        IsSafeBusIdentifier(message.MessageId) &&
+        IsSafeBusIdentifier(message.TenantId) &&
+        (message.UserId is null || IsSafeBusIdentifier(message.UserId)) &&
+        IsSafeBusIdentifier(message.Topic) &&
+        IsSafeBusIdentifier(message.CorrelationId) &&
+        message.Timestamp != default &&
+        message.Payload.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null &&
+        !string.IsNullOrWhiteSpace(message.SourceInstance) &&
+        message.SourceInstance.Length <= 256;
+
+    private static bool IsSafeBusIdentifier(string value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Length <= 128 &&
+        value.All(character => char.IsLetterOrDigit(character) || character is '-' or '_' or '.');
 
     private sealed class Subscription(ChannelMessageQueue queue) : IAsyncDisposable
     {

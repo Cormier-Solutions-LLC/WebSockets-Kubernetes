@@ -89,7 +89,20 @@ try {
     Write-Result PASS "DNS resolves $HostName to the assigned VIP."
 
     $webSocketKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
-    $routeStatus = Invoke-Checked curl @('--silent', '--show-error', '--http1.1', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--header', 'Connection: Upgrade', '--header', 'Upgrade: websocket', '--header', 'Sec-WebSocket-Version: 13', '--header', "Sec-WebSocket-Key: $webSocketKey", '--header', 'Sec-WebSocket-Protocol: propago.realtime.v1', '--header', "Origin: $Origin", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}${Path}") 'Validate TLS route'
+    $upgradeArguments = @(
+        '--silent', '--show-error', '--http1.1', '--max-time', "$TimeoutSeconds",
+        '--resolve', "${HostName}:443:$vip",
+        '--header', 'Connection: Upgrade',
+        '--header', 'Upgrade: websocket',
+        '--header', 'Sec-WebSocket-Version: 13',
+        '--header', "Sec-WebSocket-Key: $webSocketKey",
+        '--header', 'Sec-WebSocket-Protocol: propago.realtime.v1',
+        '--header', "Origin: $Origin",
+        '--output', '/dev/null',
+        '--write-out', '%{http_code}',
+        "https://${HostName}${Path}"
+    )
+    $routeStatus = Invoke-Checked curl $upgradeArguments 'Validate TLS route'
     if ($routeStatus.Trim() -notin @('401', '426')) { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
     Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
     $invalidStatus = Invoke-Checked curl @('--silent', '--show-error', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}/not-a-realtime-route") 'Validate invalid route rejection'
@@ -106,7 +119,7 @@ try {
         $socket.Options.AddSubProtocol('propago.realtime.v1')
         $socket.Options.SetRequestHeader('Origin', $Origin)
         try {
-            $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$ticket")
+            $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")
             $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
             Start-Sleep -Seconds $LongConnectionSeconds
             if ($socket.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'WSS connection did not remain open for the requested validation interval.' }

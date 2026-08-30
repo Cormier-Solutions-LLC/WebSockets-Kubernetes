@@ -83,7 +83,7 @@ try {
     if ($readyEndpoints.Count -lt 2) { throw 'Fewer than two non-terminating gateway endpoints are routable.' }
     Write-Result PASS 'At least two ready, non-terminating gateway endpoints are routable.'
 
-    $dnsAddresses = @(Resolve-DnsName -Name $HostName -Type A -ErrorAction Stop | Where-Object Type -eq 'A' | Select-Object -ExpandProperty IPAddress)
+    $dnsAddresses = @([Net.Dns]::GetHostAddresses($HostName) | ForEach-Object { $_.IPAddressToString })
     if ($dnsAddresses -notcontains $vip) { throw "DNS for $HostName does not contain assigned VIP $vip." }
     Write-Result PASS "DNS resolves $HostName to the assigned VIP."
 

@@ -38,6 +38,9 @@ logs:
     fields:
       headers:
         defaultMode: drop
+      names:
+        RequestAddr: drop
+        RequestPath: drop
 
 metrics:
   prometheus:

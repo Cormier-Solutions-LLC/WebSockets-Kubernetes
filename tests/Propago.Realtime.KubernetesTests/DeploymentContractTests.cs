@@ -87,6 +87,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("externalTrafficPolicy: Local", traefikValues, StringComparison.Ordinal);
         Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
         Assert.Contains("defaultMode: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("RequestPath: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.propago.local", traefikValues, StringComparison.Ordinal);
         Assert.Contains("prometheus:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("idletimeout=120s", traefikValues, StringComparison.Ordinal);
@@ -105,7 +106,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("TARGET MISMATCH", script, StringComparison.Ordinal);
         Assert.Contains("externalTrafficPolicy", script, StringComparison.Ordinal);
         Assert.Contains("type ClusterIP", script, StringComparison.Ordinal);
-        Assert.Contains("Resolve-DnsName", script, StringComparison.Ordinal);
+        Assert.Contains("[Net.Dns]::GetHostAddresses", script, StringComparison.Ordinal);
         Assert.Contains("Certificate is Ready", script, StringComparison.Ordinal);
         Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
         Assert.Contains("Invalid route is rejected", script, StringComparison.Ordinal);

@@ -13,7 +13,7 @@ Examples:
 
 `Remove` and `RestoreRedis` require `-Force`. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, and validated archive rotation. It does not accept credentials as parameters and never creates Secrets.
 
-`Test-RealtimeEdge.ps1` performs read-only external edge validation after deployment. It verifies the assigned MetalLB VIP, `externalTrafficPolicy: Local`, certificate readiness, ready non-terminating gateway endpoints, DNS, TLS routing, and optionally an authenticated long-lived WSS connection. Supply the single-use WSS ticket via `REALTIME_EDGE_TICKET`; the script never logs it.
+`Test-RealtimeEdge.ps1` performs read-only external edge validation after deployment. It verifies the assigned MetalLB VIP, `externalTrafficPolicy: Local`, certificate readiness, ready non-terminating gateway endpoints, DNS, TLS routing, and optionally an authenticated long-lived WSS connection. Supply the single-use WSS ticket via `REALTIME_EDGE_TICKET`; the script never logs it. The ticket is necessarily sent in the gateway's query-string protocol, so the Traefik values drop request path and address access-log fields in addition to request headers.
 
 ```powershell
 $env:REALTIME_EDGE_TICKET = '<ephemeral-ticket>'

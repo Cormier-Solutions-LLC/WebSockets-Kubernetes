@@ -135,16 +135,18 @@ public sealed class RealtimeConnection : IAsyncDisposable
         string description,
         CancellationToken cancellationToken)
     {
-        if (Interlocked.Exchange(ref _closeRequested, 1) != 0)
+        if (Interlocked.CompareExchange(ref _closeRequested, 1, 0) != 0)
         {
             return;
         }
 
-        _metrics.RecordCloseCode((int)status);
-        _outbound.Writer.TryComplete();
-        await _sendLock.WaitAsync(cancellationToken);
+        var lockTaken = false;
         try
         {
+            _metrics.RecordCloseCode((int)status);
+            _outbound.Writer.TryComplete();
+            await _sendLock.WaitAsync(cancellationToken);
+            lockTaken = true;
             if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
             {
                 await _socket.CloseOutputAsync(status, description, cancellationToken);
@@ -154,9 +156,17 @@ public sealed class RealtimeConnection : IAsyncDisposable
         {
             _metrics.RecordCloseCode((int)WebSocketCloseStatus.InternalServerError);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Interlocked.CompareExchange(ref _closeRequested, 0, 1);
+            throw;
+        }
         finally
         {
-            _sendLock.Release();
+            if (lockTaken)
+            {
+                _sendLock.Release();
+            }
         }
     }
 

@@ -29,6 +29,13 @@ public sealed class RealtimeAuthenticator(
                 : new AuthenticationResult(identity, null);
         }
 
+        return await AuthenticateSessionAsync(request, cancellationToken);
+    }
+
+    public async ValueTask<AuthenticationResult> AuthenticateSessionAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
         var origin = request.Headers.Origin.ToString();
         if (!IsAllowedOrigin(origin) || !IsSameOrigin(request, origin))
         {

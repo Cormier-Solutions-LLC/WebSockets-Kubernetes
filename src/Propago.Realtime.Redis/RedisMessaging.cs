@@ -144,7 +144,7 @@ public sealed class RedisDurableRealtimeStore(
             consumer,
             StreamPosition.NewMessages,
             options.StreamReadCount);
-        return await ParseEntriesAsync(database, key, group, entries);
+        return await ParseEntriesAsync(database, key, group, eventClass, entries);
     }
 
     public async ValueTask<IReadOnlyList<DurableDelivery>> RecoverPendingAsync(
@@ -159,14 +159,30 @@ public sealed class RedisDurableRealtimeStore(
         var database = connection.GetDatabase();
         var key = StreamKey(eventClass);
         await EnsureConsumerGroupAsync(database, key, group);
-        var claimed = await database.StreamAutoClaimAsync(
-            key,
-            group,
-            consumer,
-            options.StreamClaimIdleMilliseconds,
-            "0-0",
-            options.StreamReadCount);
-        return await ParseEntriesAsync(database, key, group, claimed.ClaimedEntries);
+        var deliveries = new List<DurableDelivery>();
+        var cursor = (RedisValue)"0-0";
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var claimed = await database.StreamAutoClaimAsync(
+                key,
+                group,
+                consumer,
+                options.StreamClaimIdleMilliseconds,
+                cursor,
+                options.StreamReadCount);
+            deliveries.AddRange(await ParseEntriesAsync(
+                database,
+                key,
+                group,
+                eventClass,
+                claimed.ClaimedEntries));
+            cursor = claimed.NextStartId;
+        }
+        while (cursor != "0-0" && visited.Add(cursor.ToString()));
+
+        return deliveries;
     }
 
     public async ValueTask<bool> TryMarkProcessedAsync(
@@ -193,6 +209,7 @@ public sealed class RedisDurableRealtimeStore(
         IDatabase database,
         RedisKey key,
         RedisValue group,
+        string eventClass,
         StreamEntry[] entries)
     {
         var deliveries = new List<DurableDelivery>(entries.Length);
@@ -210,13 +227,13 @@ public sealed class RedisDurableRealtimeStore(
                 var message = JsonSerializer.Deserialize(
                     value.ToString(),
                     RealtimeJsonSerializerContext.Default.DurableStreamMessage);
-                if (message is not null)
+                if (message is not null && IsValidDurableMessage(eventClass, message))
                 {
                     deliveries.Add(new DurableDelivery(entry.Id.ToString(), message));
                     continue;
                 }
 
-                await QuarantineAsync(database, key, group, entry, value, "null_message");
+                await QuarantineAsync(database, key, group, entry, value, "invalid_contract");
             }
             catch (JsonException)
             {
@@ -279,6 +296,18 @@ public sealed class RedisDurableRealtimeStore(
     private static bool IsSafeIdentifier(string value) =>
         value.Length is >= 1 and <= 128 &&
         value.All(character => char.IsLetterOrDigit(character) || character is '-' or '_' or '.');
+
+    private static bool IsValidDurableMessage(string expectedEventClass, DurableStreamMessage message) =>
+        string.Equals(message.EventClass, expectedEventClass, StringComparison.Ordinal) &&
+        IsSafeIdentifier(message.MessageId) &&
+        IsSafeIdentifier(message.TenantId) &&
+        (message.UserId is null || IsSafeIdentifier(message.UserId)) &&
+        IsSafeIdentifier(message.Topic) &&
+        IsSafeIdentifier(message.CorrelationId) &&
+        message.Timestamp != default &&
+        message.Payload.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null &&
+        !string.IsNullOrWhiteSpace(message.SourceInstance) &&
+        message.SourceInstance.Length <= 256;
 
     private static async ValueTask EnsureConsumerGroupAsync(
         IDatabase database,

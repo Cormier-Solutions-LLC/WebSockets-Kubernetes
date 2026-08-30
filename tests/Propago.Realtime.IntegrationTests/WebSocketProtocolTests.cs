@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -90,6 +91,20 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task ExistingTicketCannotMintReplacementTicket()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsync(
+            "/realtime/tickets?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task IdleConnectionClosesWithHeartbeatTimeout()
     {
         await using var factory = new RealtimeFactory();
@@ -98,6 +113,13 @@ public sealed class WebSocketProtocolTests
         await WaitForCloseAsync(socket);
 
         Assert.Equal(RealtimeCloseStatus.HeartbeatTimeout, socket.CloseStatus);
+        var registry = factory.Services.GetRequiredService<RealtimeConnectionRegistry>();
+        for (var attempt = 0; attempt < 50 && registry.Count != 0; attempt++)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.Equal(0, registry.Count);
     }
 
     [Fact]

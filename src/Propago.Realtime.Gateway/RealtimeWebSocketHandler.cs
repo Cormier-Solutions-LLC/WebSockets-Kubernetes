@@ -62,7 +62,7 @@ public sealed class RealtimeWebSocketHandler(
 
         using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         var sender = connection.RunSenderAsync(connectionCancellation.Token);
-        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation.Token);
+        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation);
         var closeReason = "client_disconnect";
         try
         {
@@ -197,8 +197,9 @@ public sealed class RealtimeWebSocketHandler(
 
     private async Task RunHeartbeatAsync(
         RealtimeConnection connection,
-        CancellationToken cancellationToken)
+        CancellationTokenSource connectionCancellation)
     {
+        var cancellationToken = connectionCancellation.Token;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatSeconds));
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
@@ -208,6 +209,7 @@ public sealed class RealtimeWebSocketHandler(
                     RealtimeCloseStatus.HeartbeatTimeout,
                     "heartbeat_timeout",
                     cancellationToken);
+                connectionCancellation.Cancel();
                 return;
             }
 
@@ -223,6 +225,7 @@ public sealed class RealtimeWebSocketHandler(
                     RealtimeCloseStatus.SlowConsumer,
                     "slow_consumer",
                     cancellationToken);
+                connectionCancellation.Cancel();
                 return;
             }
         }

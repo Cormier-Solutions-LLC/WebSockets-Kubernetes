@@ -46,6 +46,7 @@ builder.Services
     .Validate(options => options.OutboundQueueCapacity is >= 1 and <= 10_000, "Realtime:OutboundQueueCapacity must be between 1 and 10000.")
     .Validate(options => options.HeartbeatSeconds is >= 5 and <= 300, "Realtime:HeartbeatSeconds must be between 5 and 300.")
     .Validate(options => options.IdleTimeoutSeconds > options.HeartbeatSeconds, "Realtime:IdleTimeoutSeconds must exceed HeartbeatSeconds.")
+    .Validate(options => options.TicketLifetimeSeconds is >= 1 and <= 300, "Realtime:TicketLifetimeSeconds must be between 1 and 300.")
     .ValidateOnStart();
 
 var configuredDrainSeconds = builder.Configuration.GetValue<int?>(
@@ -120,7 +121,7 @@ app.MapPost("/realtime/tickets", async Task<Results<Ok<ConnectionTicketResponse>
     IConnectionTicketStore ticketStore,
     CancellationToken cancellationToken) =>
 {
-    var authentication = await authenticator.AuthenticateAsync(context.Request, cancellationToken);
+    var authentication = await authenticator.AuthenticateSessionAsync(context.Request, cancellationToken);
     if (!authentication.Succeeded)
     {
         return TypedResults.Unauthorized();

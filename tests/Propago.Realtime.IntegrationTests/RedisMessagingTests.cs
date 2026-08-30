@@ -85,7 +85,7 @@ public sealed class RedisMessagingTests
     }
 
     [Fact]
-    public async Task PublisherReconnectsWithoutCorruptingRemoteSubscription()
+    public async Task SharedPublisherMultiplexerPreservesRemoteSubscription()
     {
         var options = Options();
         await using var publisherProvider = new RedisConnectionProvider(options);
@@ -101,8 +101,8 @@ public sealed class RedisMessagingTests
             },
             CancellationToken.None);
 
-        var interrupted = await publisherProvider.GetConnectionAsync(CancellationToken.None);
-        await interrupted.DisposeAsync();
+        var shared = await publisherProvider.GetConnectionAsync(CancellationToken.None);
+        Assert.Same(shared, await publisherProvider.GetConnectionAsync(CancellationToken.None));
         var expected = BusMessage();
         await publisher.PublishAsync(expected, CancellationToken.None);
 
@@ -132,9 +132,10 @@ public sealed class RedisMessagingTests
         await database.StreamAddAsync(streamKey, "data", "{not-json");
         await database.StreamAddAsync(streamKey, "data", "null");
         await database.StreamAddAsync(streamKey, "other", "missing");
+        await database.StreamAddAsync(streamKey, "data", "{}");
         var poisonRead = await store.ReadAsync("audit", "gateways", "instance-b", CancellationToken.None);
         Assert.Empty(poisonRead);
-        Assert.Equal(3, await database.StreamLengthAsync($"{streamKey}:poison"));
+        Assert.Equal(4, await database.StreamLengthAsync($"{streamKey}:poison"));
 
         for (var index = 0; index < 500; index++)
         {
@@ -144,12 +145,54 @@ public sealed class RedisMessagingTests
         Assert.InRange(await database.StreamLengthAsync(streamKey), 1, options.StreamMaxLength * 2);
     }
 
-    private static RedisOptions Options(bool streamsEnabled = false) => new()
+    [Fact]
+    public async Task PendingRecoveryAdvancesPastYoungPrefix()
+    {
+        var options = Options(streamsEnabled: true, streamClaimIdleMilliseconds: 1_000);
+        await using var provider = new RedisConnectionProvider(options);
+        var store = new RedisDurableRealtimeStore(provider, options);
+        var ids = new List<RedisValue>();
+        for (var index = 0; index < 30; index++)
+        {
+            ids.Add(await store.AppendAsync(DurableMessage(), CancellationToken.None));
+        }
+
+        var database = (await provider.GetConnectionAsync(CancellationToken.None)).GetDatabase();
+        var streamKey = $"{options.InstancePrefix}:{options.StreamKeyPrefix}:audit";
+        await database.StreamCreateConsumerGroupAsync(streamKey, "recovery", StreamPosition.Beginning);
+        var pending = await database.StreamReadGroupAsync(
+            streamKey,
+            "recovery",
+            "original",
+            StreamPosition.NewMessages,
+            count: 30);
+        Assert.Equal(30, pending.Length);
+        await Task.Delay(options.StreamClaimIdleMilliseconds + 100);
+        await database.StreamClaimAsync(
+            streamKey,
+            "recovery",
+            "fresh",
+            minIdleTimeInMs: 0,
+            ids.Take(20).ToArray());
+
+        var recovered = await store.RecoverPendingAsync(
+            "audit",
+            "recovery",
+            "replacement",
+            CancellationToken.None);
+
+        Assert.All(ids.Skip(20), expected =>
+            Assert.Contains(recovered, delivery => delivery.EntryId == expected.ToString()));
+    }
+
+    private static RedisOptions Options(
+        bool streamsEnabled = false,
+        int streamClaimIdleMilliseconds = 10) => new()
     {
         Endpoint = Endpoint,
         InstancePrefix = $"propago:test:{Guid.NewGuid():N}",
         StreamsEnabled = streamsEnabled,
-        StreamClaimIdleMilliseconds = 10,
+        StreamClaimIdleMilliseconds = streamClaimIdleMilliseconds,
         StreamReadCount = 10,
         StreamMaxLength = 100,
         StreamIdempotencyTtlSeconds = 60,

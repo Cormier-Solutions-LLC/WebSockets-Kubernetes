@@ -57,6 +57,14 @@ public static class ProtocolValidator
                 "Route is required and must not exceed 256 characters.");
         }
 
+        if (string.Equals(envelope.Type, ProtocolMessageTypes.Publish, StringComparison.Ordinal) &&
+            envelope.Payload.ValueKind is System.Text.Json.JsonValueKind.Undefined or System.Text.Json.JsonValueKind.Null)
+        {
+            return ProtocolValidationResult.Invalid(
+                ProtocolErrorCodes.InvalidEnvelope,
+                "Publish payload is required and must not be null.");
+        }
+
         return ProtocolValidationResult.Valid;
     }
 

@@ -34,6 +34,23 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public void PublishRequiresPayload()
+    {
+        var envelope = new MessageEnvelope(
+            ProtocolVersions.Current,
+            ProtocolMessageTypes.Publish,
+            "correlation-1",
+            Now,
+            "topics/orders",
+            default);
+
+        var result = ProtocolValidator.Validate(envelope, Now);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(ProtocolErrorCodes.InvalidEnvelope, result.ErrorCode);
+    }
+
+    [Fact]
     public void RouteAuthorizationUsesServerTenantAndCurrentUser()
     {
         var identity = Identity();
@@ -116,6 +133,32 @@ public sealed class ProtocolSecurityTests
 
         Assert.Equal(RealtimeCloseStatus.SlowConsumer, socket.CloseStatus);
         Assert.Contains("propago_realtime_websocket_closes_total 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CanceledCloseCanBeRetried()
+    {
+        using var metrics = new GatewayMetrics();
+        var socket = new OpenWebSocket();
+        await using var connection = new RealtimeConnection(
+            socket,
+            Identity(),
+            new RealtimeOptions(),
+            metrics);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await connection.RequestCloseAsync(
+                RealtimeCloseStatus.ServiceRestart,
+                "cancelled_attempt",
+                cancelled.Token));
+        await connection.RequestCloseAsync(
+            RealtimeCloseStatus.ServiceRestart,
+            "retry",
+            CancellationToken.None);
+
+        Assert.Equal(RealtimeCloseStatus.ServiceRestart, socket.CloseStatus);
     }
 
     private static MessageEnvelope Envelope(

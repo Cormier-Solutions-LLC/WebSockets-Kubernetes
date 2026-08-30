@@ -10,7 +10,7 @@ public sealed class RedisConnectionProvider(RedisOptions options) : IRedisReadin
     public async ValueTask<IConnectionMultiplexer> GetConnectionAsync(CancellationToken cancellationToken)
     {
         var existing = Volatile.Read(ref _connection);
-        if (existing is { IsConnected: true })
+        if (existing is not null)
         {
             return existing;
         }
@@ -19,14 +19,9 @@ public sealed class RedisConnectionProvider(RedisOptions options) : IRedisReadin
         try
         {
             existing = _connection;
-            if (existing is { IsConnected: true })
-            {
-                return existing;
-            }
-
             if (existing is not null)
             {
-                await existing.DisposeAsync();
+                return existing;
             }
 
             var configuration = ConfigurationOptions.Parse(options.Endpoint);

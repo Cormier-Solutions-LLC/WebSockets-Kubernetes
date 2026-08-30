@@ -12,4 +12,5 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
+  <Import Project=".bootstrap/naming.props" Condition="Exists('.bootstrap/naming.props')" />
 </Project>

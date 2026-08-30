@@ -3,18 +3,18 @@ architecture: replication
 auth:
   enabled: true
   sentinel: true
-  existingSecret: propago-redis-auth
+  existingSecret: cormier-redis-auth
   existingSecretPasswordKey: redis-password
   acl:
     enabled: true
     sentinel: false
-    userSecret: propago-redis-auth
+    userSecret: cormier-redis-auth
     users:
       - username: realtime
         enabled: "on"
         commands: "+@read +@write +@connection +@pubsub +@scripting +@stream"
-        keys: "~propago:realtime:*"
-        channels: "&propago:realtime:*"
+        keys: "~cormier:realtime:*"
+        channels: "&cormier:realtime:*"
 tls: { enabled: false }
 master:
   persistence: { enabled: true, size: 8Gi }

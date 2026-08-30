@@ -2,7 +2,7 @@
 
 ## Connection and authentication
 
-Connect to `/realtime/ws` with the `propago.realtime.v1` WebSocket subprotocol. Browser clients authenticate with the `propago_session` HttpOnly cookie. Cookie authentication is accepted only when `Origin` exactly matches the request scheme, host, and effective port and is present in `Realtime:AllowedOrigins`. Tenant ID, user ID, topic grants, revocation, and expiry come only from the namespaced Redis session record; none are accepted from client payloads.
+Connect to `/realtime/ws` with the `cormier.realtime.v1` WebSocket subprotocol. Browser clients authenticate with the `cormier_session` HttpOnly cookie. Cookie authentication is accepted only when `Origin` exactly matches the request scheme, host, and effective port and is present in `Realtime:AllowedOrigins`. Tenant ID, user ID, topic grants, revocation, and expiry come only from the namespaced Redis session record; none are accepted from client payloads.
 
 Approved cross-origin and non-browser clients first POST `/realtime/tickets` using a valid same-origin session. The returned cryptographically random ticket is valid for 30 seconds by default, is bound to the request host, and is atomically consumed once via the `ticket` query parameter. A rejected audience also consumes the ticket to prevent probing or replay.
 

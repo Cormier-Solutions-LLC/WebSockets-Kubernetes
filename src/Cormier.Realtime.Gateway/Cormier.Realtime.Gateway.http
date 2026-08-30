@@ -1,0 +1,21 @@
+@Cormier.Realtime.Gateway_HostAddress = http://localhost:5097
+
+GET {{Cormier.Realtime.Gateway_HostAddress}}/health/startup
+Accept: application/json
+
+###
+
+GET {{Cormier.Realtime.Gateway_HostAddress}}/health/live
+Accept: application/json
+
+###
+
+GET {{Cormier.Realtime.Gateway_HostAddress}}/health/ready
+Accept: application/json
+
+###
+
+GET {{Cormier.Realtime.Gateway_HostAddress}}/metrics
+Accept: text/plain
+
+###

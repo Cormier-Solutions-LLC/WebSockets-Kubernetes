@@ -2,7 +2,7 @@
 
 ## Independence boundary
 
-`Propago.Realtime.Gateway` is a standalone process and deployable artifact. It does not reference or run inside the PBV7 application. The solution separates protocol contracts, Redis infrastructure, hosting, and four verification suites so each concern can evolve without coupling release lifecycles.
+`Cormier.Realtime.Gateway` is a standalone process and deployable artifact. It does not reference or run inside the PBV7 application. The solution separates protocol contracts, Redis infrastructure, hosting, and four verification suites so each concern can evolve without coupling release lifecycles.
 
 ## Project responsibilities
 

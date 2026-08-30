@@ -1,9 +1,9 @@
 apiVersion: v2
 name: realtime-gateway
-description: Propago realtime WebSocket gateway
+description: Cormier realtime WebSocket gateway
 type: application
 version: 0.1.1
 appVersion: "0.1.0"
 kubeVersion: ">=1.29.0-0"
 annotations:
-  propago.io/redis-chart: "oci://registry-1.docker.io/bitnamicharts/redis@23.1.1"
+  cormier.io/redis-chart: "oci://registry-1.docker.io/bitnamicharts/redis@23.1.1"

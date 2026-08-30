@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Validates, deploys, rolls back, backs up, restores, or removes Propago realtime.
+  Validates, deploys, rolls back, backs up, restores, or removes Cormier realtime.
 .DESCRIPTION
   Idempotent PowerShell 7 lifecycle automation governed by Scripts Standard 4.2.
   Captures current Helm values/resources before mutation, uses bounded waits, and
@@ -8,11 +8,13 @@
 .PARAMETER Action
   Validate, Plan, Deploy, Rollback, Remove, BackupRedis, or RestoreRedis.
 .PARAMETER Environment
-  Lowercase environment identifier.
+  Lowercase environment identifier of at most 10 characters.
 .PARAMETER Application
   Lowercase application identifier. Release/namespace is environment-application.
 .PARAMETER ValuesFile
   Environment-specific gateway values file.
+.PARAMETER ImageRepository
+  Full registry/repository override. Defaults to the bootstrap naming manifest.
 .PARAMETER ManagedRedis
   Install/upgrade the pinned managed Redis chart before the gateway.
 .PARAMETER ExpectedContext
@@ -27,9 +29,10 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][ValidateSet('Validate','Plan','Deploy','Rollback','Remove','BackupRedis','RestoreRedis')][string]$Action,
-    [Parameter(Mandatory)][ValidatePattern('^[a-z0-9]+$')][string]$Environment,
+    [Parameter(Mandatory)][ValidateLength(1,10)][ValidatePattern('^[a-z0-9]+$')][string]$Environment,
     [Parameter()][ValidatePattern('^[a-z0-9][a-z0-9-]*$')][string]$Application = 'realtime',
     [Parameter()][string]$ValuesFile,
+    [Parameter()][ValidatePattern('^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$')][string]$ImageRepository,
     [Parameter()][switch]$ManagedRedis,
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$RedisSecretName,
     [Parameter()][ValidatePattern('^[a-zA-Z0-9_-]+$')][string]$RedisUsername = 'realtime',
@@ -46,18 +49,56 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$namingPath = Join-Path $root '.bootstrap/naming.json'
+$naming = if (Test-Path -LiteralPath $namingPath -PathType Leaf) {
+    Get-Content -LiteralPath $namingPath -Raw | ConvertFrom-Json
+}
+else {
+    $null
+}
+if (-not $PSBoundParameters.ContainsKey('Application') -and $null -ne $naming) {
+    $configuredApplication = [string]$naming.kubernetesApplication
+    if ($configuredApplication.Length -gt 63 -or $configuredApplication -notmatch '^[a-z0-9][a-z0-9-]*$') {
+        throw "INVALID: kubernetesApplication in $namingPath is not a valid DNS label."
+    }
+    $Application = $configuredApplication
+}
 $target = "$Environment-$Application"
 $namespace = $target
 $redisRelease = "$target-redis"
+if ($target.Length -gt 53) {
+    throw "INVALID: Helm release '$target' exceeds the 53-character limit. Shorten Environment or Application."
+}
+if ($ManagedRedis -and $redisRelease.Length -gt 53) {
+    throw "INVALID: managed Redis Helm release '$redisRelease' exceeds the 53-character limit. Shorten Environment or Application."
+}
 if (-not $RedisSecretName) { $RedisSecretName = "$target-redis" }
-if (-not $RedisInstancePrefix) { $RedisInstancePrefix = "${Environment}:$Application" }
+if (-not $RedisInstancePrefix) {
+    $RedisInstancePrefix = if ($null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {
+        # Preserve environment isolation while remaining inside the managed ACL's
+        # cormier:realtime:* key and channel boundary.
+        "$([string]$naming.redisInstancePrefix):$Environment"
+    }
+    else {
+        "${Environment}:$Application"
+    }
+}
+if ([string]::IsNullOrWhiteSpace($RedisInstancePrefix) -or $RedisInstancePrefix -notmatch '^[a-zA-Z0-9:_-]+$') {
+    throw "INVALID: Redis instance prefix is empty or contains unsupported characters."
+}
+if (-not $ImageRepository -and $null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {
+    $ImageRepository = [string]$naming.imageRepository
+}
+if ($ImageRepository -and $ImageRepository -notmatch '^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$') {
+    throw 'INVALID: image repository must include a valid registry and repository path.'
+}
 $chart = Join-Path $root 'helm/realtime-gateway'
 $redisValues = Join-Path $root 'cluster/redis/managed-values.yaml'
 $logDir = Join-Path $root '.logs'
 $backupDir = Join-Path $root ".backups/$target"
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $logPath = Join-Path $logDir "Deploy-Realtime-$target-$stamp.log"
-$lockPath = Join-Path ([IO.Path]::GetTempPath()) "propago-realtime-$target.lock"
+$lockPath = Join-Path ([IO.Path]::GetTempPath()) "cormier-realtime-$target.lock"
 $lockStream = $null
 $summary = [ordered]@{ Created=0; Updated=0; Unchanged=0; Skipped=0; Errors=0 }
 [IO.Directory]::CreateDirectory($logDir) | Out-Null
@@ -134,6 +175,7 @@ function Get-ValueArgs {
     $arguments = @()
     if ($ValuesFile) { $arguments += @('--values',$script:ValuesFile) }
     $arguments += @('--set',"redis.credentialsSecret.name=$RedisSecretName")
+    if ($ImageRepository) { $arguments += @('--set-string',"image.repository=$ImageRepository") }
     $arguments += @('--set-string',"redis.username=$RedisUsername",'--set-string',"redis.credentialsSecret.passwordKey=$RedisPasswordKey",'--set-string',"redis.instancePrefix=$RedisInstancePrefix")
     if ($ManagedRedis) { $arguments += @('--set','redis.mode=managed','--set',"redis.managedReleaseName=$redisRelease",'--set-string',"redis.managedAdminPasswordKey=$RedisAdminPasswordKey") }
     return $arguments

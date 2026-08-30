@@ -65,7 +65,8 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public void ApplicationConfigurationOverridesBindToRedisOptions()
     {
-        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        using var baseFactory = new WebApplicationFactory<Program>();
+        using var factory = baseFactory.WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, configuration) =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {

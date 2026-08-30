@@ -17,5 +17,5 @@ spec:
           responseForwarding:
             flushInterval: -1
   tls:
-    secretName: {{ .Values.ingressRoute.tlsSecretName }}
+    secretName: {{ .Values.ingressRoute.tlsSecretName | quote }}
 {{- end }}

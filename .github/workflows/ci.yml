@@ -1,0 +1,74 @@
+name: Realtime gateway CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  build-test-aot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Install Native AOT prerequisites
+        run: sudo apt-get update && sudo apt-get install --yes clang zlib1g-dev
+      - name: Restore locked dependencies
+        run: dotnet restore Propago.Realtime.sln --runtime linux-x64 --locked-mode
+      - name: Build
+        run: dotnet build Propago.Realtime.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Propago.Realtime.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
+      - name: Native AOT publish
+        run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore --output artifacts/native
+      - name: Create OCI archive with .NET SDK
+        run: dotnet publish src/Propago.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore /t:PublishContainer /p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/propago-realtime-gateway.tar.gz
+      - name: Scan source and artifacts
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: artifacts/trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Upload scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/trivy-results.sarif
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: artifacts/native
+          artifact-name: propago-realtime-gateway-sbom.spdx.json
+          format: spdx-json
+      - name: Upload immutable build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: propago-realtime-${{ github.sha }}
+          path: |
+            artifacts/native
+            artifacts/propago-realtime-gateway.tar.gz
+            artifacts/test-results
+            artifacts/trivy-results.sarif
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

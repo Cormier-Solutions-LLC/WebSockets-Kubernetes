@@ -41,6 +41,7 @@ logs:
       names:
         RequestAddr: drop
         RequestPath: drop
+        RequestPort: drop
 
 metrics:
   prometheus:

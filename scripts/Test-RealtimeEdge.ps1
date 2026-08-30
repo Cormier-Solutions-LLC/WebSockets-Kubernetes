@@ -79,6 +79,7 @@ try {
     $gatewayService = Get-Json @('get', 'service', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Service'
     if ($gatewayService.spec.type -ne 'ClusterIP') { throw 'Gateway Service must remain private with type ClusterIP.' }
     $endpointSlices = Get-Json @('get', 'endpointslice', '-n', $GatewayNamespace, '-l', "kubernetes.io/service-name=$GatewayRelease") 'Read gateway EndpointSlices'
+    # Kubernetes omits `terminating` for healthy endpoints, so only explicit true excludes an endpoint.
     $readyEndpoints = @($endpointSlices.items.endpoints | Where-Object { $_.conditions.ready -eq $true -and $_.conditions.terminating -ne $true })
     if ($readyEndpoints.Count -lt 2) { throw 'Fewer than two non-terminating gateway endpoints are routable.' }
     Write-Result PASS 'At least two ready, non-terminating gateway endpoints are routable.'

@@ -88,6 +88,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
         Assert.Contains("defaultMode: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("RequestPath: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("RequestPort: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.propago.local", traefikValues, StringComparison.Ordinal);
         Assert.Contains("prometheus:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("idletimeout=120s", traefikValues, StringComparison.Ordinal);

@@ -10,7 +10,7 @@
 | Pod CPU, memory, throttling, restarts, readiness, rollout | kubelet/cAdvisor and kube-state-metrics | Requires the platform monitoring stack |
 | Traefik upgrades, open connections, 4xx/5xx, latency | Traefik Prometheus metrics | Requires Traefik metrics and ServiceMonitor integration |
 | MetalLB L2 request/response activity or BGP session health, allocation, stale configuration | MetalLB Prometheus metrics | Requires MetalLB metrics integration; configure `observability.platformMetrics.metalLbAdvertisementMode` and `metalLbNamespace` for the deployed topology |
-| Certificate readiness and expiry | cert-manager metrics | Requires cert-manager metrics integration |
+| Certificate readiness and expiry | cert-manager metrics | Requires cert-manager metrics integration; set `observability.platformMetrics.certificateName` when it differs from the rendered gateway fullname |
 | Logs and traces | Configured dashboard links | Collector/vendor-neutral; URLs are Helm values |
 
 Unavailable series render as no data rather than zero. Operators must not interpret a blank platform panel as healthy. During installation, use the dashboard links and Prometheus target page to verify each exporter, then disable unsupported panels or add site-specific recording rules without introducing tenant-level labels.

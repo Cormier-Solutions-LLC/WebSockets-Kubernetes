@@ -96,7 +96,14 @@ public sealed class RealtimeWebSocketHandler(
         }
         catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
         {
-            closeReason = "cancelled";
+            try
+            {
+                closeReason = await heartbeat ?? "cancelled";
+            }
+            catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
+            {
+                closeReason = "cancelled";
+            }
         }
         catch (WebSocketException)
         {
@@ -249,7 +256,7 @@ public sealed class RealtimeWebSocketHandler(
         }
     }
 
-    private async Task RunHeartbeatAsync(
+    private async Task<string?> RunHeartbeatAsync(
         RealtimeConnection connection,
         CancellationTokenSource connectionCancellation)
     {
@@ -266,7 +273,7 @@ public sealed class RealtimeWebSocketHandler(
                         "authentication_invalid",
                         cancellationToken);
                     connectionCancellation.Cancel();
-                    return;
+                    return "authentication_invalid";
 
                 case IdentityRevalidation.Unavailable:
                     await connection.RequestCloseAsync(
@@ -274,7 +281,7 @@ public sealed class RealtimeWebSocketHandler(
                         "authentication_unavailable",
                         cancellationToken);
                     connectionCancellation.Cancel();
-                    return;
+                    return "authentication_unavailable";
             }
 
             if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
@@ -284,7 +291,7 @@ public sealed class RealtimeWebSocketHandler(
                     "authentication_expired",
                     cancellationToken);
                 connectionCancellation.Cancel();
-                return;
+                return "authentication_expired";
             }
 
             if (DateTimeOffset.UtcNow - connection.LastActivity > TimeSpan.FromSeconds(options.IdleTimeoutSeconds))
@@ -295,7 +302,7 @@ public sealed class RealtimeWebSocketHandler(
                     "heartbeat_timeout",
                     cancellationToken);
                 connectionCancellation.Cancel();
-                return;
+                return "heartbeat_timeout";
             }
 
             if (!connection.TryEnqueue(new ServerMessageEnvelope(
@@ -312,9 +319,11 @@ public sealed class RealtimeWebSocketHandler(
                     "slow_consumer",
                     cancellationToken);
                 connectionCancellation.Cancel();
-                return;
+                return "slow_consumer";
             }
         }
+
+        return null;
     }
 
     private async ValueTask<IdentityRevalidation> RevalidateIdentityAsync(

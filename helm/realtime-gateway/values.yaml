@@ -29,6 +29,7 @@ ingressRoute:
 observability:
   environment: development
   platformMetrics:
+    certificateName: ""
     metalLbAdvertisementMode: l2
     metalLbNamespace: metallb-system
   alertThresholds:

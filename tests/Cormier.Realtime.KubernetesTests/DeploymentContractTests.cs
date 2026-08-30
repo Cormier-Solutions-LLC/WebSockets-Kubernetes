@@ -155,18 +155,26 @@ public sealed class DeploymentContractTests
         Assert.Contains("deployment={{ include \"realtime-gateway.fullname\"", rules, StringComparison.Ordinal);
         Assert.Contains("metalLbAdvertisementMode", rules, StringComparison.Ordinal);
         Assert.Contains("metallb_layer2_responses_sent", rules, StringComparison.Ordinal);
+        Assert.Contains("sum(increase(cormier_realtime_connections_opened_total", rules, StringComparison.Ordinal);
+        Assert.Contains("name={{ $certificateName", rules, StringComparison.Ordinal);
         foreach (var expression in rules.Split('\n').Where(line => line.Contains("expr:", StringComparison.Ordinal) && line.Contains("cormier_realtime_", StringComparison.Ordinal)))
         {
             Assert.Contains("namespace=", expression, StringComparison.Ordinal);
             Assert.Contains("service=", expression, StringComparison.Ordinal);
         }
         Assert.Contains("urlSecret:", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
+        Assert.Contains("required \"observability.prometheusRule.routingLabels.service", Read("helm/realtime-gateway/templates/alertmanagerconfig.yaml"), StringComparison.Ordinal);
         Assert.Contains("kind: ServiceMonitor", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
         Assert.Contains("Capabilities.APIVersions.Has", Read("helm/realtime-gateway/templates/servicemonitor.yaml"), StringComparison.Ordinal);
         Assert.Contains("monitoringNamespaceSelector", Read("helm/realtime-gateway/templates/networkpolicy.yaml"), StringComparison.Ordinal);
         var hpa = Read("helm/realtime-gateway/templates/hpa.yaml");
         Assert.Contains("cormier_realtime_active_connections", hpa, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_queue_depth", hpa, StringComparison.Ordinal);
+
+        var handler = Read("src/Cormier.Realtime.Gateway/RealtimeWebSocketHandler.cs");
+        Assert.Contains("closeReason = await heartbeat ?? \"cancelled\"", handler, StringComparison.Ordinal);
+        Assert.Contains("return \"heartbeat_timeout\"", handler, StringComparison.Ordinal);
+        Assert.Contains("return \"slow_consumer\"", handler, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -190,6 +198,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("image.digest", promote, StringComparison.Ordinal);
         Assert.Contains("HELM_VALUES_CONTENT", promote, StringComparison.Ordinal);
         Assert.Contains("--values", promote, StringComparison.Ordinal);
+        Assert.Contains("deployment_name=$(awk", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);
     }
 

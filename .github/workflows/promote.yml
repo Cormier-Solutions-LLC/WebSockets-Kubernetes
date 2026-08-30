@@ -142,7 +142,9 @@ jobs:
           printf '%s' "$HELM_VALUES_CONTENT" > "$values_path"
           chmod 600 "$kubeconfig_path" "$values_path"
           KUBECONFIG="$kubeconfig_path" helm upgrade --install "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --atomic --wait --values "$values_path" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST"
-          KUBECONFIG="$kubeconfig_path" kubectl -n "$NAMESPACE" rollout status deployment/"$RELEASE_NAME" --timeout=5m
+          deployment_name=$(awk '/^kind: Deployment$/{found=1} found && /^  name:/{print $2; exit}' artifacts/promotion/rendered.yaml)
+          test -n "$deployment_name"
+          KUBECONFIG="$kubeconfig_path" kubectl -n "$NAMESPACE" rollout status deployment/"$deployment_name" --timeout=5m
       - uses: actions/upload-artifact@v4
         with:
           name: promotion-${{ inputs.environment }}-${{ github.run_id }}

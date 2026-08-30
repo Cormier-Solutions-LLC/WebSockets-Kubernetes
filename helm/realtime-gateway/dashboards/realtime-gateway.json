@@ -9,7 +9,7 @@
     { "title": "Runbooks", "type": "link", "url": "__RUNBOOK_URL__" }
   ],
   "panels": [
-    { "id": 1, "title": "Available instances", "type": "stat", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 }, "targets": [{ "expr": "sum(up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\"})", "legendFormat": "available" }] },
+    { "id": 1, "title": "Available instances", "type": "stat", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 }, "targets": [{ "expr": "sum(up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"})", "legendFormat": "available" }] },
     { "id": 2, "title": "Active connections", "type": "stat", "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 }, "targets": [{ "expr": "sum(cormier_realtime_active_connections{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\"})", "legendFormat": "active" }] },
     { "id": 3, "title": "Peak concurrent connections", "type": "stat", "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 }, "targets": [{ "expr": "max_over_time((sum(cormier_realtime_active_connections{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\"}))[$__range:])", "legendFormat": "peak" }] },
     { "id": 4, "title": "Message throughput", "type": "timeseries", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }, "targets": [{ "expr": "sum by (direction,outcome) (rate(cormier_realtime_messages_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "{{direction}} {{outcome}}" }] },

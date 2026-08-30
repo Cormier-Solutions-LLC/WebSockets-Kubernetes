@@ -5,8 +5,8 @@ All commands require explicit context, namespace, release, and endpoint paramete
 ## Deployment, promotion, and rollback
 
 1. Confirm CI passed build, tests, Native AOT smoke, rootless/read-only container smoke, dependency review, Trivy scans, and SBOM generation.
-2. Retrieve `release-manifest.json` and verify its source commit, archive SHA-256, repository, and registry digest.
-3. Run **Promote or roll back immutable gateway image** with the protected environment, configured repository, exact digest, release, and namespace. It inspects the remote digest, renders evidence, and—when that environment enables deployment—uses Helm `--atomic --wait` without rebuilding or retagging.
+2. Configure the repository variables `CONTAINER_REGISTRY` and `IMAGE_REPOSITORY`; publishing fails closed when either image coordinate is absent. Retrieve `release-manifest.json` and verify its source commit, archive SHA-256, repository, and registry digest.
+3. Configure each protected deployment environment with `KUBECONFIG_CONTENT` and a complete `HELM_VALUES` Secret. Run **Promote or roll back immutable gateway image** with the trusted publish run ID, source commit, release, and namespace. It downloads the trusted manifest, inspects the remote digest, renders with the protected values, and—when that environment enables deployment—uses the same values with Helm `--atomic --wait` without rebuilding or retagging.
 4. Verify rollout, readiness, active connections, abnormal closes, queue drops, handler latency, Redis errors, and edge 5xx. Attach workflow evidence and a dashboard snapshot to the release record.
 
 For rollback, run the same workflow with `operation=rollback` and the previously recorded digest. This changes only the selected digest. If automation is unavailable, use `scripts/Deploy-Realtime.ps1` with its explicit context guard and rollback action.

@@ -151,6 +151,10 @@ public sealed class DeploymentContractTests
         }
         Assert.Contains("runbook_url:", rules, StringComparison.Ordinal);
         Assert.Contains("routingLabels", rules, StringComparison.Ordinal);
+        Assert.Contains("or absent(up", rules, StringComparison.Ordinal);
+        Assert.Contains("deployment={{ include \"realtime-gateway.fullname\"", rules, StringComparison.Ordinal);
+        Assert.Contains("metalLbAdvertisementMode", rules, StringComparison.Ordinal);
+        Assert.Contains("metallb_layer2_responses_sent", rules, StringComparison.Ordinal);
         foreach (var expression in rules.Split('\n').Where(line => line.Contains("expr:", StringComparison.Ordinal) && line.Contains("cormier_realtime_", StringComparison.Ordinal)))
         {
             Assert.Contains("namespace=", expression, StringComparison.Ordinal);
@@ -174,6 +178,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("download-artifact", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
         Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
+        Assert.Contains("vars.CONTAINER_REGISTRY", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("'ghcr.io'", publish, StringComparison.Ordinal);
         Assert.Contains("rollbackPublishRunId", promote, StringComparison.Ordinal);
         Assert.Contains("actions/runs/$runId", promote, StringComparison.Ordinal);
         Assert.Contains(".github/workflows/publish.yml", promote, StringComparison.Ordinal);
@@ -182,6 +188,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("sourceCommit", promote, StringComparison.Ordinal);
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);
         Assert.Contains("image.digest", promote, StringComparison.Ordinal);
+        Assert.Contains("HELM_VALUES_CONTENT", promote, StringComparison.Ordinal);
+        Assert.Contains("--values", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);
     }
 

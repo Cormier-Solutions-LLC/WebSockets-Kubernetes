@@ -103,13 +103,25 @@ jobs:
         run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
       - name: Render the exact promotion bundle
         env:
+          DEPLOY_ENABLED: ${{ vars.KUBERNETES_DEPLOY_ENABLED }}
           DIGEST: ${{ steps.artifact.outputs.digest }}
+          HELM_VALUES_CONTENT: ${{ secrets.HELM_VALUES }}
           IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |
           mkdir -p artifacts/promotion
-          helm template "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST" > artifacts/promotion/rendered.yaml
+          values_args=()
+          if [ -n "$HELM_VALUES_CONTENT" ]; then
+            values_path="$RUNNER_TEMP/promotion-values.yaml"
+            printf '%s' "$HELM_VALUES_CONTENT" > "$values_path"
+            chmod 600 "$values_path"
+            values_args=(--values "$values_path")
+          elif [ "$DEPLOY_ENABLED" = 'true' ]; then
+            echo 'The protected environment must configure the HELM_VALUES secret when deployment is enabled.' >&2
+            exit 1
+          fi
+          helm template "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" "${values_args[@]}" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST" > artifacts/promotion/rendered.yaml
           printf '{"schemaVersion":1,"operation":"%s","environment":"%s","image":"%s","digest":"%s","release":"%s","namespace":"%s","workflowRunId":%s}\n' "${{ inputs.operation }}" "${{ inputs.environment }}" "$IMAGE_REPOSITORY" "$DIGEST" "$RELEASE_NAME" "$NAMESPACE" "${{ github.run_id }}" > artifacts/promotion/evidence.json
           grep --quiet "@$DIGEST" artifacts/promotion/rendered.yaml
       - name: Deploy exact digest when the environment enables deployment
@@ -117,15 +129,19 @@ jobs:
         env:
           KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG_CONTENT }}
           DIGEST: ${{ steps.artifact.outputs.digest }}
+          HELM_VALUES_CONTENT: ${{ secrets.HELM_VALUES }}
           IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |
           test -n "$KUBECONFIG_CONTENT"
+          test -n "$HELM_VALUES_CONTENT"
           kubeconfig_path="$RUNNER_TEMP/kubeconfig"
+          values_path="$RUNNER_TEMP/deployment-values.yaml"
           printf '%s' "$KUBECONFIG_CONTENT" > "$kubeconfig_path"
-          chmod 600 "$kubeconfig_path"
-          KUBECONFIG="$kubeconfig_path" helm upgrade --install "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --atomic --wait --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST"
+          printf '%s' "$HELM_VALUES_CONTENT" > "$values_path"
+          chmod 600 "$kubeconfig_path" "$values_path"
+          KUBECONFIG="$kubeconfig_path" helm upgrade --install "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --atomic --wait --values "$values_path" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST"
           KUBECONFIG="$kubeconfig_path" kubectl -n "$NAMESPACE" rollout status deployment/"$RELEASE_NAME" --timeout=5m
       - uses: actions/upload-artifact@v4
         with:

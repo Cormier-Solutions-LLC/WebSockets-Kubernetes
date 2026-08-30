@@ -28,6 +28,9 @@ ingressRoute:
 
 observability:
   environment: development
+  platformMetrics:
+    metalLbAdvertisementMode: l2
+    metalLbNamespace: metallb-system
   alertThresholds:
     queueDepth: 100
     handlerLatencySeconds: 0.25

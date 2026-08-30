@@ -32,6 +32,8 @@ public sealed class LoadTestContractTests
         Assert.Contains("acknowledgedMessageLatencyMilliseconds", runner, StringComparison.Ordinal);
         Assert.Contains("connectionLatencyMilliseconds", runner, StringComparison.Ordinal);
         Assert.Contains("connectionDeadline", runner, StringComparison.Ordinal);
+        Assert.Contains("subscribe:{exception.GetType().Name}", runner, StringComparison.Ordinal);
+        Assert.Contains("FailPending", runner, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

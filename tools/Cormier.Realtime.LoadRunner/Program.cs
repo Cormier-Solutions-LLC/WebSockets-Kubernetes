@@ -44,8 +44,17 @@ var receiveTasks = options.Scenario == "slow-client"
 
 if (options.Scenario is "fanout" or "slow-client")
 {
-    await Task.WhenAll(orderedClients.Select(client =>
-        SendCommandAsync(client, "subscribe", 0, awaitAcknowledgement: options.Scenario != "slow-client", timeout.Token)));
+    await Task.WhenAll(orderedClients.Select(async client =>
+    {
+        try
+        {
+            await SendCommandAsync(client, "subscribe", 0, awaitAcknowledgement: options.Scenario != "slow-client", timeout.Token);
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"subscribe:{exception.GetType().Name}");
+        }
+    }));
 }
 
 var deadline = DateTimeOffset.UtcNow.AddSeconds(options.DurationSeconds);
@@ -54,11 +63,18 @@ if (options.Scenario == "connection")
     var connectionDeadline = DateTimeOffset.UtcNow.AddSeconds(options.DurationSeconds);
     await Task.WhenAll(orderedClients.Select(async client =>
     {
-        while (DateTimeOffset.UtcNow < connectionDeadline)
+        try
         {
-            await SendCommandAsync(client, "ping", 0, awaitAcknowledgement: true, timeout.Token);
-            var remaining = connectionDeadline - DateTimeOffset.UtcNow;
-            if (remaining > TimeSpan.Zero) await Task.Delay(remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10), timeout.Token);
+            while (DateTimeOffset.UtcNow < connectionDeadline)
+            {
+                await SendCommandAsync(client, "ping", 0, awaitAcknowledgement: true, timeout.Token);
+                var remaining = connectionDeadline - DateTimeOffset.UtcNow;
+                if (remaining > TimeSpan.Zero) await Task.Delay(remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10), timeout.Token);
+            }
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"connection:{exception.GetType().Name}");
         }
     }));
 }
@@ -75,7 +91,7 @@ else
                 Interlocked.Increment(ref sent);
                 if (options.Scenario == "soak") await Task.Delay(TimeSpan.FromMilliseconds(100), timeout.Token);
             }
-            catch (Exception exception) when (exception is WebSocketException or IOException or OperationCanceledException)
+            catch (Exception exception)
             {
                 errors.Add($"send:{exception.GetType().Name}");
                 break;
@@ -191,13 +207,23 @@ async Task ReceiveAsync(ClientState client, CancellationToken cancellationToken)
         try
         {
             var result = await client.Socket.ReceiveAsync(buffer, cancellationToken);
-            if (result.MessageType == WebSocketMessageType.Close) return;
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                FailPending(client, new IOException("The server closed the WebSocket."));
+                return;
+            }
             if (!result.EndOfMessage) throw new InvalidDataException("The load runner requires unfragmented server messages.");
             Interlocked.Increment(ref received);
             using var document = JsonDocument.Parse(buffer.AsMemory(0, result.Count));
             var root = document.RootElement;
             if (!root.TryGetProperty("type", out var type)) continue;
             if (type.GetString() == "event") Interlocked.Increment(ref eventsReceived);
+            if (type.GetString() == "error" &&
+                root.TryGetProperty("correlationId", out var errorCorrelation) &&
+                client.Pending.TryRemove(errorCorrelation.GetString() ?? string.Empty, out var failedPending))
+            {
+                failedPending.Completion.TrySetException(new InvalidDataException("The gateway rejected the correlated command."));
+            }
             if (type.GetString() == "ack" &&
                 root.TryGetProperty("correlationId", out var correlation) &&
                 client.Pending.TryRemove(correlation.GetString() ?? string.Empty, out var pending))
@@ -209,8 +235,17 @@ async Task ReceiveAsync(ClientState client, CancellationToken cancellationToken)
         catch (Exception exception) when (exception is WebSocketException or IOException or JsonException)
         {
             if (!cancellationToken.IsCancellationRequested) errors.Add($"receive:{exception.GetType().Name}");
+            FailPending(client, exception);
             return;
         }
+    }
+}
+
+static void FailPending(ClientState client, Exception exception)
+{
+    foreach (var correlationId in client.Pending.Keys)
+    {
+        if (client.Pending.TryRemove(correlationId, out var pending)) pending.Completion.TrySetException(exception);
     }
 }
 

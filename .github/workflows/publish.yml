@@ -12,8 +12,8 @@ permissions:
   packages: write
 
 env:
-  CONTAINER_REGISTRY: ${{ vars.CONTAINER_REGISTRY || 'ghcr.io' }}
-  IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY || format('{0}/cormier-realtime-gateway', github.repository_owner) }}
+  CONTAINER_REGISTRY: ${{ vars.CONTAINER_REGISTRY }}
+  IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY }}
 
 jobs:
   publish:
@@ -29,6 +29,12 @@ jobs:
           path: artifacts
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
+      - name: Validate configured image coordinates
+        run: |
+          test -n "$CONTAINER_REGISTRY"
+          test -n "$IMAGE_REPOSITORY"
+          printf '%s' "$CONTAINER_REGISTRY" | grep --quiet --extended-regexp '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$'
+          printf '%s' "$IMAGE_REPOSITORY" | grep --quiet --extended-regexp '^[a-z0-9][a-z0-9._/-]*$'
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.CONTAINER_REGISTRY }}

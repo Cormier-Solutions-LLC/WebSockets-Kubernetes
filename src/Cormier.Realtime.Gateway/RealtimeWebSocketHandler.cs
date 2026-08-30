@@ -306,6 +306,7 @@ public sealed class RealtimeWebSocketHandler(
                     "system/heartbeat")) &&
                 connection.HasExceededSlowConsumerLimit)
             {
+                metrics.RecordSlowConsumerDisconnect();
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.SlowConsumer,
                     "slow_consumer",

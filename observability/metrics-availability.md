@@ -9,7 +9,7 @@
 | Stream pending, consumer lag, and failover duration | Redis exporter/recording rules | Exporter-dependent; validate metric names before enabling panels or alerts |
 | Pod CPU, memory, throttling, restarts, readiness, rollout | kubelet/cAdvisor and kube-state-metrics | Requires the platform monitoring stack |
 | Traefik upgrades, open connections, 4xx/5xx, latency | Traefik Prometheus metrics | Requires Traefik metrics and ServiceMonitor integration |
-| MetalLB announcements, allocation, stale configuration | MetalLB Prometheus metrics | Requires MetalLB metrics integration |
+| MetalLB L2 request/response activity or BGP session health, allocation, stale configuration | MetalLB Prometheus metrics | Requires MetalLB metrics integration; configure `observability.platformMetrics.metalLbAdvertisementMode` and `metalLbNamespace` for the deployed topology |
 | Certificate readiness and expiry | cert-manager metrics | Requires cert-manager metrics integration |
 | Logs and traces | Configured dashboard links | Collector/vendor-neutral; URLs are Helm values |
 

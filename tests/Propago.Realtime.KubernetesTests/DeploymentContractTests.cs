@@ -24,7 +24,10 @@ public sealed class DeploymentContractTests
     [Fact]
     public void GatewayChartReferencesCredentialsWithoutCreatingSecrets()
     {
-        var files = Directory.GetFiles(Path.Combine(Root, "helm", "realtime-gateway", "templates"), "*", SearchOption.AllDirectories);
+        var files = Directory.GetFiles(
+            Path.Join(Root, "helm", "realtime-gateway", "templates"),
+            "*",
+            SearchOption.AllDirectories);
         var content = string.Join('\n', files.Select(File.ReadAllText));
 
         Assert.DoesNotContain("kind: Secret", content, StringComparison.Ordinal);
@@ -67,12 +70,21 @@ public sealed class DeploymentContractTests
         Assert.Contains("[REDACTED]", script, StringComparison.Ordinal);
     }
 
-    private static string Read(string relative) => File.ReadAllText(Path.Combine(Root, relative.Replace('/', Path.DirectorySeparatorChar)));
+    private static string Read(string relative)
+    {
+        var normalizedRelative = relative.Replace('/', Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalizedRelative))
+        {
+            throw new ArgumentException("Repository path must be relative.", nameof(relative));
+        }
+
+        return File.ReadAllText(Path.Join(Root, normalizedRelative));
+    }
 
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
-        while (current is not null && !File.Exists(Path.Combine(current.FullName, "Propago.Realtime.sln")))
+        while (current is not null && !File.Exists(Path.Join(current.FullName, "Propago.Realtime.sln")))
         {
             current = current.Parent;
         }

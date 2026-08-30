@@ -5,7 +5,7 @@ namespace Propago.Realtime.Gateway;
 public sealed class GatewayDrainService(
     GatewayState state,
     IOptions<GatewayOptions> options,
-    ILogger<GatewayDrainService> logger) : IHostedService
+    ILogger<GatewayDrainService> logger) : IHostedLifecycleService
 {
     private static readonly Action<ILogger, string, Exception?> LogDrainComplete = LoggerMessage.Define<string>(
         LogLevel.Information,
@@ -17,9 +17,13 @@ public sealed class GatewayDrainService(
         new EventId(1003, "GatewayDrainCancelled"),
         "Gateway {ServiceName} shutdown drain interval was cancelled");
 
+    public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    public Task StartedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public async Task StoppingAsync(CancellationToken cancellationToken)
     {
         state.BeginDrain();
 
@@ -35,4 +39,8 @@ public sealed class GatewayDrainService(
             LogDrainCancelled(logger, options.Value.ServiceName, null);
         }
     }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task StoppedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

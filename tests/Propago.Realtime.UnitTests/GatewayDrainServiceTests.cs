@@ -8,7 +8,7 @@ namespace Propago.Realtime.UnitTests;
 public sealed class GatewayDrainServiceTests
 {
     [Fact]
-    public async Task StopAsyncMarksDrainingAndHonorsCancellation()
+    public async Task StoppingAsyncMarksDrainingAndHonorsCancellation()
     {
         var state = new GatewayState(
             new ReadyRedisProbe(),
@@ -19,7 +19,7 @@ public sealed class GatewayDrainServiceTests
             NullLogger<GatewayDrainService>.Instance);
         using var cancellation = new CancellationTokenSource();
 
-        var stopTask = service.StopAsync(cancellation.Token);
+        var stopTask = service.StoppingAsync(cancellation.Token);
         await cancellation.CancelAsync();
         var completedTask = await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(1)));
 

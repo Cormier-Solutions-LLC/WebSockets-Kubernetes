@@ -27,7 +27,7 @@ spec:
             summary: Realtime gateway has no scrapeable instances
             runbook_url: {{ printf "%s/gateway-unavailable" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayReadinessFailure
-          expr: (max_over_time(kube_pod_status_ready{namespace={{ .Release.Namespace | quote }},condition="true",pod=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}[5m]) < 1) or (max(kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}}) < max(kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}})) or absent(kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}})
+          expr: (max_over_time(kube_pod_status_ready{namespace={{ .Release.Namespace | quote }},condition="true",pod=~{{ printf "^%s-[a-z0-9]+-[a-z0-9]+$" (include "realtime-gateway.fullname" .) | quote }}}[5m]) < 1) or (max(kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}}) < max(kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}})) or absent(kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }}})
           for: 5m
           labels:
             severity: critical
@@ -36,7 +36,7 @@ spec:
             summary: Realtime gateway pods are not ready
             runbook_url: {{ printf "%s/readiness" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayCrashLooping
-          expr: increase(kube_pod_container_status_restarts_total{namespace={{ .Release.Namespace | quote }},pod=~{{ printf "%s.*" (include "realtime-gateway.fullname" .) | quote }}}[15m]) > 2
+          expr: increase(kube_pod_container_status_restarts_total{namespace={{ .Release.Namespace | quote }},pod=~{{ printf "^%s-[a-z0-9]+-[a-z0-9]+$" (include "realtime-gateway.fullname" .) | quote }}}[15m]) > 2
           for: 5m
           labels:
             severity: critical
@@ -121,8 +121,8 @@ spec:
     - name: realtime-gateway.dependencies
       rules:
         - alert: RealtimeGatewayRedisErrors
-          expr: sum(rate(cormier_realtime_redis_operations_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},outcome="failure"}[5m])) > 0
-          for: 5m
+          expr: sum(increase(cormier_realtime_redis_operations_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }},outcome="failure"}[10m])) > 0
+          for: 1m
           labels:
             severity: critical
             {{- toYaml .Values.observability.prometheusRule.routingLabels | nindent 12 }}

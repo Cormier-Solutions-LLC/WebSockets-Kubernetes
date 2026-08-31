@@ -36,6 +36,9 @@ observability:
     traefikNamespace: traefik
     # Empty derives a regex from this chart's rendered fullname.
     traefikServicePattern: ""
+    # Empty Redis exporter coordinates derive from this release and its configured Redis endpoint.
+    redisNamespace: ""
+    redisInstance: ""
   alertThresholds:
     queueDepth: 100
     handlerLatencySeconds: 0.25

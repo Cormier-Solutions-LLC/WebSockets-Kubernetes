@@ -25,6 +25,10 @@ public sealed class LoadTestContractTests
         Assert.Contains("[Parameter(Mandatory)][ValidatePattern('^wss?://')][string]$Endpoint", harness, StringComparison.Ordinal);
         Assert.Contains("$OutputPath", harness, StringComparison.Ordinal);
         Assert.Contains("Cormier.Realtime.LoadRunner", harness, StringComparison.Ordinal);
+        Assert.Contains("CORMIER_LOAD_SESSION_ID", harness, StringComparison.Ordinal);
+        Assert.Contains("dotnet run --project", harness, StringComparison.Ordinal);
+        Assert.DoesNotContain("'--session-id', $SessionId", harness, StringComparison.Ordinal);
+        Assert.DoesNotContain("runnerAssembly", harness, StringComparison.Ordinal);
         Assert.DoesNotContain("production.example", harness, StringComparison.OrdinalIgnoreCase);
 
         var runner = File.ReadAllText(Path.Join(root, "tools", "Cormier.Realtime.LoadRunner", "Program.cs"));
@@ -39,6 +43,10 @@ public sealed class LoadTestContractTests
         Assert.Contains("ValidateSlowConsumerCloseAsync", runner, StringComparison.Ordinal);
         Assert.Contains("expectedCloseCode = 4008", runner, StringComparison.Ordinal);
         Assert.Contains("verifiedSlowConsumerCloses", runner, StringComparison.Ordinal);
+        Assert.Contains("fanoutPublished", runner, StringComparison.Ordinal);
+        Assert.Contains("fanoutDeliveries", runner, StringComparison.Ordinal);
+        Assert.Contains("(client.Index, correlationId)", runner, StringComparison.Ordinal);
+        Assert.Contains("CORMIER_LOAD_SESSION_ID", runner, StringComparison.Ordinal);
         Assert.Contains("subscribe:{exception.GetType().Name}", runner, StringComparison.Ordinal);
         Assert.Contains("FailPending", runner, StringComparison.Ordinal);
     }

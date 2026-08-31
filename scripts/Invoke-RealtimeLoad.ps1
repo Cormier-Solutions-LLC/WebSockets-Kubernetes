@@ -18,12 +18,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $runnerProject = Join-Path $PSScriptRoot '..' 'tools' 'Cormier.Realtime.LoadRunner' 'Cormier.Realtime.LoadRunner.csproj'
-$runnerAssembly = Join-Path $PSScriptRoot '..' 'tools' 'Cormier.Realtime.LoadRunner' 'bin' 'Release' 'net10.0' 'Cormier.Realtime.LoadRunner.dll'
 $outputFullPath = [IO.Path]::GetFullPath($OutputPath)
 $runnerArguments = @(
     '--endpoint', $Endpoint,
     '--origin', $Origin,
-    '--session-id', $SessionId,
     '--session-cookie-name', $SessionCookieName,
     '--subprotocol', $SubProtocol,
     '--topic', $Topic,
@@ -34,10 +32,13 @@ $runnerArguments = @(
     '--duration-seconds', $DurationSeconds,
     '--output', $outputFullPath
 )
-if (Test-Path -LiteralPath $runnerAssembly) {
-    & dotnet $runnerAssembly @runnerArguments
+$previousSessionId = [Environment]::GetEnvironmentVariable('CORMIER_LOAD_SESSION_ID', 'Process')
+try {
+    [Environment]::SetEnvironmentVariable('CORMIER_LOAD_SESSION_ID', $SessionId, 'Process')
+    & dotnet run --project $runnerProject --configuration Release --no-launch-profile -- @runnerArguments
+    $runnerExitCode = $LASTEXITCODE
 }
-else {
-    & dotnet run --project $runnerProject --configuration Release -- @runnerArguments
+finally {
+    [Environment]::SetEnvironmentVariable('CORMIER_LOAD_SESSION_ID', $previousSessionId, 'Process')
 }
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($runnerExitCode -ne 0) { exit $runnerExitCode }

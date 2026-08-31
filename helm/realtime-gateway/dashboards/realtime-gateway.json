@@ -282,7 +282,7 @@
           "legendFormat": "memory"
         },
         {
-          "expr": "sum(rate(container_cpu_cfs_throttled_seconds_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(container_cpu_cfs_throttled_seconds_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"}[$__rate_interval]))",
           "legendFormat": "throttled"
         }
       ]
@@ -341,23 +341,23 @@
       },
       "targets": [
         {
-          "expr": "redis_memory_used_bytes{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_memory_used_bytes{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "memory"
         },
         {
-          "expr": "redis_connected_slaves{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_connected_slaves{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "replicas"
         },
         {
-          "expr": "redis_connected_clients{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_connected_clients{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "clients"
         },
         {
-          "expr": "redis_master_link_up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_master_link_up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "primary link"
         },
         {
-          "expr": "redis_rdb_last_bgsave_status{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_rdb_last_bgsave_status{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "RDB save"
         }
       ]
@@ -416,19 +416,19 @@
       },
       "targets": [
         {
-          "expr": "redis_stream_group_lag{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_stream_group_lag{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "{{stream}} lag"
         },
         {
-          "expr": "redis_stream_group_pending_messages{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}",
+          "expr": "redis_stream_group_pending_messages{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "{{stream}} pending"
         },
         {
-          "expr": "rate(redis_stream_messages_acked_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}[$__rate_interval])",
+          "expr": "rate(redis_stream_messages_acked_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}[$__rate_interval])",
           "legendFormat": "acks"
         },
         {
-          "expr": "rate(redis_stream_messages_claimed_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\"}[$__rate_interval])",
+          "expr": "rate(redis_stream_messages_claimed_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}[$__rate_interval])",
           "legendFormat": "recovered"
         }
       ]
@@ -479,7 +479,7 @@
         "name": "pod",
         "label": "Pod",
         "type": "query",
-        "query": "label_values(kube_pod_info{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"__SERVICE_NAME__.*\"},pod)",
+        "query": "label_values(kube_pod_info{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"^__SERVICE_NAME__-[a-z0-9]+-[a-z0-9]+$\"},pod)",
         "includeAll": true,
         "allValue": ".*"
       }

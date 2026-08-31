@@ -11,6 +11,9 @@ var errors = new ConcurrentBag<string>();
 var connectionLatencies = new ConcurrentBag<double>();
 var acknowledgementLatencies = new ConcurrentBag<double>();
 var clients = new ConcurrentBag<ClientState>();
+var fanoutPublished = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+var fanoutDeliveries = new ConcurrentDictionary<(int ClientIndex, string CorrelationId), byte>();
+var fanoutLocks = new ConcurrentDictionary<string, object>(StringComparer.Ordinal);
 var startedAt = DateTimeOffset.UtcNow;
 var runTimer = Stopwatch.StartNew();
 long sent = 0;
@@ -196,6 +199,12 @@ return errors.IsEmpty ? 0 : 1;
 async Task SendCommandAsync(ClientState client, string type, int payloadBytes, bool awaitAcknowledgement, CancellationToken cancellationToken)
 {
     var correlationId = Guid.NewGuid().ToString("N");
+    var trackFanout = options.Scenario == "fanout" && type == "publish";
+    if (trackFanout)
+    {
+        fanoutLocks.TryAdd(correlationId, new object());
+        fanoutPublished.TryAdd(correlationId, 0);
+    }
     TaskCompletionSource<double>? acknowledgement = null;
     if (awaitAcknowledgement)
     {
@@ -225,6 +234,17 @@ async Task SendCommandAsync(ClientState client, string type, int payloadBytes, b
     catch
     {
         client.Pending.TryRemove(correlationId, out _);
+        if (trackFanout && fanoutLocks.TryGetValue(correlationId, out var fanoutLock))
+        {
+            lock (fanoutLock)
+            {
+                fanoutPublished.TryRemove(correlationId, out _);
+                foreach (var delivery in fanoutDeliveries.Keys.Where(key => key.CorrelationId == correlationId))
+                {
+                    if (fanoutDeliveries.TryRemove(delivery, out _)) Interlocked.Decrement(ref eventsReceived);
+                }
+            }
+        }
         throw;
     }
 }
@@ -247,7 +267,28 @@ async Task ReceiveAsync(ClientState client, CancellationToken cancellationToken)
             using var document = JsonDocument.Parse(buffer.AsMemory(0, result.Count));
             var root = document.RootElement;
             if (!root.TryGetProperty("type", out var type)) continue;
-            if (type.GetString() == "event") Interlocked.Increment(ref eventsReceived);
+            if (type.GetString() == "event")
+            {
+                if (options.Scenario != "fanout")
+                {
+                    Interlocked.Increment(ref eventsReceived);
+                }
+                else if (root.TryGetProperty("correlationId", out var eventCorrelation))
+                {
+                    var correlationId = eventCorrelation.GetString() ?? string.Empty;
+                    if (fanoutLocks.TryGetValue(correlationId, out var fanoutLock))
+                    {
+                        lock (fanoutLock)
+                        {
+                            if (fanoutPublished.ContainsKey(correlationId) &&
+                                fanoutDeliveries.TryAdd((client.Index, correlationId), 0))
+                            {
+                                Interlocked.Increment(ref eventsReceived);
+                            }
+                        }
+                    }
+                }
+            }
             if (type.GetString() == "error" &&
                 root.TryGetProperty("correlationId", out var errorCorrelation) &&
                 client.Pending.TryRemove(errorCorrelation.GetString() ?? string.Empty, out var failedPending))
@@ -352,6 +393,8 @@ internal sealed record LoadOptions(Uri Endpoint, Uri Origin, string SessionId, s
         if (origin.Scheme is not ("http" or "https")) throw new ArgumentException("--origin must use http or https.");
         var scenario = Required("--scenario");
         if (scenario is not ("connection" or "fanout" or "burst" or "large-message" or "slow-client" or "soak")) throw new ArgumentException("Unsupported scenario.");
-        return new(endpoint, origin, Required("--session-id"), Required("--session-cookie-name"), Required("--subprotocol"), Required("--topic"), Number("--connections"), Number("--messages-per-connection"), Number("--payload-bytes"), scenario, Number("--duration-seconds"), Required("--output"));
+        var sessionId = Environment.GetEnvironmentVariable("CORMIER_LOAD_SESSION_ID");
+        if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("CORMIER_LOAD_SESSION_ID is required.");
+        return new(endpoint, origin, sessionId, Required("--session-cookie-name"), Required("--subprotocol"), Required("--topic"), Number("--connections"), Number("--messages-per-connection"), Number("--payload-bytes"), scenario, Number("--duration-seconds"), Required("--output"));
     }
 }

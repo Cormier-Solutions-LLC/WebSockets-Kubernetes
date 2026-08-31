@@ -4,6 +4,9 @@
 {{- $dashboardUid := printf "realtime-%s" (sha256sum $dashboardIdentity | trunc 31) }}
 {{- $dashboardTitle := printf "Realtime Gateway (%s) Production Diagnostics" $dashboardIdentity }}
 {{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
+{{- $redisNamespace := default .Release.Namespace .Values.observability.platformMetrics.redisNamespace }}
+{{- $defaultRedisInstance := ternary (printf "%s:%v" .Values.redis.managedReleaseName .Values.redis.port) .Values.redis.externalEndpoint (eq .Values.redis.mode "managed") }}
+{{- $redisInstance := default $defaultRedisInstance .Values.observability.platformMetrics.redisInstance }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,5 +16,5 @@ metadata:
     {{ .Values.observability.grafanaDashboard.label }}: {{ .Values.observability.grafanaDashboard.labelValue | quote }}
 data:
   realtime-gateway.json: |-
-{{ .Files.Get "dashboards/realtime-gateway.json" | replace "__LOGS_URL__" .Values.observability.links.logsUrl | replace "__TRACES_URL__" .Values.observability.links.tracesUrl | replace "__KUBERNETES_URL__" .Values.observability.links.kubernetesUrl | replace "__RUNBOOK_URL__" .Values.observability.links.runbookBaseUrl | replace "__SERVICE_NAME__" (include "realtime-gateway.fullname" .) | replace "__TRAEFIK_NAMESPACE__" .Values.observability.platformMetrics.traefikNamespace | replace "__TRAEFIK_SERVICE_PATTERN__" $traefikServicePattern | replace "__CERTIFICATE_NAME__" $certificateName | replace "__DASHBOARD_UID__" $dashboardUid | replace "__DASHBOARD_TITLE__" $dashboardTitle | indent 4 }}
+{{ .Files.Get "dashboards/realtime-gateway.json" | replace "__LOGS_URL__" .Values.observability.links.logsUrl | replace "__TRACES_URL__" .Values.observability.links.tracesUrl | replace "__KUBERNETES_URL__" .Values.observability.links.kubernetesUrl | replace "__RUNBOOK_URL__" .Values.observability.links.runbookBaseUrl | replace "__SERVICE_NAME__" (include "realtime-gateway.fullname" .) | replace "__TRAEFIK_NAMESPACE__" .Values.observability.platformMetrics.traefikNamespace | replace "__TRAEFIK_SERVICE_PATTERN__" $traefikServicePattern | replace "__CERTIFICATE_NAME__" $certificateName | replace "__REDIS_NAMESPACE__" $redisNamespace | replace "__REDIS_INSTANCE__" $redisInstance | replace "__DASHBOARD_UID__" $dashboardUid | replace "__DASHBOARD_TITLE__" $dashboardTitle | indent 4 }}
 {{- end }}

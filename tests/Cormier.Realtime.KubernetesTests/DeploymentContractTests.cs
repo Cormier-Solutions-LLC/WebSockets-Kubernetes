@@ -144,6 +144,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("MetalLB", dashboardText, StringComparison.Ordinal);
         Assert.Contains("Certificate expiry", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__CERTIFICATE_NAME__", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("__REDIS_NAMESPACE__", dashboardText, StringComparison.Ordinal);
+        Assert.Contains("__REDIS_INSTANCE__", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__LOGS_URL__", dashboardText, StringComparison.Ordinal);
         Assert.Contains("__TRACES_URL__", dashboardText, StringComparison.Ordinal);
         Assert.Equal("__DASHBOARD_UID__", dashboard.RootElement.GetProperty("uid").GetString());
@@ -157,11 +159,21 @@ public sealed class DeploymentContractTests
         }
         Assert.Contains(
             dashboard.RootElement.GetProperty("templating").GetProperty("list").EnumerateArray(),
-            variable => variable.GetProperty("query").GetString()!.Contains("pod=~\"__SERVICE_NAME__.*\"", StringComparison.Ordinal));
+            variable => variable.GetProperty("query").GetString()!.Contains("pod=~\"^__SERVICE_NAME__-[a-z0-9]+-[a-z0-9]+$\"", StringComparison.Ordinal));
         Assert.Contains(
             dashboard.RootElement.GetProperty("panels").EnumerateArray()
                 .SelectMany(panel => panel.GetProperty("targets").EnumerateArray()),
             target => target.GetProperty("expr").GetString()!.Contains("deployment=\"__SERVICE_NAME__\"", StringComparison.Ordinal));
+        var dashboardExpressions = dashboard.RootElement.GetProperty("panels").EnumerateArray()
+            .SelectMany(panel => panel.GetProperty("targets").EnumerateArray())
+            .Select(target => target.GetProperty("expr").GetString()!).ToArray();
+        Assert.Contains(dashboardExpressions,
+            expression => expression.Contains("container_cpu_cfs_throttled_seconds_total", StringComparison.Ordinal)
+                && expression.Contains("container!=\"\"", StringComparison.Ordinal));
+        Assert.Contains(dashboardExpressions,
+            expression => expression.Contains("redis_memory_used_bytes", StringComparison.Ordinal)
+                && expression.Contains("namespace=\"__REDIS_NAMESPACE__\"", StringComparison.Ordinal)
+                && expression.Contains("instance=\"__REDIS_INSTANCE__\"", StringComparison.Ordinal));
 
         var rules = Read("helm/realtime-gateway/templates/prometheusrule.yaml");
         foreach (var alert in new[] { "RealtimeGatewayUnavailable", "RealtimeGatewayReadinessFailure", "RealtimeGatewayCrashLooping", "RealtimeGatewayAbnormalDisconnects", "RealtimeGatewayReconnectStorm", "RealtimeGatewayAuthenticationFailures", "RealtimeGatewayAuthorizationFailures", "RealtimeGatewayQueueDrops", "RealtimeGatewayQueueSaturation", "RealtimeGatewaySlowConsumers", "RealtimeGatewayHandlerLatency", "RealtimeGatewayRedisErrors", "RealtimeGatewayRedisDisconnected", "RealtimeGatewayRedisLatency", "RealtimeGatewayCertificateExpiring", "RealtimeGatewayCertificateNotReady", "RealtimeGatewayEdgeErrors", "RealtimeGatewayVipAdvertisementLost", "RealtimeGatewayRolloutFailed" })
@@ -175,6 +187,9 @@ public sealed class DeploymentContractTests
         Assert.Contains("metalLbAdvertisementMode", rules, StringComparison.Ordinal);
         Assert.Contains("metallb_layer2_responses_sent", rules, StringComparison.Ordinal);
         Assert.Contains("sum(increase(cormier_realtime_connections_opened_total", rules, StringComparison.Ordinal);
+        Assert.Contains("sum(increase(cormier_realtime_redis_operations_total", rules, StringComparison.Ordinal);
+        Assert.Contains("[10m])) > 0", rules, StringComparison.Ordinal);
+        Assert.Contains("printf \"^%s-[a-z0-9]+-[a-z0-9]+$\"", rules, StringComparison.Ordinal);
         Assert.Contains("increase(cormier_realtime_queue_dropped_total", rules, StringComparison.Ordinal);
         Assert.Contains("increase(cormier_realtime_slow_consumer_disconnects_total", rules, StringComparison.Ordinal);
         Assert.Contains("name={{ $certificateName", rules, StringComparison.Ordinal);
@@ -225,6 +240,10 @@ public sealed class DeploymentContractTests
         var dashboardTemplate = Read("helm/realtime-gateway/templates/grafana-dashboard.yaml");
         Assert.Contains("sha256sum $dashboardIdentity", dashboardTemplate, StringComparison.Ordinal);
         Assert.Contains("replace \"__DASHBOARD_UID__\"", dashboardTemplate, StringComparison.Ordinal);
+        Assert.Contains(".Values.observability.platformMetrics.redisNamespace", dashboardTemplate, StringComparison.Ordinal);
+        Assert.Contains(".Values.observability.platformMetrics.redisInstance", dashboardTemplate, StringComparison.Ordinal);
+        Assert.Contains("replace \"__REDIS_NAMESPACE__\"", dashboardTemplate, StringComparison.Ordinal);
+        Assert.Contains("replace \"__REDIS_INSTANCE__\"", dashboardTemplate, StringComparison.Ordinal);
 
         var authentication = Read("src/Cormier.Realtime.Gateway/RealtimeAuthentication.cs");
         Assert.Contains("ObserveRedisAsync", authentication, StringComparison.Ordinal);

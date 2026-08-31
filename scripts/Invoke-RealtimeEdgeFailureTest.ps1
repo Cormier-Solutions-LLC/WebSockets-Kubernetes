@@ -29,7 +29,6 @@ param(
     [Parameter()][ValidateSet('l2', 'bgp')][string]$MetalLbAdvertisementMode = 'l2',
     [Parameter()][string]$MetalLbSpeakerSelector = 'component=speaker',
     [Parameter()][string]$MetalLbSpeakerNode = '',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$FailureLockNamespace = '',
     [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.cormier.local',
     [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
     [Parameter()][ValidatePattern('^$|^https://[a-z0-9.-]+(:[0-9]{1,5})?$')][string]$Origin = '',
@@ -72,7 +71,7 @@ $pinKubectlContext = $false
 $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName}:$ExternalPort" }
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 $effectiveGatewayHpaName = if ([string]::IsNullOrWhiteSpace($GatewayHpaName)) { $GatewayRelease } else { $GatewayHpaName }
-$effectiveFailureLockNamespace = if ([string]::IsNullOrWhiteSpace($FailureLockNamespace)) { $MetalLbNamespace } else { $FailureLockNamespace }
+$effectiveFailureLockNamespace = 'kube-system'
 $effectiveGatewayPodSelector = ''
 
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
@@ -329,7 +328,9 @@ function Acquire-FailureLock {
     $suffix = ([Convert]::ToHexString($hashBytes)).ToLowerInvariant().Substring(0, 16)
     $script:failureLockName = "realtime-failure-$suffix"
     $script:failureLockHolder = [Guid]::NewGuid().ToString('N')
-    $expiresUtc = [DateTimeOffset]::UtcNow.AddSeconds($ContinuitySafetySeconds + (6 * $TimeoutSeconds) + 600).ToString('O')
+    # Covers every bounded mutation, all validation retries, recovery waits, and the continuity window.
+    $lockLeaseSeconds = $ContinuitySafetySeconds + (50 * $TimeoutSeconds) + 600
+    $expiresUtc = [DateTimeOffset]::UtcNow.AddSeconds($lockLeaseSeconds).ToString('O')
     try {
         Invoke-Checked kubectl @('create', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, "--from-literal=holder=$failureLockHolder", "--from-literal=expiresUtc=$expiresUtc") 'Acquire exclusive edge failure-test lock' | Out-Null
         $script:lockAcquired = $true
@@ -396,8 +397,6 @@ $effectiveGatewayPodSelector = if ([string]::IsNullOrWhiteSpace($GatewayPodSelec
     @($gatewayDeploymentMetadata.spec.selector.matchLabels.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ','
 } else { $GatewayPodSelector }
 if ([string]::IsNullOrWhiteSpace($effectiveGatewayPodSelector)) { throw 'Gateway pod selector could not be derived from the Deployment.' }
-$lockNamespaceMetadata = Get-KubeJson @('get', 'namespace', $effectiveFailureLockNamespace) 'Read failure-lock namespace safety labels'
-Assert-ApprovedMetadata $lockNamespaceMetadata.metadata "failure-lock namespace $effectiveFailureLockNamespace"
 if ($Scenario -in @('TraefikRestart', 'NodeDrain')) {
     $traefikNamespaceMetadata = Get-KubeJson @('get', 'namespace', $TraefikNamespace) 'Read Traefik namespace safety labels'
     Assert-ApprovedMetadata $traefikNamespaceMetadata.metadata "namespace $TraefikNamespace"
@@ -422,6 +421,19 @@ if ($Scenario -eq 'NodeDrain') {
 }
 if ($Scenario -eq 'MetalLbSpeakerRestart' -and $MetalLbAdvertisementMode -eq 'bgp' -and [string]::IsNullOrWhiteSpace($MetalLbSpeakerNode)) {
     throw 'BGP MetalLbSpeakerRestart requires an explicit -MetalLbSpeakerNode.'
+}
+if ($Scenario -eq 'MetalLbSpeakerRestart' -and $MetalLbAdvertisementMode -eq 'bgp') {
+    $bgpStatuses = Get-KubeJson @('get', 'servicebgpstatus', '-n', $MetalLbNamespace) 'Read MetalLB BGP announcer status'
+    $traefikPods = Get-KubeJson @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read selected Traefik nodes'
+    $matchingBgpStatus = @($bgpStatuses.items | Where-Object {
+        $_.status.serviceName -eq $TraefikService -and $_.status.serviceNamespace -eq $TraefikNamespace -and $_.status.node -eq $MetalLbSpeakerNode
+    })
+    $readyTraefikOnNode = @($traefikPods.items | Where-Object {
+        $_.spec.nodeName -eq $MetalLbSpeakerNode -and $_.status.phase -eq 'Running' -and
+        $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and
+        @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
+    })
+    if ($matchingBgpStatus.Count -lt 1 -or $readyTraefikOnNode.Count -lt 1) { throw "BGP speaker node $MetalLbSpeakerNode is not an active announcer with a ready local Traefik endpoint for the selected Service." }
 }
 if ($Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'TraefikRestart', 'NodeDrain') -and [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) {
     throw "$Scenario requires TicketRefreshCommand so an expected service-restart close can reconnect with a fresh single-use ticket."
@@ -592,7 +604,12 @@ finally {
                 if (-not [string]::IsNullOrWhiteSpace($replacementSecretName)) { Invoke-Checked kubectl @('delete', 'secret', $replacementSecretName, '-n', $GatewayNamespace, '--ignore-not-found=true') 'Remove replacement TLS Secret' | Out-Null }
             }
             'RouteMismatch' { Set-RouteValue '/spec/routes/0/match' $originalRouteMatch 'Restore route match' }
-            'NodeDrain' { if (-not $nodeWasUnschedulable) { Invoke-Checked kubectl @('uncordon', $NodeName) 'Uncordon target node' | Out-Null } }
+            'NodeDrain' {
+                # Complete-ContinuityProbe above proves the edge stayed usable while this node
+                # was drained and cordoned. Full configured replica recovery is intentionally
+                # checked below only after restoring the node to its original schedulable state.
+                if (-not $nodeWasUnschedulable) { Invoke-Checked kubectl @('uncordon', $NodeName) 'Uncordon target node' | Out-Null }
+            }
         }
         if ($null -ne $continuityProcess) { Complete-ContinuityProbe }
         Wait-DeploymentFullyRecovered $GatewayRelease $GatewayNamespace

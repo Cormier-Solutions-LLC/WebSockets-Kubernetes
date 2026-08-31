@@ -165,6 +165,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Sha256Async", script, StringComparison.Ordinal);
         Assert.Contains("$HeartbeatSeconds, $remainingSeconds", script, StringComparison.Ordinal);
         Assert.Contains("'--context', $ExpectedContext, 'port-forward'", script, StringComparison.Ordinal);
+        Assert.Contains("observedClientAddresses", script, StringComparison.Ordinal);
         Assert.Contains("--since-time=", script, StringComparison.Ordinal);
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("Get-CertificateRequestMaterial", script, StringComparison.Ordinal);
@@ -229,7 +230,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Release-FailureLock", script, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
         Assert.Contains("ContinuitySafetySeconds", script, StringComparison.Ordinal);
-        Assert.Contains("FailureLockNamespace", script, StringComparison.Ordinal);
+        Assert.Contains("$effectiveFailureLockNamespace = 'kube-system'", script, StringComparison.Ordinal);
         Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
         Assert.Contains("Get-CertificateRequestCaPem", script, StringComparison.Ordinal);
         Assert.Contains("GatewayPodSelector", script, StringComparison.Ordinal);
@@ -237,6 +238,12 @@ public sealed class DeploymentContractTests
         Assert.Contains("Release owned edge failure-test lock", script, StringComparison.Ordinal);
         Assert.Contains("resourceVersion", script, StringComparison.Ordinal);
         Assert.DoesNotContain("get', 'secret'", script, StringComparison.Ordinal);
+        Assert.Contains("50 * $TimeoutSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("servicebgpstatus", script, StringComparison.Ordinal);
+        Assert.Contains("Complete-ContinuityProbe above proves the edge stayed usable", script, StringComparison.Ordinal);
+        var scriptReadme = Read("scripts/README.md");
+        Assert.Contains("CertificateAuthorityCertificateName", scriptReadme, StringComparison.Ordinal);
+        Assert.Contains("TicketRefreshCommand $ticketRefreshCommand", scriptReadme, StringComparison.Ordinal);
         Assert.Contains("Reclaim expired edge failure-test lock", script, StringComparison.Ordinal);
         Assert.Contains("Verify edge failure-test lock ownership", script, StringComparison.Ordinal);
         Assert.Contains("--context", script, StringComparison.Ordinal);

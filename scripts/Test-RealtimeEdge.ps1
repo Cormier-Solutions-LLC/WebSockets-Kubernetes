@@ -398,7 +398,12 @@ public static class ServedCertificate
     }
     else {
         $accessLogs = Invoke-Checked kubectl @('logs', '-n', $TraefikNamespace, '-l', $TraefikPodSelector, "--since-time=$accessLogSinceTime", '--prefix=true') 'Read current-run redacted Traefik access logs'
-        if ($accessLogs -notmatch ('"ClientHost"\s*:\s*"' + [Regex]::Escape($ExpectedClientIp) + '"')) { throw "Traefik did not observe expected client source IP $ExpectedClientIp." }
+        $expectedClientAddress = [Net.IPAddress]::Parse($ExpectedClientIp)
+        $observedClientAddresses = @([Regex]::Matches($accessLogs, '"ClientHost"\s*:\s*"([^"]+)"') | ForEach-Object {
+            $parsedAddress = $null
+            if ([Net.IPAddress]::TryParse($_.Groups[1].Value, [ref]$parsedAddress)) { $parsedAddress }
+        })
+        if (@($observedClientAddresses | Where-Object { $_.Equals($expectedClientAddress) }).Count -eq 0) { throw "Traefik did not observe expected client source IP $ExpectedClientIp." }
         Write-Result PASS "Traefik observed the expected client source IP $ExpectedClientIp."
     }
 

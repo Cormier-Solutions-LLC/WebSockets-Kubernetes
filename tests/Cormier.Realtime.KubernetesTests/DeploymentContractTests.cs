@@ -240,7 +240,8 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("get', 'secret'", script, StringComparison.Ordinal);
         Assert.Contains("50 * $TimeoutSeconds", script, StringComparison.Ordinal);
         Assert.Contains("servicebgpstatus", script, StringComparison.Ordinal);
-        Assert.Contains("Complete-ContinuityProbe above proves the edge stayed usable", script, StringComparison.Ordinal);
+        Assert.Contains("Prove every replica redistributed before ending the maintenance window", script, StringComparison.Ordinal);
+        Assert.Contains("redistributionError", script, StringComparison.Ordinal);
         var scriptReadme = Read("scripts/README.md");
         Assert.Contains("CertificateAuthorityCertificateName", scriptReadme, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand $ticketRefreshCommand", scriptReadme, StringComparison.Ordinal);

@@ -605,10 +605,15 @@ finally {
             }
             'RouteMismatch' { Set-RouteValue '/spec/routes/0/match' $originalRouteMatch 'Restore route match' }
             'NodeDrain' {
-                # Complete-ContinuityProbe above proves the edge stayed usable while this node
-                # was drained and cordoned. Full configured replica recovery is intentionally
-                # checked below only after restoring the node to its original schedulable state.
-                if (-not $nodeWasUnschedulable) { Invoke-Checked kubectl @('uncordon', $NodeName) 'Uncordon target node' | Out-Null }
+                $redistributionError = $null
+                try {
+                    # Prove every replica redistributed before ending the maintenance window.
+                    Wait-DeploymentFullyRecovered $GatewayRelease $GatewayNamespace
+                    Wait-DeploymentFullyRecovered $TraefikRelease $TraefikNamespace
+                }
+                catch { $redistributionError = $_ }
+                finally { if (-not $nodeWasUnschedulable) { Invoke-Checked kubectl @('uncordon', $NodeName) 'Uncordon target node' | Out-Null } }
+                if ($null -ne $redistributionError) { throw $redistributionError }
             }
         }
         if ($null -ne $continuityProcess) { Complete-ContinuityProbe }

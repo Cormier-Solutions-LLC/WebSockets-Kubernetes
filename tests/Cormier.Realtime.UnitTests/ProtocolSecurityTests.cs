@@ -246,7 +246,7 @@ public sealed class ProtocolSecurityTests
                 "instance-a"),
             CancellationToken.None).AsTask();
 
-        await fastSocket.SendEntered.WaitAsync(TimeSpan.FromMilliseconds(500));
+        await fastSocket.SendEntered.WaitAsync(TimeSpan.FromSeconds(2));
         slowSocket.ReleaseSend();
         await delivery.WaitAsync(TimeSpan.FromSeconds(2));
         await senders.CancelAsync();

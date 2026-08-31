@@ -29,6 +29,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("ASPNETCORE_HTTP_PORTS", deployment, StringComparison.Ordinal);
         var strategy = schema.RootElement.GetProperty("properties").GetProperty("deploymentStrategy");
         var forbidden = strategy.GetProperty("not").GetProperty("properties");
+        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("replicaCount").GetProperty("minimum").GetInt32());
+        Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
     }
@@ -148,9 +150,13 @@ public sealed class DeploymentContractTests
         Assert.Contains("ExternalAddress", script, StringComparison.Ordinal);
         Assert.Contains("ConnectCallback", script, StringComparison.Ordinal);
         Assert.Contains("ConnectionReadyFile", script, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStopFile", script, StringComparison.Ordinal);
         Assert.Contains("--since-time=", script, StringComparison.Ordinal);
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("CertificateAuthoritySecretKey", script, StringComparison.Ordinal);
+        Assert.Contains("GatewayMetricsPort", script, StringComparison.Ordinal);
+        Assert.Contains("CustomTrustStore.AddRange", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Get-Json @('get', 'secret'", script, StringComparison.Ordinal);
         Assert.Contains("PowerShell 7.4", script, StringComparison.Ordinal);
         Assert.Contains("Certificate does not cover configured host", script, StringComparison.Ordinal);
         Assert.Contains("IngressRoute and Certificate reference different TLS Secrets", script, StringComparison.Ordinal);
@@ -191,9 +197,16 @@ public sealed class DeploymentContractTests
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("Start-ContinuityProbe", script, StringComparison.Ordinal);
         Assert.Contains("Complete-ContinuityProbe", script, StringComparison.Ordinal);
+        Assert.Contains("continuityStopPath", script, StringComparison.Ordinal);
+        Assert.Contains("replacement-certificate.log", script, StringComparison.Ordinal);
         Assert.Contains("does not host a pod from the selected gateway or Traefik workload", script, StringComparison.Ordinal);
         Assert.Contains("Baseline and recovery checks intentionally do not consume it", script, StringComparison.Ordinal);
         Assert.Contains("CertificateAuthoritySecretKey", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedClientIp", script, StringComparison.Ordinal);
+        Assert.Contains("GatewayMetricsPort", script, StringComparison.Ordinal);
+        Assert.Contains("Suspend gateway HPA", script, StringComparison.Ordinal);
+        Assert.Contains("Restore gateway HPA", script, StringComparison.Ordinal);
+        Assert.Contains("Assert-ApprovedMetadata", script, StringComparison.Ordinal);
         Assert.DoesNotContain("2>&1", script, StringComparison.Ordinal);
         Assert.Contains("Restore route match", script, StringComparison.Ordinal);
         Assert.Contains("Uncordon target node", script, StringComparison.Ordinal);

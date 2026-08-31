@@ -4,12 +4,12 @@
   "required": ["image", "service", "deploymentStrategy", "gateway", "redis", "resources"],
   "additionalProperties": true,
   "properties": {
-    "replicaCount": { "type": "integer", "minimum": 1 },
+    "replicaCount": { "type": "integer", "minimum": 2 },
     "deploymentStrategy": {
       "type": "object",
       "required": ["maxUnavailable", "maxSurge"],
       "properties": {
-        "maxUnavailable": { "type": "integer", "minimum": 0 },
+        "maxUnavailable": { "type": "integer", "minimum": 0, "maximum": 1 },
         "maxSurge": { "type": "integer", "minimum": 0 }
       },
       "not": {

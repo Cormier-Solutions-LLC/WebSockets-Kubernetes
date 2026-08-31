@@ -18,6 +18,8 @@
   trust store when authenticated ClientWebSocket validation is requested.
 .PARAMETER ConnectionReadyFile
   Optional marker written only after an authenticated WSS connection is established.
+.PARAMETER ConnectionStopFile
+  Optional signal file that keeps authenticated validation running until it appears.
 .NOTES
   Requires: PowerShell 7.4 or later, kubectl, curl, a reachable Kubernetes cluster and DNS.
   Standard: refs/scripts-standard-v4.2.md
@@ -45,11 +47,13 @@ param(
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
     [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
+    [Parameter()][ValidateRange(0, 65535)][int]$GatewayMetricsPort = 0,
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
-    [Parameter()][ValidateRange(5,300)][int]$LongConnectionSeconds = 30,
+    [Parameter()][ValidateRange(5,900)][int]$LongConnectionSeconds = 30,
     [Parameter()][ValidateRange(5,300)][int]$HeartbeatSeconds = 15,
     [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120,
-    [Parameter()][string]$ConnectionReadyFile = ''
+    [Parameter()][string]$ConnectionReadyFile = '',
+    [Parameter()][string]$ConnectionStopFile = ''
 )
 
 Set-StrictMode -Version Latest
@@ -85,6 +89,14 @@ function Get-Json([string[]]$Arguments, [string]$Description) {
 function Get-MetricValue([string]$MetricName, [string]$Labels) {
     $escapedLabels = [Regex]::Escape($Labels)
     $gatewayPods = Get-Json @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read gateway metric targets'
+    $effectiveMetricsPort = $GatewayMetricsPort
+    if ($effectiveMetricsPort -eq 0) {
+        $metricsDeployment = Get-Json @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway metrics port'
+        $namedPort = @($metricsDeployment.spec.template.spec.containers[0].ports | Where-Object { $_.name -eq 'http' } | Select-Object -First 1)
+        if ($namedPort.Count -ne 1) { $namedPort = @($metricsDeployment.spec.template.spec.containers[0].ports | Select-Object -First 1) }
+        if ($namedPort.Count -ne 1) { throw 'Gateway deployment does not expose a metrics-capable container port.' }
+        $effectiveMetricsPort = [int]$namedPort[0].containerPort
+    }
     $total = 0.0
     foreach ($pod in @($gatewayPods.items | Where-Object {
         $_.status.phase -eq 'Running' -and
@@ -101,7 +113,7 @@ function Get-MetricValue([string]$MetricName, [string]$Labels) {
         $startInfo.CreateNoWindow = $true
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
-        foreach ($argument in @('port-forward', '-n', $GatewayNamespace, "pod/$($pod.metadata.name)", "${localPort}:8080")) {
+        foreach ($argument in @('port-forward', '-n', $GatewayNamespace, "pod/$($pod.metadata.name)", "${localPort}:$effectiveMetricsPort")) {
             $startInfo.ArgumentList.Add($argument)
         }
         $forward = [Diagnostics.Process]::Start($startInfo)
@@ -210,11 +222,11 @@ try {
         throw 'Specify either CertificateAuthorityPath or CertificateAuthoritySecretName, not both.'
     }
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
-        $authoritySecret = Get-Json @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace) 'Read public CA certificate Secret'
-        $encodedProperty = $authoritySecret.data.PSObject.Properties[$CertificateAuthoritySecretKey]
-        if ($null -eq $encodedProperty -or [string]::IsNullOrWhiteSpace([string]$encodedProperty.Value)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
+        $jsonPathKey = $CertificateAuthoritySecretKey -replace '\.', '\.'
+        $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace, '-o', "jsonpath={.data.$jsonPathKey}") 'Read configured public CA certificate'
+        if ([string]::IsNullOrWhiteSpace($encodedCertificate)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
         $temporaryCaPath = [IO.Path]::GetTempFileName()
-        [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String(([string]$encodedProperty.Value).Trim()))
+        [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
         $CertificateAuthorityPath = $temporaryCaPath
     }
     elseif (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
@@ -274,13 +286,15 @@ try {
     }
     else {
         $socket = [Net.WebSockets.ClientWebSocket]::new()
-        $trustedCa = $null
+        $trustedRoots = $null
         $socketInvoker = $null
         $connectionTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
         $socket.Options.AddSubProtocol('cormier.realtime.v1')
         $socket.Options.SetRequestHeader('Origin', $effectiveOrigin)
         if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
-            $trustedCa = [Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateAuthorityPath)
+            $trustedRoots = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+            $trustedRoots.ImportFromPemFile($CertificateAuthorityPath)
+            if ($trustedRoots.Count -eq 0) { throw 'The configured CA bundle contains no certificates.' }
         }
         if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -or -not [string]::IsNullOrWhiteSpace($ExternalAddress)) {
             if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
@@ -295,7 +309,7 @@ namespace Cormier.Realtime.EdgeValidation;
 
 public static class CustomRootValidator
 {
-    public static RemoteCertificateValidationCallback Create(X509Certificate2 trustedRoot) =>
+    public static RemoteCertificateValidationCallback Create(X509Certificate2Collection trustedRoots) =>
         (_, certificate, _, errors) =>
         {
             if (certificate is null || (errors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0)
@@ -306,12 +320,12 @@ public static class CustomRootValidator
             using var candidate = new X509Certificate2(certificate);
             using var customChain = new X509Chain();
             customChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-            customChain.ChainPolicy.CustomTrustStore.Add(trustedRoot);
+            customChain.ChainPolicy.CustomTrustStore.AddRange(trustedRoots);
             customChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             return customChain.Build(candidate);
         };
 
-    public static HttpMessageInvoker CreateInvoker(string targetAddress, int targetPort, X509Certificate2 trustedRoot)
+    public static HttpMessageInvoker CreateInvoker(string targetAddress, int targetPort, X509Certificate2Collection trustedRoots)
     {
         var handler = new SocketsHttpHandler { UseProxy = false };
         handler.ConnectCallback = async (_, cancellationToken) =>
@@ -329,9 +343,9 @@ public static class CustomRootValidator
                 throw;
             }
         };
-        if (trustedRoot is not null)
+        if (trustedRoots is not null)
         {
-            handler.SslOptions.RemoteCertificateValidationCallback = Create(trustedRoot);
+            handler.SslOptions.RemoteCertificateValidationCallback = Create(trustedRoots);
         }
         return new HttpMessageInvoker(handler, disposeHandler: true);
     }
@@ -339,7 +353,7 @@ public static class CustomRootValidator
 '@
             }
             if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
-                $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedCa)
+                $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedRoots)
             }
         }
         try {
@@ -351,7 +365,7 @@ public static class CustomRootValidator
                 if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
                     throw 'The pinned WSS transport helper could not be loaded.'
                 }
-                $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedCa)
+                $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedRoots)
                 $null = $socket.ConnectAsync($uri, $socketInvoker, $connectionTimeout.Token).GetAwaiter().GetResult()
             }
             if (-not [string]::IsNullOrWhiteSpace($ConnectionReadyFile)) {
@@ -405,14 +419,16 @@ public static class CustomRootValidator
                 if ($remainingSeconds -gt 0) {
                     Start-Sleep -Seconds ([Math]::Min(10, $remainingSeconds))
                 }
-            } while ([DateTimeOffset]::UtcNow -lt $validationDeadline)
-            Write-Result PASS "Authenticated WSS connection exchanged ping traffic for $LongConnectionSeconds seconds."
+            } while (([string]::IsNullOrWhiteSpace($ConnectionStopFile) -and [DateTimeOffset]::UtcNow -lt $validationDeadline) -or
+                (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not (Test-Path -LiteralPath $ConnectionStopFile) -and [DateTimeOffset]::UtcNow -lt $validationDeadline))
+            if (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not (Test-Path -LiteralPath $ConnectionStopFile)) { throw 'Authenticated WSS continuity timed out before receiving its stop signal.' }
+            Write-Result PASS 'Authenticated WSS connection exchanged ping traffic for the required validation interval.'
         }
         finally {
             try { $connectionTimeout.Dispose() } catch {}
             try { $socket.Dispose() } catch {}
             try { if ($null -ne $socketInvoker) { $socketInvoker.Dispose() } } catch {}
-            try { if ($null -ne $trustedCa) { $trustedCa.Dispose() } } catch {}
+            try { if ($null -ne $trustedRoots) { foreach ($root in $trustedRoots) { $root.Dispose() } } } catch {}
         }
     }
 }

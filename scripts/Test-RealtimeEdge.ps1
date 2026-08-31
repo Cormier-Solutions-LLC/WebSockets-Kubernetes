@@ -263,8 +263,11 @@ try {
         '--write-out', '%{http_code}',
         "https://${externalAuthority}${Path}"
     )
+    $originSuccessBefore = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="success"'
     $routeStatus = Invoke-Checked curl $upgradeArguments 'Validate TLS route'
     if ($routeStatus.Trim() -ne '401') { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
+    $originSuccessAfter = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="success"'
+    if ($originSuccessAfter -le $originSuccessBefore) { throw 'Approved Origin did not reach the session-authentication path.' }
     Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
     $invalidStatus = Invoke-Checked curl ($curlCommon + @('--output', $nullDevice, '--write-out', '%{http_code}', "https://${externalAuthority}/not-a-realtime-route")) 'Validate invalid route rejection'
     if ($invalidStatus.Trim() -ne '404') { throw "Invalid route returned unexpected status $($invalidStatus.Trim())." }

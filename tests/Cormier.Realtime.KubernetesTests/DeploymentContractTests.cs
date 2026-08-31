@@ -167,6 +167,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("IngressRoute and Certificate reference different TLS Secrets", script, StringComparison.Ordinal);
         Assert.Contains("Invalid host is rejected", script, StringComparison.Ordinal);
         Assert.Contains("Invalid Origin is rejected", script, StringComparison.Ordinal);
+        Assert.Contains("Approved Origin did not reach the session-authentication path", script, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_authentication_total", script, StringComparison.Ordinal);
         Assert.Contains("MetalLB speakers are not ready", script, StringComparison.Ordinal);
         Assert.Contains("TraefikPodSelector", script, StringComparison.Ordinal);
@@ -215,6 +216,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("Acquire-FailureLock", script, StringComparison.Ordinal);
         Assert.Contains("Release-FailureLock", script, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
+        Assert.Contains("DeletedPodUid", script, StringComparison.Ordinal);
+        Assert.Contains("metadata.annotations", script, StringComparison.Ordinal);
         Assert.Contains("status.phase -eq 'Running'", script, StringComparison.Ordinal);
         Assert.DoesNotContain("2>&1", script, StringComparison.Ordinal);
         Assert.Contains("Restore route match", script, StringComparison.Ordinal);

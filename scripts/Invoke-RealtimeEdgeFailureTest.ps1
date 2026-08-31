@@ -123,12 +123,13 @@ function Wait-DeploymentFullyRecovered([string]$Name, [string]$Namespace) {
     throw "$Namespace deployment/$Name did not fully recover all configured replicas within $TimeoutSeconds seconds."
 }
 
-function Wait-MetalLbSpeakerRecovered([string]$NodeName) {
+function Wait-MetalLbSpeakerRecovered([string]$NodeName, [string]$DeletedPodUid) {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         $speakers = Get-KubeJson @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speaker recovery'
         $readySpeaker = @($speakers.items | Where-Object {
-            $_.spec.nodeName -eq $NodeName -and $_.status.phase -eq 'Running' -and
+            $_.spec.nodeName -eq $NodeName -and $_.metadata.uid -ne $DeletedPodUid -and
+            $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and $_.status.phase -eq 'Running' -and
             @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
         })
         $advertisementReady = $true
@@ -287,6 +288,8 @@ function Restore-GatewayHpa {
     $metadata = [ordered]@{ name = [string]$originalHpa.metadata.name; namespace = $GatewayNamespace }
     $labelsProperty = $originalHpa.metadata.PSObject.Properties['labels']
     if ($null -ne $labelsProperty) { $metadata.labels = $labelsProperty.Value }
+    $annotationsProperty = $originalHpa.metadata.PSObject.Properties['annotations']
+    if ($null -ne $annotationsProperty) { $metadata.annotations = $annotationsProperty.Value }
     $manifest = [ordered]@{
         apiVersion = [string]$originalHpa.apiVersion
         kind = 'HorizontalPodAutoscaler'
@@ -350,8 +353,8 @@ if ($Scenario -eq 'NodeDrain') {
 if ($Scenario -eq 'MetalLbSpeakerRestart' -and $MetalLbAdvertisementMode -eq 'bgp' -and [string]::IsNullOrWhiteSpace($MetalLbSpeakerNode)) {
     throw 'BGP MetalLbSpeakerRestart requires an explicit -MetalLbSpeakerNode.'
 }
-if ($Scenario -eq 'GatewayRollout' -and [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) {
-    throw 'GatewayRollout requires TicketRefreshCommand so an expected service-restart close can reconnect with a fresh single-use ticket.'
+if ($Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'NodeDrain') -and [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) {
+    throw "$Scenario requires TicketRefreshCommand so an expected service-restart close can reconnect with a fresh single-use ticket."
 }
 
 $timestamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHmmssZ')
@@ -420,10 +423,11 @@ try {
             $speakers = Get-KubeJson @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
             $speakerName = @($speakers.items | Where-Object { $_.status.phase -eq 'Running' -and $_.spec.nodeName -eq $speakerNode } | Select-Object -First 1).metadata.name
             if ([string]::IsNullOrWhiteSpace($speakerName)) { throw "No running MetalLB speaker is available on announcing node $speakerNode." }
+            $speakerUid = [string]@($speakers.items | Where-Object { $_.metadata.name -eq $speakerName } | Select-Object -First 1).metadata.uid
             Start-ContinuityProbe
             $changed = $true
             Invoke-Checked kubectl @('delete', 'pod', $speakerName, '-n', $MetalLbNamespace, '--wait=false') 'Delete active MetalLB speaker' | Out-Null
-            Wait-MetalLbSpeakerRecovered $speakerNode
+            Wait-MetalLbSpeakerRecovered $speakerNode $speakerUid
         }
         'CertificateRouteMismatch' {
             $route = Get-KubeJson @('get', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway route'

@@ -10,6 +10,7 @@ public sealed class DeploymentContractTests
     public void GatewayChartContainsRequiredWorkloadControls()
     {
         var deployment = Read("helm/realtime-gateway/templates/deployment.yaml");
+        using var schema = JsonDocument.Parse(Read("helm/realtime-gateway/values.schema.json"));
 
         Assert.Contains("runAsNonRoot: true", deployment, StringComparison.Ordinal);
         Assert.Contains("readOnlyRootFilesystem: true", deployment, StringComparison.Ordinal);
@@ -26,6 +27,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("resources:", deployment, StringComparison.Ordinal);
         Assert.Contains("containerPort: {{ .Values.service.targetPort }}", deployment, StringComparison.Ordinal);
         Assert.Contains("ASPNETCORE_HTTP_PORTS", deployment, StringComparison.Ordinal);
+        var strategy = schema.RootElement.GetProperty("properties").GetProperty("deploymentStrategy");
+        var forbidden = strategy.GetProperty("not").GetProperty("properties");
+        Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
+        Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
     }
 
     [Fact]
@@ -141,6 +146,9 @@ public sealed class DeploymentContractTests
         Assert.Contains("CertificateAuthoritySecretName", script, StringComparison.Ordinal);
         Assert.Contains("ExternalPort", script, StringComparison.Ordinal);
         Assert.Contains("ExternalAddress", script, StringComparison.Ordinal);
+        Assert.Contains("ConnectCallback", script, StringComparison.Ordinal);
+        Assert.Contains("--since-time=", script, StringComparison.Ordinal);
+        Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("Certificate does not cover configured host", script, StringComparison.Ordinal);
         Assert.Contains("IngressRoute and Certificate reference different TLS Secrets", script, StringComparison.Ordinal);
         Assert.Contains("Invalid host is rejected", script, StringComparison.Ordinal);
@@ -166,11 +174,18 @@ public sealed class DeploymentContractTests
         Assert.Contains("SupportsShouldProcess", script, StringComparison.Ordinal);
         Assert.Contains("TARGET MISMATCH", script, StringComparison.Ordinal);
         Assert.Contains("SAFETY STOP", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/failure-testing", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/environment", script, StringComparison.Ordinal);
         Assert.Contains("finally", script, StringComparison.Ordinal);
         Assert.Contains("Restore gateway replicas", script, StringComparison.Ordinal);
         Assert.Contains("Restore TLS Secret reference", script, StringComparison.Ordinal);
         Assert.Contains("CertificateRenewal", script, StringComparison.Ordinal);
-        Assert.Contains("replacement TLS Secret", script, StringComparison.Ordinal);
+        Assert.Contains("parallel replacement Certificate", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete', 'secret', $tlsSecretName", script, StringComparison.Ordinal);
+        Assert.Contains("servicel2status", script, StringComparison.Ordinal);
+        Assert.Contains("exit code 60", script, StringComparison.Ordinal);
+        Assert.Contains("Wait-DeploymentFullyRecovered", script, StringComparison.Ordinal);
+        Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("Restore route match", script, StringComparison.Ordinal);
         Assert.Contains("Uncordon target node", script, StringComparison.Ordinal);
         Assert.Contains("Invoke-EdgeValidation", script, StringComparison.Ordinal);
@@ -178,6 +193,7 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("tls.key", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("redis-password", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("passwordKey", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(".evidence/", Read(".gitignore"), StringComparison.Ordinal);
     }
 
     [Fact]

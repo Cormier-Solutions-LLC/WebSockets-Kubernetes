@@ -32,6 +32,7 @@ param(
     [Parameter()][string]$TraefikPodSelector = 'app.kubernetes.io/name=traefik',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$MetalLbNamespace = 'metallb-system',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$MetalLbAdvertisement = 'development-traefik',
+    [Parameter()][ValidateSet('l2', 'bgp')][string]$MetalLbAdvertisementMode = 'l2',
     [Parameter()][string]$MetalLbSpeakerSelector = 'component=speaker',
     [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.cormier.local',
     [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
@@ -139,7 +140,8 @@ try {
 
     $addressPool = Get-Json @('get', 'ipaddresspool', $pool, '-n', $MetalLbNamespace) 'Read MetalLB address pool'
     if (@($addressPool.spec.serviceAllocation.namespaces) -notcontains $TraefikNamespace) { throw 'MetalLB pool is not scoped to the Traefik namespace.' }
-    $advertisement = Get-Json @('get', 'l2advertisement', $MetalLbAdvertisement, '-n', $MetalLbNamespace) 'Read MetalLB L2 advertisement'
+    $advertisementKind = if ($MetalLbAdvertisementMode -eq 'l2') { 'l2advertisement' } else { 'bgpadvertisement' }
+    $advertisement = Get-Json @('get', $advertisementKind, $MetalLbAdvertisement, '-n', $MetalLbNamespace) "Read MetalLB $MetalLbAdvertisementMode advertisement"
     if (@($advertisement.spec.ipAddressPools) -notcontains $pool) { throw 'MetalLB advertisement does not reference the Traefik address pool.' }
     $traefikPods = Get-Json @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read Traefik pods'
     $speakerPods = Get-Json @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
@@ -147,7 +149,7 @@ try {
     $speakerNodes = @($speakerPods.items | Where-Object { $_.status.phase -eq 'Running' -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
     $missingSpeakerNodes = @($traefikNodes | Where-Object { $speakerNodes -notcontains $_ })
     if ($traefikNodes.Count -lt 2 -or $missingSpeakerNodes.Count -gt 0) { throw 'MetalLB speakers are not ready on every node hosting a ready Traefik replica.' }
-    Write-Result PASS 'MetalLB pool, L2 advertisement, and intended Traefik/speaker node placement are consistent.'
+    Write-Result PASS "MetalLB pool, $MetalLbAdvertisementMode advertisement, and intended Traefik/speaker node placement are consistent."
 
     $traefikDeployment = Get-Json @('get', 'deployment', $TraefikRelease, '-n', $TraefikNamespace) 'Read Traefik timeout configuration'
     $traefikArguments = @($traefikDeployment.spec.template.spec.containers[0].args)
@@ -209,6 +211,7 @@ try {
     $curlCommon = @('--silent', '--show-error', '--noproxy', $HostName, '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:${ExternalPort}:$connectionAddress")
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) { $curlCommon += @('--cacert', $CertificateAuthorityPath) }
 
+    $accessLogSinceTime = [DateTimeOffset]::UtcNow.ToString('O')
     $webSocketKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
     $upgradeArguments = $curlCommon + @(
         '--http1.1',
@@ -247,7 +250,7 @@ try {
         Write-Result SKIP 'Observed source-IP validation skipped because ExpectedClientIp is unset.'
     }
     else {
-        $accessLogs = Invoke-Checked kubectl @('logs', '-n', $TraefikNamespace, '-l', $TraefikPodSelector, '--since=2m', '--prefix=true') 'Read recent redacted Traefik access logs'
+        $accessLogs = Invoke-Checked kubectl @('logs', '-n', $TraefikNamespace, '-l', $TraefikPodSelector, "--since-time=$accessLogSinceTime", '--prefix=true') 'Read current-run redacted Traefik access logs'
         if ($accessLogs -notmatch ('"ClientHost"\s*:\s*"' + [Regex]::Escape($ExpectedClientIp) + '"')) { throw "Traefik did not observe expected client source IP $ExpectedClientIp." }
         Write-Result PASS "Traefik observed the expected client source IP $ExpectedClientIp."
     }
@@ -259,14 +262,20 @@ try {
     else {
         $socket = [Net.WebSockets.ClientWebSocket]::new()
         $trustedCa = $null
+        $socketInvoker = $null
         $connectionTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
         $socket.Options.AddSubProtocol('cormier.realtime.v1')
         $socket.Options.SetRequestHeader('Origin', $effectiveOrigin)
         if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
             $trustedCa = [Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateAuthorityPath)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -or -not [string]::IsNullOrWhiteSpace($ExternalAddress)) {
             if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
                 Add-Type -TypeDefinition @'
 using System.Net.Security;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Cormier.Realtime.EdgeValidation;
@@ -288,14 +297,50 @@ public static class CustomRootValidator
             customChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             return customChain.Build(candidate);
         };
+
+    public static HttpMessageInvoker CreateInvoker(string targetAddress, int targetPort, X509Certificate2 trustedRoot)
+    {
+        var handler = new SocketsHttpHandler { UseProxy = false };
+        handler.ConnectCallback = async (_, cancellationToken) =>
+        {
+            var address = IPAddress.Parse(targetAddress);
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, targetPort), cancellationToken);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        };
+        if (trustedRoot is not null)
+        {
+            handler.SslOptions.RemoteCertificateValidationCallback = Create(trustedRoot);
+        }
+        return new HttpMessageInvoker(handler, disposeHandler: true);
+    }
 }
 '@
             }
-            $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedCa)
+            if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
+                $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedCa)
+            }
         }
         try {
             $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")
-            $null = $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
+            if ([string]::IsNullOrWhiteSpace($ExternalAddress)) {
+                $null = $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
+            }
+            else {
+                if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
+                    throw 'The pinned WSS transport helper could not be loaded.'
+                }
+                $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedCa)
+                $null = $socket.ConnectAsync($uri, $socketInvoker, $connectionTimeout.Token).GetAwaiter().GetResult()
+            }
             $validationDeadline = [DateTimeOffset]::UtcNow.AddSeconds($LongConnectionSeconds)
             $receiveBuffer = [byte[]]::new(16384)
             do {
@@ -350,6 +395,7 @@ public static class CustomRootValidator
         finally {
             try { $connectionTimeout.Dispose() } catch {}
             try { $socket.Dispose() } catch {}
+            try { if ($null -ne $socketInvoker) { $socketInvoker.Dispose() } } catch {}
             try { if ($null -ne $trustedCa) { $trustedCa.Dispose() } } catch {}
         }
     }

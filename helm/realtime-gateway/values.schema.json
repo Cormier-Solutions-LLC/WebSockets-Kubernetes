@@ -11,6 +11,13 @@
       "properties": {
         "maxUnavailable": { "type": "integer", "minimum": 0 },
         "maxSurge": { "type": "integer", "minimum": 0 }
+      },
+      "not": {
+        "properties": {
+          "maxUnavailable": { "const": 0 },
+          "maxSurge": { "const": 0 }
+        },
+        "required": ["maxUnavailable", "maxSurge"]
       }
     },
     "image": {

@@ -17,6 +17,7 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$Environment,
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayNamespace = 'development-realtime',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayRelease = 'development-realtime',
+    [Parameter()][string]$GatewayPodSelector = '',
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayHpaName = '',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikNamespace = 'traefik',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikRelease = 'traefik',
@@ -35,9 +36,8 @@ param(
     [Parameter()][ValidateRange(1, 65535)][int]$ExternalPort = 443,
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExternalAddress = '',
     [Parameter()][string]$CertificateAuthorityPath = '',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretNamespace = '',
-    [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthorityCertificateName = '',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthorityCertificateNamespace = '',
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
     [Parameter()][string]$TicketRefreshCommand = '',
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
@@ -73,6 +73,7 @@ $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 $effectiveGatewayHpaName = if ([string]::IsNullOrWhiteSpace($GatewayHpaName)) { $GatewayRelease } else { $GatewayHpaName }
 $effectiveFailureLockNamespace = if ([string]::IsNullOrWhiteSpace($FailureLockNamespace)) { $MetalLbNamespace } else { $FailureLockNamespace }
+$effectiveGatewayPodSelector = ''
 
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
     $stderrPath = [IO.Path]::GetTempFileName()
@@ -154,11 +155,10 @@ function Set-RouteValue([string]$JsonPointer, [string]$Value, [string]$Descripti
     Invoke-Checked kubectl @('patch', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace, '--type=json', '-p', $patch) $Description | Out-Null
 }
 
-function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '', [string]$ExpectedServedSecretOverride = '', [string]$ExpectedServedNamespaceOverride = '') {
+function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]$AuthorityCertificateOverride = '', [string]$AuthorityCertificateNamespaceOverride = '') {
     $effectiveCertificate = if ([string]::IsNullOrWhiteSpace($CertificateOverride)) { $CertificateName } else { $CertificateOverride }
-    $effectiveAuthoritySecret = if ([string]::IsNullOrWhiteSpace($AuthoritySecretOverride)) { $CertificateAuthoritySecretName } else { $AuthoritySecretOverride }
-    $effectiveAuthoritySecretKey = if ([string]::IsNullOrWhiteSpace($AuthoritySecretKeyOverride)) { $CertificateAuthoritySecretKey } else { $AuthoritySecretKeyOverride }
-    $effectiveAuthoritySecretNamespace = if ([string]::IsNullOrWhiteSpace($AuthoritySecretNamespaceOverride)) { $CertificateAuthoritySecretNamespace } else { $AuthoritySecretNamespaceOverride }
+    $effectiveAuthorityCertificate = if ([string]::IsNullOrWhiteSpace($AuthorityCertificateOverride)) { $CertificateAuthorityCertificateName } else { $AuthorityCertificateOverride }
+    $effectiveAuthorityNamespace = if ([string]::IsNullOrWhiteSpace($AuthorityCertificateNamespaceOverride)) { $CertificateAuthorityCertificateNamespace } else { $AuthorityCertificateNamespaceOverride }
     $arguments = @(
         '-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-RealtimeEdge.ps1'),
         '-ExpectedContext', $ExpectedContext, '-GatewayNamespace', $GatewayNamespace,
@@ -171,34 +171,31 @@ function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]
         '-HostName', $HostName, '-Path', $Path, '-Origin', $effectiveOrigin,
         '-ExternalPort', $ExternalPort, '-TimeoutSeconds', $TimeoutSeconds, '-HeartbeatSeconds', $HeartbeatSeconds
     )
+    if (-not [string]::IsNullOrWhiteSpace($effectiveGatewayPodSelector)) { $arguments += @('-GatewayPodSelector', $effectiveGatewayPodSelector) }
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) { $arguments += @('-CertificateAuthorityPath', $CertificateAuthorityPath) }
-    if (-not [string]::IsNullOrWhiteSpace($effectiveAuthoritySecret)) {
-        $arguments += @('-CertificateAuthoritySecretName', $effectiveAuthoritySecret, '-CertificateAuthoritySecretKey', $effectiveAuthoritySecretKey)
-        if (-not [string]::IsNullOrWhiteSpace($effectiveAuthoritySecretNamespace)) { $arguments += @('-CertificateAuthoritySecretNamespace', $effectiveAuthoritySecretNamespace) }
+    if (-not [string]::IsNullOrWhiteSpace($effectiveAuthorityCertificate)) {
+        $arguments += @('-CertificateAuthorityCertificateName', $effectiveAuthorityCertificate)
+        if (-not [string]::IsNullOrWhiteSpace($effectiveAuthorityNamespace)) { $arguments += @('-CertificateAuthorityCertificateNamespace', $effectiveAuthorityNamespace) }
     }
     if (-not [string]::IsNullOrWhiteSpace($ExternalAddress)) { $arguments += @('-ExternalAddress', $ExternalAddress) }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedClientIp)) { $arguments += @('-ExpectedClientIp', $ExpectedClientIp) }
     if (-not [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) { $arguments += @('-TicketRefreshCommand', $TicketRefreshCommand) }
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedServedSecretOverride)) {
-        $arguments += @('-ExpectedServedCertificateSecretName', $ExpectedServedSecretOverride, '-ExpectedServedCertificateSecretKey', 'tls.crt')
-        if (-not [string]::IsNullOrWhiteSpace($ExpectedServedNamespaceOverride)) { $arguments += @('-ExpectedServedCertificateSecretNamespace', $ExpectedServedNamespaceOverride) }
-    }
     return $arguments
 }
 
-function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '', [string]$ExpectedServedSecretOverride = '', [string]$ExpectedServedNamespaceOverride = '') {
+function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$AuthorityCertificateOverride = '', [string]$AuthorityCertificateNamespaceOverride = '') {
     $ticket = [Environment]::GetEnvironmentVariable($TicketEnvironmentVariable)
     try {
         [Environment]::SetEnvironmentVariable($TicketEnvironmentVariable, $null)
-        return Invoke-Checked pwsh (Get-EdgeValidationArguments $CertificateOverride $AuthoritySecretOverride $AuthoritySecretKeyOverride $AuthoritySecretNamespaceOverride $ExpectedServedSecretOverride $ExpectedServedNamespaceOverride) 'Run external edge validation'
+        return Invoke-Checked pwsh (Get-EdgeValidationArguments $CertificateOverride $AuthorityCertificateOverride $AuthorityCertificateNamespaceOverride) 'Run external edge validation'
     }
     finally { [Environment]::SetEnvironmentVariable($TicketEnvironmentVariable, $ticket) }
 }
 
-function Invoke-EdgeValidationWithRetry([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '', [string]$ExpectedServedSecretOverride = '', [string]$ExpectedServedNamespaceOverride = '') {
+function Invoke-EdgeValidationWithRetry([string]$CertificateOverride = '', [string]$AuthorityCertificateOverride = '', [string]$AuthorityCertificateNamespaceOverride = '') {
     $lastError = $null
     foreach ($attempt in 1..3) {
-        try { return Invoke-EdgeValidation $CertificateOverride $AuthoritySecretOverride $AuthoritySecretKeyOverride $AuthoritySecretNamespaceOverride $ExpectedServedSecretOverride $ExpectedServedNamespaceOverride }
+        try { return Invoke-EdgeValidation $CertificateOverride $AuthorityCertificateOverride $AuthorityCertificateNamespaceOverride }
         catch {
             $lastError = $_
             if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
@@ -255,6 +252,19 @@ function Complete-ContinuityProbe {
     $script:duringCaptured = $true
 }
 
+function Get-CertificateRequestCaPem([string]$Name, [string]$Namespace) {
+    $requests = Get-KubeJson @('get', 'certificaterequests', '-n', $Namespace) 'Read public cert-manager certificate requests'
+    $request = @($requests.items | Where-Object {
+        @($_.metadata.ownerReferences | Where-Object { $_.kind -eq 'Certificate' -and $_.name -eq $Name }).Count -eq 1 -and
+        @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.status.certificate)
+    } | Sort-Object { [DateTimeOffset]$_.metadata.creationTimestamp } -Descending | Select-Object -First 1)
+    if ($request.Count -ne 1) { throw "No Ready public CertificateRequest material exists for Certificate $Namespace/$Name." }
+    $caProperty = $request[0].status.PSObject.Properties['ca']
+    $encoded = if ($null -ne $caProperty -and -not [string]::IsNullOrWhiteSpace([string]$caProperty.Value)) { [string]$caProperty.Value } else { [string]$request[0].status.certificate }
+    return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
+}
+
 function Get-ExternalStatus {
     $service = Get-KubeJson @('get', 'service', $TraefikService, '-n', $TraefikNamespace) 'Read Traefik Service'
     $vip = @($service.status.loadBalancer.ingress | ForEach-Object { $_.ip } | Where-Object { $_ })[0]
@@ -264,13 +274,10 @@ function Get-ExternalStatus {
     $temporaryCaPath = ''
     $effectiveCaPath = $CertificateAuthorityPath
     try {
-        if ([string]::IsNullOrWhiteSpace($effectiveCaPath) -and -not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
-            $authorityNamespace = if ([string]::IsNullOrWhiteSpace($CertificateAuthoritySecretNamespace)) { $GatewayNamespace } else { $CertificateAuthoritySecretNamespace }
-            $jsonPathKey = $CertificateAuthoritySecretKey -replace '\.', '\.'
-            $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $authorityNamespace, '-o', "jsonpath={.data.$jsonPathKey}") 'Read configured public CA certificate'
-            if ([string]::IsNullOrWhiteSpace($encodedCertificate)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
+        if ([string]::IsNullOrWhiteSpace($effectiveCaPath) -and -not [string]::IsNullOrWhiteSpace($CertificateAuthorityCertificateName)) {
+            $authorityNamespace = if ([string]::IsNullOrWhiteSpace($CertificateAuthorityCertificateNamespace)) { $GatewayNamespace } else { $CertificateAuthorityCertificateNamespace }
             $temporaryCaPath = [IO.Path]::GetTempFileName()
-            [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
+            [IO.File]::WriteAllText($temporaryCaPath, (Get-CertificateRequestCaPem $CertificateAuthorityCertificateName $authorityNamespace), [Text.UTF8Encoding]::new($false))
             $effectiveCaPath = $temporaryCaPath
         }
         $arguments = @('--silent', '--show-error', '--noproxy', $HostName, '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:${ExternalPort}:$connectionAddress", '--output', $nullDevice, '--write-out', '%{http_code}')
@@ -316,12 +323,8 @@ function Restore-GatewayHpa {
 }
 
 function Acquire-FailureLock {
-    $identity = switch ($Scenario) {
-        'TraefikRestart' { "$ExpectedContext|traefik|$TraefikNamespace|$TraefikRelease" }
-        'MetalLbSpeakerRestart' { "$ExpectedContext|metallb|$MetalLbNamespace|speaker" }
-        'NodeDrain' { "$ExpectedContext|node|$NodeName" }
-        default { "$ExpectedContext|gateway|$GatewayNamespace|$GatewayRelease" }
-    }
+    # A context-wide lock prevents overlapping failures across shared gateway, proxy, speaker, and node resources.
+    $identity = "$ExpectedContext|realtime-edge-failure"
     $hashBytes = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))
     $suffix = ([Convert]::ToHexString($hashBytes)).ToLowerInvariant().Substring(0, 16)
     $script:failureLockName = "realtime-failure-$suffix"
@@ -360,7 +363,18 @@ function Release-FailureLock {
     if (-not [string]::IsNullOrWhiteSpace($existingLockOutput)) {
         $existingLock = $existingLockOutput | ConvertFrom-Json
         if ([string]$existingLock.data.holder -eq $failureLockHolder) {
-            Invoke-Checked kubectl @('delete', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, '--ignore-not-found=true') 'Release edge failure-test lock' | Out-Null
+            $deleteOptions = [ordered]@{
+                apiVersion = 'v1'
+                kind = 'DeleteOptions'
+                preconditions = [ordered]@{ uid = [string]$existingLock.metadata.uid; resourceVersion = [string]$existingLock.metadata.resourceVersion }
+            }
+            $deleteOptionsPath = [IO.Path]::GetTempFileName()
+            try {
+                $deleteOptions | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $deleteOptionsPath -Encoding utf8NoBOM
+                $rawPath = "/api/v1/namespaces/$effectiveFailureLockNamespace/configmaps/$failureLockName"
+                Invoke-Checked kubectl @('delete', '--raw', $rawPath, '-f', $deleteOptionsPath) 'Release owned edge failure-test lock' | Out-Null
+            }
+            finally { Remove-Item -LiteralPath $deleteOptionsPath -Force -ErrorAction SilentlyContinue }
         }
         else { Write-Warning "Failure lock ownership changed; configmap/$failureLockName was not deleted." }
     }
@@ -377,6 +391,11 @@ $pinKubectlContext = $true
 if ($Environment -match '^(prod|production)$') { throw 'SAFETY STOP: failure tests cannot target an environment named prod or production.' }
 $gatewayNamespaceMetadata = Get-KubeJson @('get', 'namespace', $GatewayNamespace) 'Read gateway namespace safety labels'
 Assert-ApprovedMetadata $gatewayNamespaceMetadata.metadata "namespace $GatewayNamespace"
+$gatewayDeploymentMetadata = Get-KubeJson @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Deployment selector'
+$effectiveGatewayPodSelector = if ([string]::IsNullOrWhiteSpace($GatewayPodSelector)) {
+    @($gatewayDeploymentMetadata.spec.selector.matchLabels.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ','
+} else { $GatewayPodSelector }
+if ([string]::IsNullOrWhiteSpace($effectiveGatewayPodSelector)) { throw 'Gateway pod selector could not be derived from the Deployment.' }
 $lockNamespaceMetadata = Get-KubeJson @('get', 'namespace', $effectiveFailureLockNamespace) 'Read failure-lock namespace safety labels'
 Assert-ApprovedMetadata $lockNamespaceMetadata.metadata "failure-lock namespace $effectiveFailureLockNamespace"
 if ($Scenario -in @('TraefikRestart', 'NodeDrain')) {
@@ -393,7 +412,7 @@ if ($Scenario -eq 'NodeDrain' -and (-not $AllowNodeDrain -or [string]::IsNullOrW
 if ($Scenario -eq 'NodeDrain') {
     $approvedNode = Get-KubeJson @('get', 'node', $NodeName) 'Read node safety labels'
     Assert-ApprovedMetadata $approvedNode.metadata "node $NodeName"
-    $gatewayPods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read selected gateway nodes'
+    $gatewayPods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', $effectiveGatewayPodSelector) 'Read selected gateway nodes'
     $traefikPods = Get-KubeJson @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read selected Traefik nodes'
     $selectedNodes = @(@($gatewayPods.items) + @($traefikPods.items) | Where-Object {
         $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and
@@ -422,7 +441,7 @@ try {
 
     switch ($Scenario) {
         'GatewayPodDelete' {
-            $pods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read gateway pods'
+            $pods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', $effectiveGatewayPodSelector) 'Read gateway pods'
             $podName = @($pods.items | Where-Object {
                 $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and $_.status.phase -eq 'Running' -and
                 @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
@@ -489,15 +508,18 @@ try {
             $originalTlsSecret = [string]$route.spec.tls.secretName
             $changed = $true
             Set-RouteValue '/spec/tls/secretName' 'edge-failure-test-missing' 'Inject missing TLS Secret'
-            Start-Sleep -Seconds 5
-            try {
-                Get-ExternalStatus | Out-Null
-                throw 'TLS unexpectedly succeeded with a missing route certificate.'
-            }
-            catch {
-                if ($_.Exception.Message -like 'TLS unexpectedly*') { throw }
-                if ($_.Exception.Message -notlike '*exit code 60.*') { throw }
-            }
+            $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+            $tlsFailureObserved = $false
+            do {
+                try { Get-ExternalStatus | Out-Null }
+                catch {
+                    if ($_.Exception.Message -notlike '*exit code 60.*') { throw }
+                    $tlsFailureObserved = $true
+                    break
+                }
+                Start-Sleep -Seconds 2
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+            if (-not $tlsFailureObserved) { throw 'TLS unexpectedly remained valid with a missing route certificate until timeout.' }
         }
         'CertificateRenewal' {
             $certificate = Get-KubeJson @('get', 'certificate', $CertificateName, '-n', $GatewayNamespace) 'Read Certificate metadata'
@@ -523,18 +545,22 @@ try {
             Invoke-Checked kubectl @('wait', 'certificate', $replacementCertificateName, '-n', $GatewayNamespace, '--for=condition=Ready', "--timeout=${TimeoutSeconds}s") 'Wait for replacement TLS Secret' | Out-Null
             Start-ContinuityProbe
             Set-RouteValue '/spec/tls/secretName' $replacementSecretName 'Switch route to replacement TLS Secret'
-            $replacementAuthoritySecret = if ([string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and $CertificateAuthoritySecretName -eq $originalTlsSecret) { $replacementSecretName } else { '' }
-            $replacementAuthorityKey = if ([string]::IsNullOrWhiteSpace($replacementAuthoritySecret)) { '' } else { 'tls.crt' }
-            $replacementAuthorityNamespace = if ([string]::IsNullOrWhiteSpace($replacementAuthoritySecret)) { '' } else { $GatewayNamespace }
-            Invoke-EdgeValidationWithRetry $replacementCertificateName $replacementAuthoritySecret $replacementAuthorityKey $replacementAuthorityNamespace $replacementSecretName $GatewayNamespace | Set-Content -LiteralPath (Join-Path $evidencePath 'replacement-certificate.log') -Encoding utf8NoBOM
+            $replacementAuthorityCertificate = if ([string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and $CertificateAuthorityCertificateName -eq $CertificateName) { $replacementCertificateName } else { '' }
+            $replacementAuthorityNamespace = if ([string]::IsNullOrWhiteSpace($replacementAuthorityCertificate)) { '' } else { $GatewayNamespace }
+            Invoke-EdgeValidationWithRetry $replacementCertificateName $replacementAuthorityCertificate $replacementAuthorityNamespace | Set-Content -LiteralPath (Join-Path $evidencePath 'replacement-certificate.log') -Encoding utf8NoBOM
         }
         'RouteMismatch' {
             $route = Get-KubeJson @('get', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway route'
             $originalRouteMatch = [string]$route.spec.routes[0].match
             $changed = $true
             Set-RouteValue '/spec/routes/0/match' 'Host(`failure-test.invalid`) && Path(`/unroutable`)' 'Inject invalid route'
-            Start-Sleep -Seconds 3
-            if ((Get-ExternalStatus) -ne '404') { throw 'Route mismatch did not produce the expected 404.' }
+            $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+            $routeMismatchObserved = $false
+            do {
+                if ((Get-ExternalStatus) -eq '404') { $routeMismatchObserved = $true; break }
+                Start-Sleep -Seconds 2
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+            if (-not $routeMismatchObserved) { throw 'Route mismatch did not produce the expected 404 before timeout.' }
         }
         'NodeDrain' {
             $node = Get-KubeJson @('get', 'node', $NodeName) 'Read target node'

@@ -30,6 +30,7 @@ param(
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayNamespace = 'development-realtime',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikNamespace = 'traefik',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayRelease = 'development-realtime',
+    [Parameter()][string]$GatewayPodSelector = '',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateName = 'realtime-cormier-local',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikService = 'traefik',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikRelease = 'traefik',
@@ -44,12 +45,8 @@ param(
     [Parameter()][ValidateRange(1, 65535)][int]$ExternalPort = 443,
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExternalAddress = '',
     [Parameter()][string]$CertificateAuthorityPath = '',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretNamespace = '',
-    [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$ExpectedServedCertificateSecretName = '',
-    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$ExpectedServedCertificateSecretNamespace = '',
-    [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$ExpectedServedCertificateSecretKey = 'tls.crt',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthorityCertificateName = '',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthorityCertificateNamespace = '',
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
     [Parameter()][ValidateRange(0, 65535)][int]$GatewayMetricsPort = 0,
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
@@ -71,6 +68,7 @@ $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$extern
 $nullDevice = if ([OperatingSystem]::IsWindows()) { 'NUL' } else { '/dev/null' }
 $temporaryCaPath = ''
 $pinKubectlContext = $false
+$effectiveGatewayPodSelector = ''
 
 function Write-Result([ValidateSet('PASS', 'SKIP', 'FAIL')][string]$Status, [string]$Message) {
     $summary[($Status -replace 'PASS', 'Passed' -replace 'SKIP', 'Skipped' -replace 'FAIL', 'Failed')]++
@@ -125,9 +123,48 @@ function Test-TransportFailure([Exception]$Exception) {
     return $false
 }
 
+function Test-IpAddressInPool([Net.IPAddress]$Candidate, [string]$Range) {
+    $candidateBytes = $Candidate.GetAddressBytes()
+    if ($Range.Contains('-')) {
+        $bounds = $Range.Split('-', 2)
+        $startBytes = [Net.IPAddress]::Parse($bounds[0]).GetAddressBytes()
+        $endBytes = [Net.IPAddress]::Parse($bounds[1]).GetAddressBytes()
+        if ($startBytes.Length -ne $candidateBytes.Length -or $endBytes.Length -ne $candidateBytes.Length) { return $false }
+        $afterStart = $true; $beforeEnd = $true
+        for ($index = 0; $index -lt $candidateBytes.Length; $index++) { if ($candidateBytes[$index] -lt $startBytes[$index]) { $afterStart = $false; break }; if ($candidateBytes[$index] -gt $startBytes[$index]) { break } }
+        for ($index = 0; $index -lt $candidateBytes.Length; $index++) { if ($candidateBytes[$index] -gt $endBytes[$index]) { $beforeEnd = $false; break }; if ($candidateBytes[$index] -lt $endBytes[$index]) { break } }
+        return $afterStart -and $beforeEnd
+    }
+    $parts = $Range.Split('/', 2)
+    $networkBytes = [Net.IPAddress]::Parse($parts[0]).GetAddressBytes()
+    if ($networkBytes.Length -ne $candidateBytes.Length) { return $false }
+    $prefix = if ($parts.Count -eq 2) { [int]$parts[1] } else { $networkBytes.Length * 8 }
+    if ($prefix -lt 0 -or $prefix -gt $networkBytes.Length * 8) { return $false }
+    for ($index = 0; $index -lt $networkBytes.Length; $index++) {
+        $bits = [Math]::Min(8, [Math]::Max(0, $prefix - ($index * 8)))
+        $mask = if ($bits -eq 0) { 0 } else { (0xff -shl (8 - $bits)) -band 0xff }
+        if (($candidateBytes[$index] -band $mask) -ne ($networkBytes[$index] -band $mask)) { return $false }
+    }
+    return $true
+}
+
+function Get-CertificateRequestMaterial([string]$Name, [string]$Namespace) {
+    $requests = Get-Json @('get', 'certificaterequests', '-n', $Namespace) 'Read public cert-manager certificate requests'
+    $request = @($requests.items | Where-Object {
+        @($_.metadata.ownerReferences | Where-Object { $_.kind -eq 'Certificate' -and $_.name -eq $Name }).Count -eq 1 -and
+        @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.status.certificate)
+    } | Sort-Object { [DateTimeOffset]$_.metadata.creationTimestamp } -Descending | Select-Object -First 1)
+    if ($request.Count -ne 1) { throw "No Ready public CertificateRequest material exists for Certificate $Namespace/$Name." }
+    $certificatePem = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$request[0].status.certificate))
+    $caProperty = $request[0].status.PSObject.Properties['ca']
+    $caPem = if ($null -ne $caProperty -and -not [string]::IsNullOrWhiteSpace([string]$caProperty.Value)) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$caProperty.Value)) } else { $certificatePem }
+    return [pscustomobject]@{ CertificatePem = $certificatePem; CaPem = $caPem }
+}
+
 function Get-MetricValue([string]$MetricName, [string]$Labels) {
     $escapedLabels = [Regex]::Escape($Labels)
-    $gatewayPods = Get-Json @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read gateway metric targets'
+    $gatewayPods = Get-Json @('get', 'pods', '-n', $GatewayNamespace, '-l', $effectiveGatewayPodSelector) 'Read gateway metric targets'
     $effectiveMetricsPort = $GatewayMetricsPort
     if ($effectiveMetricsPort -eq 0) {
         $metricsDeployment = Get-Json @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway metrics port'
@@ -152,7 +189,7 @@ function Get-MetricValue([string]$MetricName, [string]$Labels) {
         $startInfo.CreateNoWindow = $true
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
-        foreach ($argument in @('port-forward', '-n', $GatewayNamespace, "pod/$($pod.metadata.name)", "${localPort}:$effectiveMetricsPort")) {
+        foreach ($argument in @('--context', $ExpectedContext, 'port-forward', '-n', $GatewayNamespace, "pod/$($pod.metadata.name)", "${localPort}:$effectiveMetricsPort")) {
             $startInfo.ArgumentList.Add($argument)
         }
         $forward = [Diagnostics.Process]::Start($startInfo)
@@ -186,6 +223,10 @@ try {
     foreach ($command in @('kubectl', 'curl')) {
         if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "MISSING: $command is required." }
     }
+    $curlVersionText = @(& curl --version) -join [Environment]::NewLine
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to read curl version.' }
+    $curlVersionMatch = [Regex]::Match($curlVersionText, '^curl\s+([0-9]+\.[0-9]+\.[0-9]+)')
+    if (-not $curlVersionMatch.Success -or [version]$curlVersionMatch.Groups[1].Value -lt [version]'7.84.0') { throw 'UNSUPPORTED: curl 7.84.0 or later is required.' }
     if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'UNSUPPORTED: PowerShell 7.4 or later is required.' }
     $context = Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context'
     if ($context.Trim() -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$($context.Trim())'." }
@@ -203,6 +244,8 @@ try {
 
     $addressPool = Get-Json @('get', 'ipaddresspool', $pool, '-n', $MetalLbNamespace) 'Read MetalLB address pool'
     if (@($addressPool.spec.serviceAllocation.namespaces) -notcontains $TraefikNamespace) { throw 'MetalLB pool is not scoped to the Traefik namespace.' }
+    $parsedVip = [Net.IPAddress]::Parse($vip)
+    if (@($addressPool.spec.addresses | Where-Object { Test-IpAddressInPool $parsedVip ([string]$_) }).Count -eq 0) { throw "Traefik VIP $vip is outside the selected MetalLB address pool." }
     $advertisementKind = if ($MetalLbAdvertisementMode -eq 'l2') { 'l2advertisement' } else { 'bgpadvertisement' }
     $advertisement = Get-Json @('get', $advertisementKind, $MetalLbAdvertisement, '-n', $MetalLbNamespace) "Read MetalLB $MetalLbAdvertisementMode advertisement"
     if (@($advertisement.spec.ipAddressPools) -notcontains $pool) { throw 'MetalLB advertisement does not reference the Traefik address pool.' }
@@ -241,6 +284,10 @@ try {
     Write-Result PASS "Certificate is Ready for $HostName through $notAfter and is bound to the exact route."
 
     $gateway = Get-Json @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Deployment'
+    $effectiveGatewayPodSelector = if ([string]::IsNullOrWhiteSpace($GatewayPodSelector)) {
+        @($gateway.spec.selector.matchLabels.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ','
+    } else { $GatewayPodSelector }
+    if ([string]::IsNullOrWhiteSpace($effectiveGatewayPodSelector)) { throw 'Gateway pod selector could not be derived from the Deployment.' }
     if ($gateway.status.availableReplicas -lt 2) { throw 'Fewer than two gateway replicas are available for failover.' }
     $gatewayService = Get-Json @('get', 'service', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Service'
     if ($gatewayService.spec.type -ne 'ClusterIP') { throw 'Gateway Service must remain private with type ClusterIP.' }
@@ -250,21 +297,20 @@ try {
     if ($readyEndpoints.Count -lt 2) { throw 'Fewer than two non-terminating gateway endpoints are routable.' }
     Write-Result PASS 'At least two ready, non-terminating gateway endpoints are routable.'
 
-    $dnsAddresses = @([Net.Dns]::GetHostAddresses($HostName) | ForEach-Object { $_.IPAddressToString })
-    if ($dnsAddresses -notcontains $connectionAddress) { throw "DNS for $HostName does not contain configured external address $connectionAddress." }
+    $dnsAddresses = @([Net.Dns]::GetHostAddresses($HostName))
+    $parsedConnectionAddress = [Net.IPAddress]::Parse($connectionAddress)
+    if (@($dnsAddresses | Where-Object { $_.Equals($parsedConnectionAddress) }).Count -eq 0) { throw "DNS for $HostName does not contain configured external address $connectionAddress." }
     if ($connectionAddress -eq $vip) { Write-Result PASS "DNS resolves $HostName to the assigned VIP." }
     else { Write-Result PASS "DNS resolves $HostName to configured NAT address $connectionAddress; MetalLB separately assigned VIP $vip." }
 
-    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and -not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
-        throw 'Specify either CertificateAuthorityPath or CertificateAuthoritySecretName, not both.'
+    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and -not [string]::IsNullOrWhiteSpace($CertificateAuthorityCertificateName)) {
+        throw 'Specify either CertificateAuthorityPath or CertificateAuthorityCertificateName, not both.'
     }
-    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
-        $authorityNamespace = if ([string]::IsNullOrWhiteSpace($CertificateAuthoritySecretNamespace)) { $GatewayNamespace } else { $CertificateAuthoritySecretNamespace }
-        $jsonPathKey = $CertificateAuthoritySecretKey -replace '\.', '\.'
-        $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $authorityNamespace, '-o', "jsonpath={.data.$jsonPathKey}") 'Read configured public CA certificate'
-        if ([string]::IsNullOrWhiteSpace($encodedCertificate)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
+    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityCertificateName)) {
+        $authorityNamespace = if ([string]::IsNullOrWhiteSpace($CertificateAuthorityCertificateNamespace)) { $GatewayNamespace } else { $CertificateAuthorityCertificateNamespace }
+        $authorityMaterial = Get-CertificateRequestMaterial $CertificateAuthorityCertificateName $authorityNamespace
         $temporaryCaPath = [IO.Path]::GetTempFileName()
-        [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
+        [IO.File]::WriteAllText($temporaryCaPath, $authorityMaterial.CaPem, [Text.UTF8Encoding]::new($false))
         $CertificateAuthorityPath = $temporaryCaPath
     }
     elseif (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
@@ -274,13 +320,9 @@ try {
     $curlCommon = @('--silent', '--show-error', '--noproxy', $HostName, '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:${ExternalPort}:$connectionAddress")
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) { $curlCommon += @('--cacert', $CertificateAuthorityPath) }
 
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedServedCertificateSecretName)) {
-        $servedSecretNamespace = if ([string]::IsNullOrWhiteSpace($ExpectedServedCertificateSecretNamespace)) { $GatewayNamespace } else { $ExpectedServedCertificateSecretNamespace }
-        $servedJsonPathKey = $ExpectedServedCertificateSecretKey -replace '\.', '\.'
-        $encodedServedCertificate = Invoke-Checked kubectl @('get', 'secret', $ExpectedServedCertificateSecretName, '-n', $servedSecretNamespace, '-o', "jsonpath={.data.$servedJsonPathKey}") 'Read expected public served certificate'
-        if ([string]::IsNullOrWhiteSpace($encodedServedCertificate)) { throw "Expected certificate Secret $ExpectedServedCertificateSecretName does not contain key $ExpectedServedCertificateSecretKey." }
-        if ($null -eq ('Cormier.Realtime.EdgeValidation.ServedCertificate' -as [type])) {
-            Add-Type -TypeDefinition @'
+    $servedMaterial = Get-CertificateRequestMaterial $CertificateName $GatewayNamespace
+    if ($null -eq ('Cormier.Realtime.EdgeValidation.ServedCertificate' -as [type])) {
+        Add-Type -TypeDefinition @'
 using System;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -292,29 +334,29 @@ namespace Cormier.Realtime.EdgeValidation;
 
 public static class ServedCertificate
 {
-    public static string Sha256(string host, string address, int port)
+    public static async System.Threading.Tasks.Task<string> Sha256Async(string host, string address, int port, int timeoutSeconds)
     {
+        using var timeout = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds(timeoutSeconds));
         using var client = new TcpClient();
-        client.Connect(address, port);
+        await client.ConnectAsync(address, port, timeout.Token);
         using var tls = new SslStream(client.GetStream(), false, (_, _, _, _) => true);
-        tls.AuthenticateAsClient(host);
+        await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = host }, timeout.Token);
         using var certificate = new X509Certificate2(tls.RemoteCertificate ?? throw new AuthenticationException("The edge did not serve a certificate."));
         return Convert.ToHexString(SHA256.HashData(certificate.RawData));
     }
 }
 '@
-        }
-        $expectedCertificates = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
-        try {
-            $expectedCertificates.ImportFromPem([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedServedCertificate.Trim())))
-            if ($expectedCertificates.Count -lt 1) { throw 'Expected served certificate data contains no public certificates.' }
-            $expectedFingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expectedCertificates[0].RawData))
-            $servedFingerprint = [Cormier.Realtime.EdgeValidation.ServedCertificate]::Sha256($HostName, $connectionAddress, $ExternalPort)
-            if ($servedFingerprint -ne $expectedFingerprint) { throw 'The externally served TLS leaf does not match the configured expected Secret.' }
-        }
-        finally { foreach ($expectedCertificate in $expectedCertificates) { $expectedCertificate.Dispose() } }
-        Write-Result PASS "Externally served TLS leaf matches Secret $servedSecretNamespace/$ExpectedServedCertificateSecretName."
     }
+    $expectedCertificates = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+    try {
+        $expectedCertificates.ImportFromPem($servedMaterial.CertificatePem)
+        if ($expectedCertificates.Count -lt 1) { throw 'Expected served certificate data contains no public certificates.' }
+        $expectedFingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expectedCertificates[0].RawData))
+        $servedFingerprint = [Cormier.Realtime.EdgeValidation.ServedCertificate]::Sha256Async($HostName, $connectionAddress, $ExternalPort, $TimeoutSeconds).GetAwaiter().GetResult()
+        if ($servedFingerprint -ne $expectedFingerprint) { throw 'The externally served TLS leaf does not match the Ready CertificateRequest.' }
+    }
+    finally { foreach ($expectedCertificate in $expectedCertificates) { $expectedCertificate.Dispose() } }
+    Write-Result PASS "Externally served TLS leaf matches Ready CertificateRequest for $GatewayNamespace/$CertificateName."
 
     $accessLogSinceTime = [DateTimeOffset]::UtcNow.ToString('O')
     $webSocketKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
@@ -543,7 +585,7 @@ public static class CustomRootValidator
 
                 $remainingSeconds = ($validationDeadline - [DateTimeOffset]::UtcNow).TotalSeconds
                 if ($remainingSeconds -gt 0) {
-                    Start-Sleep -Seconds ([Math]::Min(10, $remainingSeconds))
+                    Start-Sleep -Seconds ([Math]::Min($HeartbeatSeconds, $remainingSeconds))
                 }
             } while ([DateTimeOffset]::UtcNow -lt $validationDeadline)
             if (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not $stopSignalObserved) { throw 'Authenticated WSS continuity timed out before receiving its stop signal.' }

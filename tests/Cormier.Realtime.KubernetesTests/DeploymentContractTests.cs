@@ -147,8 +147,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("ExternalPort", script, StringComparison.Ordinal);
         Assert.Contains("ExternalAddress", script, StringComparison.Ordinal);
         Assert.Contains("ConnectCallback", script, StringComparison.Ordinal);
+        Assert.Contains("ConnectionReadyFile", script, StringComparison.Ordinal);
         Assert.Contains("--since-time=", script, StringComparison.Ordinal);
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthoritySecretKey", script, StringComparison.Ordinal);
+        Assert.Contains("PowerShell 7.4", script, StringComparison.Ordinal);
         Assert.Contains("Certificate does not cover configured host", script, StringComparison.Ordinal);
         Assert.Contains("IngressRoute and Certificate reference different TLS Secrets", script, StringComparison.Ordinal);
         Assert.Contains("Invalid host is rejected", script, StringComparison.Ordinal);
@@ -186,6 +189,12 @@ public sealed class DeploymentContractTests
         Assert.Contains("exit code 60", script, StringComparison.Ordinal);
         Assert.Contains("Wait-DeploymentFullyRecovered", script, StringComparison.Ordinal);
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
+        Assert.Contains("Start-ContinuityProbe", script, StringComparison.Ordinal);
+        Assert.Contains("Complete-ContinuityProbe", script, StringComparison.Ordinal);
+        Assert.Contains("does not host a pod from the selected gateway or Traefik workload", script, StringComparison.Ordinal);
+        Assert.Contains("Baseline and recovery checks intentionally do not consume it", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthoritySecretKey", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("2>&1", script, StringComparison.Ordinal);
         Assert.Contains("Restore route match", script, StringComparison.Ordinal);
         Assert.Contains("Uncordon target node", script, StringComparison.Ordinal);
         Assert.Contains("Invoke-EdgeValidation", script, StringComparison.Ordinal);

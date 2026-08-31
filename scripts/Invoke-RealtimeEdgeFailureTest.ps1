@@ -6,8 +6,8 @@
   evidence, injects one bounded failure, restores state in a finally block, and proves
   full replica recovery. Private keys and credential values are never read.
 .NOTES
-  Version: 1.1.0
-  Requires: PowerShell 7, kubectl, curl, and an approved non-production cluster.
+  Version: 1.2.0
+  Requires: PowerShell 7.4 or later, kubectl, curl, and an approved non-production cluster.
   Standard: refs/scripts-standard-v4.2.md
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
@@ -34,10 +34,13 @@ param(
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExternalAddress = '',
     [Parameter()][string]$CertificateAuthorityPath = '',
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
+    [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
+    [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
     [Parameter()][string]$NodeName = '',
     [Parameter()][switch]$AllowNodeDrain,
     [Parameter()][ValidateRange(30, 900)][int]$TimeoutSeconds = 300,
     [Parameter()][ValidateRange(5, 300)][int]$HeartbeatSeconds = 15,
+    [Parameter()][ValidateRange(15, 300)][int]$ContinuitySeconds = 30,
     [Parameter()][string]$EvidenceDirectory = '.evidence/edge'
 )
 
@@ -51,14 +54,22 @@ $originalTlsSecret = ''
 $replacementCertificateName = ''
 $replacementSecretName = ''
 $nodeWasUnschedulable = $false
+$continuityProcess = $null
+$continuityReadyPath = ''
 $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName}:$ExternalPort" }
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
-    $output = @(& $File @Arguments 2>&1)
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) { throw "$Description failed with exit code $exitCode." }
-    return ($output -join [Environment]::NewLine)
+    $stderrPath = [IO.Path]::GetTempFileName()
+    try {
+        $output = @(& $File @Arguments 2> $stderrPath)
+        $exitCode = $LASTEXITCODE
+        $stderr = [IO.File]::ReadAllText($stderrPath).Trim()
+        if ($exitCode -ne 0) { throw "$Description failed with exit code $exitCode." }
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) { Write-Warning $stderr }
+        return ($output -join [Environment]::NewLine)
+    }
+    finally { Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue }
 }
 
 function Get-KubeJson([string[]]$Arguments, [string]$Description) {
@@ -100,7 +111,7 @@ function Set-RouteValue([string]$JsonPointer, [string]$Value, [string]$Descripti
     Invoke-Checked kubectl @('patch', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace, '--type=json', '-p', $patch) $Description | Out-Null
 }
 
-function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '') {
+function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '') {
     $effectiveCertificate = if ([string]::IsNullOrWhiteSpace($CertificateOverride)) { $CertificateName } else { $CertificateOverride }
     $effectiveAuthoritySecret = if ([string]::IsNullOrWhiteSpace($AuthoritySecretOverride)) { $CertificateAuthoritySecretName } else { $AuthoritySecretOverride }
     $arguments = @(
@@ -115,9 +126,18 @@ function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$Autho
         '-ExternalPort', $ExternalPort, '-TimeoutSeconds', $TimeoutSeconds, '-HeartbeatSeconds', $HeartbeatSeconds
     )
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) { $arguments += @('-CertificateAuthorityPath', $CertificateAuthorityPath) }
-    if (-not [string]::IsNullOrWhiteSpace($effectiveAuthoritySecret)) { $arguments += @('-CertificateAuthoritySecretName', $effectiveAuthoritySecret) }
+    if (-not [string]::IsNullOrWhiteSpace($effectiveAuthoritySecret)) { $arguments += @('-CertificateAuthoritySecretName', $effectiveAuthoritySecret, '-CertificateAuthoritySecretKey', $CertificateAuthoritySecretKey) }
     if (-not [string]::IsNullOrWhiteSpace($ExternalAddress)) { $arguments += @('-ExternalAddress', $ExternalAddress) }
-    return Invoke-Checked pwsh $arguments 'Run external edge validation'
+    return $arguments
+}
+
+function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '') {
+    $ticket = [Environment]::GetEnvironmentVariable($TicketEnvironmentVariable)
+    try {
+        [Environment]::SetEnvironmentVariable($TicketEnvironmentVariable, $null)
+        return Invoke-Checked pwsh (Get-EdgeValidationArguments $CertificateOverride $AuthoritySecretOverride) 'Run external edge validation'
+    }
+    finally { [Environment]::SetEnvironmentVariable($TicketEnvironmentVariable, $ticket) }
 }
 
 function Invoke-EdgeValidationWithRetry([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '') {
@@ -132,8 +152,46 @@ function Invoke-EdgeValidationWithRetry([string]$CertificateOverride = '', [stri
     throw $lastError
 }
 
-function Write-DuringFailure([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '') {
-    Invoke-EdgeValidationWithRetry $CertificateOverride $AuthoritySecretOverride | Set-Content -LiteralPath (Join-Path $evidencePath 'during-failure.log') -Encoding utf8NoBOM
+function Start-ContinuityProbe {
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($TicketEnvironmentVariable))) {
+        throw "$TicketEnvironmentVariable must contain a fresh single-use ticket for an authenticated continuity scenario. Baseline and recovery checks intentionally do not consume it."
+    }
+    $script:continuityReadyPath = Join-Path $evidencePath 'continuity-ready.marker'
+    $arguments = Get-EdgeValidationArguments
+    $arguments += @('-TicketEnvironmentVariable', $TicketEnvironmentVariable, '-LongConnectionSeconds', $ContinuitySeconds, '-ConnectionReadyFile', $continuityReadyPath)
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = (Get-Command pwsh).Source
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $arguments) { $startInfo.ArgumentList.Add([string]$argument) }
+    $script:continuityProcess = [Diagnostics.Process]::Start($startInfo)
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    while (-not (Test-Path -LiteralPath $continuityReadyPath)) {
+        if ($continuityProcess.HasExited) {
+            $details = $continuityProcess.StandardOutput.ReadToEnd() + $continuityProcess.StandardError.ReadToEnd()
+            throw "Continuity probe exited before establishing WSS: $details"
+        }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Timed out waiting for the authenticated continuity connection.' }
+        Start-Sleep -Milliseconds 200
+    }
+}
+
+function Complete-ContinuityProbe {
+    if ($null -eq $continuityProcess) { return }
+    if (-not $continuityProcess.WaitForExit($TimeoutSeconds * 1000)) {
+        $continuityProcess.Kill($true)
+        throw 'Authenticated continuity probe did not complete within the timeout.'
+    }
+    $output = $continuityProcess.StandardOutput.ReadToEnd()
+    $errors = $continuityProcess.StandardError.ReadToEnd()
+    $exitCode = $continuityProcess.ExitCode
+    $continuityProcess.Dispose()
+    $script:continuityProcess = $null
+    ($output + $errors) | Set-Content -LiteralPath (Join-Path $evidencePath 'during-failure.log') -Encoding utf8NoBOM
+    Remove-Item -LiteralPath $continuityReadyPath -Force -ErrorAction SilentlyContinue
+    if ($exitCode -ne 0) { throw "Authenticated continuity probe failed with exit code $exitCode." }
     $script:duringCaptured = $true
 }
 
@@ -147,9 +205,11 @@ function Get-ExternalStatus {
     $effectiveCaPath = $CertificateAuthorityPath
     try {
         if ([string]::IsNullOrWhiteSpace($effectiveCaPath) -and -not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
-            $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace, '-o', 'jsonpath={.data.tls\.crt}') 'Read public CA certificate'
+            $authoritySecret = Get-KubeJson @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace) 'Read public CA certificate Secret'
+            $encodedProperty = $authoritySecret.data.PSObject.Properties[$CertificateAuthoritySecretKey]
+            if ($null -eq $encodedProperty -or [string]::IsNullOrWhiteSpace([string]$encodedProperty.Value)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
             $temporaryCaPath = [IO.Path]::GetTempFileName()
-            [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
+            [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String(([string]$encodedProperty.Value).Trim()))
             $effectiveCaPath = $temporaryCaPath
         }
         $arguments = @('--silent', '--show-error', '--noproxy', $HostName, '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:${ExternalPort}:$connectionAddress", '--output', $nullDevice, '--write-out', '%{http_code}')
@@ -165,7 +225,7 @@ function Get-ExternalStatus {
 foreach ($command in @('kubectl', 'curl', 'pwsh')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "MISSING: $command is required." }
 }
-if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'UNSUPPORTED: PowerShell 7 or later is required.' }
+if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'UNSUPPORTED: PowerShell 7.4 or later is required.' }
 $context = (Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context').Trim()
 if ($context -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$context'." }
 if ($Environment -match '^(prod|production)$') { throw 'SAFETY STOP: failure tests cannot target an environment named prod or production.' }
@@ -180,6 +240,12 @@ if ($targetEnvironment -ne $Environment -or $failureApproval -ne 'approved') {
 if ($Scenario -eq 'NodeDrain' -and (-not $AllowNodeDrain -or [string]::IsNullOrWhiteSpace($NodeName))) {
     throw 'NodeDrain requires both -AllowNodeDrain and an explicit -NodeName.'
 }
+if ($Scenario -eq 'NodeDrain') {
+    $gatewayPods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read selected gateway nodes'
+    $traefikPods = Get-KubeJson @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read selected Traefik nodes'
+    $selectedNodes = @(@($gatewayPods.items) + @($traefikPods.items) | ForEach-Object { $_.spec.nodeName } | Where-Object { $_ } | Sort-Object -Unique)
+    if ($selectedNodes -notcontains $NodeName) { throw "SAFETY STOP: node $NodeName does not host a pod from the selected gateway or Traefik workload." }
+}
 if ($Scenario -eq 'MetalLbSpeakerRestart' -and $MetalLbAdvertisementMode -eq 'bgp' -and [string]::IsNullOrWhiteSpace($MetalLbSpeakerNode)) {
     throw 'BGP MetalLbSpeakerRestart requires an explicit -MetalLbSpeakerNode.'
 }
@@ -193,21 +259,21 @@ $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidencePath '
 try {
     Invoke-EdgeValidationWithRetry | Set-Content -LiteralPath (Join-Path $evidencePath 'baseline.log') -Encoding utf8NoBOM
     if (-not $PSCmdlet.ShouldProcess("$Environment on $ExpectedContext", "Inject $Scenario and automatically restore it")) { return }
+    $continuityScenarios = @('GatewayPodDelete', 'GatewayRollout', 'TraefikRestart', 'MetalLbSpeakerRestart', 'CertificateRenewal', 'NodeDrain')
 
     switch ($Scenario) {
         'GatewayPodDelete' {
             $pods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read gateway pods'
             $podName = @($pods.items | Where-Object { $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] } | Select-Object -First 1).metadata.name
             if ([string]::IsNullOrWhiteSpace($podName)) { throw 'No gateway pod is available for deletion.' }
+            Start-ContinuityProbe
             $changed = $true
             Invoke-Checked kubectl @('delete', 'pod', $podName, '-n', $GatewayNamespace, '--wait=false') 'Delete one gateway pod' | Out-Null
-            Start-Sleep -Seconds 1
-            Write-DuringFailure
         }
         'GatewayRollout' {
+            Start-ContinuityProbe
             $changed = $true
             Invoke-Checked kubectl @('rollout', 'restart', "deployment/$GatewayRelease", '-n', $GatewayNamespace) 'Restart gateway rollout' | Out-Null
-            Write-DuringFailure
             Wait-Rollout 'deployment' $GatewayRelease $GatewayNamespace
         }
         'GatewayBackendOutage' {
@@ -221,9 +287,9 @@ try {
             if ($status -notin @('502', '503', '504')) { throw "Backend outage returned unexpected HTTP status $status." }
         }
         'TraefikRestart' {
+            Start-ContinuityProbe
             $changed = $true
             Invoke-Checked kubectl @('rollout', 'restart', "deployment/$TraefikRelease", '-n', $TraefikNamespace) 'Restart Traefik' | Out-Null
-            Write-DuringFailure
             Wait-Rollout 'deployment' $TraefikRelease $TraefikNamespace
         }
         'MetalLbSpeakerRestart' {
@@ -237,10 +303,9 @@ try {
             $speakers = Get-KubeJson @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
             $speakerName = @($speakers.items | Where-Object { $_.status.phase -eq 'Running' -and $_.spec.nodeName -eq $speakerNode } | Select-Object -First 1).metadata.name
             if ([string]::IsNullOrWhiteSpace($speakerName)) { throw "No running MetalLB speaker is available on announcing node $speakerNode." }
+            Start-ContinuityProbe
             $changed = $true
             Invoke-Checked kubectl @('delete', 'pod', $speakerName, '-n', $MetalLbNamespace, '--wait=false') 'Delete active MetalLB speaker' | Out-Null
-            Start-Sleep -Seconds 1
-            Write-DuringFailure
         }
         'CertificateRouteMismatch' {
             $route = Get-KubeJson @('get', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway route'
@@ -279,9 +344,8 @@ try {
             }
             finally { Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue }
             Invoke-Checked kubectl @('wait', 'certificate', $replacementCertificateName, '-n', $GatewayNamespace, '--for=condition=Ready', "--timeout=${TimeoutSeconds}s") 'Wait for replacement TLS Secret' | Out-Null
+            Start-ContinuityProbe
             Set-RouteValue '/spec/tls/secretName' $replacementSecretName 'Switch route to replacement TLS Secret'
-            $authorityOverride = if ([string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and $CertificateAuthoritySecretName -eq $originalTlsSecret) { $replacementSecretName } else { '' }
-            Write-DuringFailure $replacementCertificateName $authorityOverride
         }
         'RouteMismatch' {
             $route = Get-KubeJson @('get', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway route'
@@ -295,13 +359,14 @@ try {
             $node = Get-KubeJson @('get', 'node', $NodeName) 'Read target node'
             $unschedulableProperty = $node.spec.PSObject.Properties['unschedulable']
             $nodeWasUnschedulable = $null -ne $unschedulableProperty -and [bool]$unschedulableProperty.Value
+            Start-ContinuityProbe
             $changed = $true
             Invoke-Checked kubectl @('drain', $NodeName, '--ignore-daemonsets', '--delete-emptydir-data', "--timeout=${TimeoutSeconds}s") 'Drain target node' | Out-Null
-            Write-DuringFailure
         }
     }
 
-    if (-not $duringCaptured -and $Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'TraefikRestart', 'MetalLbSpeakerRestart', 'CertificateRenewal', 'NodeDrain')) {
+    if ($Scenario -in $continuityScenarios) { Complete-ContinuityProbe }
+    if (-not $duringCaptured -and $Scenario -in $continuityScenarios) {
         throw "$Scenario did not capture continuity evidence during the active failure."
     }
 }
@@ -318,6 +383,7 @@ finally {
             'RouteMismatch' { Set-RouteValue '/spec/routes/0/match' $originalRouteMatch 'Restore route match' }
             'NodeDrain' { if (-not $nodeWasUnschedulable) { Invoke-Checked kubectl @('uncordon', $NodeName) 'Uncordon target node' | Out-Null } }
         }
+        if ($null -ne $continuityProcess) { Complete-ContinuityProbe }
         Wait-DeploymentFullyRecovered $GatewayRelease $GatewayNamespace
         Wait-DeploymentFullyRecovered $TraefikRelease $TraefikNamespace
         try {
@@ -333,6 +399,11 @@ finally {
             $metadata.completedUtc = [DateTimeOffset]::UtcNow.ToString('O')
             $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidencePath 'metadata.json') -Encoding utf8NoBOM
         }
+    }
+    elseif ($null -ne $continuityProcess) {
+        if (-not $continuityProcess.HasExited) { $continuityProcess.Kill($true) }
+        $continuityProcess.Dispose()
+        Remove-Item -LiteralPath $continuityReadyPath -Force -ErrorAction SilentlyContinue
     }
 }
 

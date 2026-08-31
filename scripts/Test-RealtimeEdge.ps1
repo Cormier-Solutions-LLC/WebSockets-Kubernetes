@@ -16,8 +16,10 @@
 .PARAMETER CertificateAuthorityPath
   Optional PEM CA bundle used by curl. Install the same CA in the operating-system
   trust store when authenticated ClientWebSocket validation is requested.
+.PARAMETER ConnectionReadyFile
+  Optional marker written only after an authenticated WSS connection is established.
 .NOTES
-  Requires: PowerShell 7, kubectl, curl, a reachable Kubernetes cluster and DNS.
+  Requires: PowerShell 7.4 or later, kubectl, curl, a reachable Kubernetes cluster and DNS.
   Standard: refs/scripts-standard-v4.2.md
 #>
 [CmdletBinding()]
@@ -41,11 +43,13 @@ param(
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExternalAddress = '',
     [Parameter()][string]$CertificateAuthorityPath = '',
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
+    [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
     [Parameter()][ValidateRange(5,300)][int]$LongConnectionSeconds = 30,
     [Parameter()][ValidateRange(5,300)][int]$HeartbeatSeconds = 15,
-    [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120
+    [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120,
+    [Parameter()][string]$ConnectionReadyFile = ''
 )
 
 Set-StrictMode -Version Latest
@@ -62,9 +66,16 @@ function Write-Result([ValidateSet('PASS', 'SKIP', 'FAIL')][string]$Status, [str
 }
 
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
-    $output = @(& $File @Arguments 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "$Description failed with exit code $LASTEXITCODE." }
-    return ($output -join [Environment]::NewLine)
+    $stderrPath = [IO.Path]::GetTempFileName()
+    try {
+        $output = @(& $File @Arguments 2> $stderrPath)
+        $exitCode = $LASTEXITCODE
+        $stderr = [IO.File]::ReadAllText($stderrPath).Trim()
+        if ($exitCode -ne 0) { throw "$Description failed with exit code $exitCode." }
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) { Write-Warning $stderr }
+        return ($output -join [Environment]::NewLine)
+    }
+    finally { Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue }
 }
 
 function Get-Json([string[]]$Arguments, [string]$Description) {
@@ -124,7 +135,7 @@ try {
     foreach ($command in @('kubectl', 'curl')) {
         if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "MISSING: $command is required." }
     }
-    if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'UNSUPPORTED: PowerShell 7 or later is required.' }
+    if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'UNSUPPORTED: PowerShell 7.4 or later is required.' }
     $context = Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context'
     if ($context.Trim() -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$($context.Trim())'." }
 
@@ -199,9 +210,11 @@ try {
         throw 'Specify either CertificateAuthorityPath or CertificateAuthoritySecretName, not both.'
     }
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
-        $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace, '-o', 'jsonpath={.data.tls\.crt}') 'Read public CA certificate'
+        $authoritySecret = Get-Json @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace) 'Read public CA certificate Secret'
+        $encodedProperty = $authoritySecret.data.PSObject.Properties[$CertificateAuthoritySecretKey]
+        if ($null -eq $encodedProperty -or [string]::IsNullOrWhiteSpace([string]$encodedProperty.Value)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
         $temporaryCaPath = [IO.Path]::GetTempFileName()
-        [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
+        [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String(([string]$encodedProperty.Value).Trim()))
         $CertificateAuthorityPath = $temporaryCaPath
     }
     elseif (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
@@ -340,6 +353,9 @@ public static class CustomRootValidator
                 }
                 $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedCa)
                 $null = $socket.ConnectAsync($uri, $socketInvoker, $connectionTimeout.Token).GetAwaiter().GetResult()
+            }
+            if (-not [string]::IsNullOrWhiteSpace($ConnectionReadyFile)) {
+                [IO.File]::WriteAllText([IO.Path]::GetFullPath($ConnectionReadyFile), [DateTimeOffset]::UtcNow.ToString('O'))
             }
             $validationDeadline = [DateTimeOffset]::UtcNow.AddSeconds($LongConnectionSeconds)
             $receiveBuffer = [byte[]]::new(16384)

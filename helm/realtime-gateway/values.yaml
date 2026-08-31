@@ -11,6 +11,10 @@ replicaCount: 3
 revisionHistoryLimit: 3
 terminationGracePeriodSeconds: 35
 
+deploymentStrategy:
+  maxUnavailable: 1
+  maxSurge: 0
+
 serviceAccount:
   create: true
   name: ""
@@ -22,6 +26,7 @@ service:
 
 ingressRoute:
   enabled: false
+  entryPoint: websecure
   host: ""
   path: /realtime/ws
   tlsSecretName: ""

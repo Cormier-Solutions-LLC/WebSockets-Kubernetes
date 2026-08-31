@@ -1,6 +1,6 @@
 gateway:
   allowedOrigins:
-    - https://cormier.local
+    - https://realtime.cormier.local
   shutdownDrainSeconds: 25
 
 networkPolicy:

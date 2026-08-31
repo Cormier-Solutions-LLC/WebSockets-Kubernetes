@@ -9,7 +9,9 @@ spec:
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   strategy:
     type: RollingUpdate
-    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+    rollingUpdate:
+      maxUnavailable: {{ .Values.deploymentStrategy.maxUnavailable }}
+      maxSurge: {{ .Values.deploymentStrategy.maxSurge }}
   selector:
     matchLabels:
       {{- include "realtime-gateway.selectorLabels" . | nindent 6 }}
@@ -44,7 +46,7 @@ spec:
               {{- include "realtime-gateway.selectorLabels" . | nindent 14 }}
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               {{- include "realtime-gateway.selectorLabels" . | nindent 14 }}

@@ -7,7 +7,8 @@ metadata:
     cormier.io/environment: development
 spec:
   addresses:
-    - 192.168.50.240-192.168.50.250
+    # Documentation-only example. Replace with a reserved range routable in the target environment.
+    - 192.0.2.240-192.0.2.250
   autoAssign: false
   serviceAllocation:
     namespaces:

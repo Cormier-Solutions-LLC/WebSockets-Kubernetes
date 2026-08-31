@@ -13,6 +13,9 @@
   Namespace containing the Traefik LoadBalancer Service.
 .PARAMETER TicketEnvironmentVariable
   Environment variable that holds an ephemeral single-use WSS ticket.
+.PARAMETER CertificateAuthorityPath
+  Optional PEM CA bundle used by curl. Install the same CA in the operating-system
+  trust store when authenticated ClientWebSocket validation is requested.
 .NOTES
   Requires: PowerShell 7, kubectl, curl, a reachable Kubernetes cluster and DNS.
   Standard: refs/scripts-standard-v4.2.md
@@ -25,17 +28,32 @@ param(
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$GatewayRelease = 'development-realtime',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateName = 'realtime-cormier-local',
     [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikService = 'traefik',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$TraefikRelease = 'traefik',
+    [Parameter()][string]$TraefikPodSelector = 'app.kubernetes.io/name=traefik',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$MetalLbNamespace = 'metallb-system',
+    [Parameter()][ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$MetalLbAdvertisement = 'development-traefik',
+    [Parameter()][string]$MetalLbSpeakerSelector = 'component=speaker',
     [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.cormier.local',
     [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
-    [Parameter()][ValidatePattern('^https://[a-z0-9.-]+$')][string]$Origin = 'https://cormier.local',
+    [Parameter()][ValidatePattern('^$|^https://[a-z0-9.-]+(:[0-9]{1,5})?$')][string]$Origin = '',
+    [Parameter()][ValidateRange(1, 65535)][int]$ExternalPort = 443,
+    [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExternalAddress = '',
+    [Parameter()][string]$CertificateAuthorityPath = '',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
+    [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
     [Parameter()][ValidateRange(5,300)][int]$LongConnectionSeconds = 30,
+    [Parameter()][ValidateRange(5,300)][int]$HeartbeatSeconds = 15,
     [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $summary = [ordered]@{ Passed = 0; Skipped = 0; Failed = 0 }
+$externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName}:$ExternalPort" }
+$effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
+$nullDevice = if ([OperatingSystem]::IsWindows()) { 'NUL' } else { '/dev/null' }
+$temporaryCaPath = ''
 
 function Write-Result([ValidateSet('PASS', 'SKIP', 'FAIL')][string]$Status, [string]$Message) {
     $summary[($Status -replace 'PASS', 'Passed' -replace 'SKIP', 'Skipped' -replace 'FAIL', 'Failed')]++
@@ -50,6 +68,55 @@ function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Descriptio
 
 function Get-Json([string[]]$Arguments, [string]$Description) {
     return (Invoke-Checked kubectl ($Arguments + @('-o', 'json')) $Description | ConvertFrom-Json)
+}
+
+function Get-MetricValue([string]$MetricName, [string]$Labels) {
+    $escapedLabels = [Regex]::Escape($Labels)
+    $gatewayPods = Get-Json @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read gateway metric targets'
+    $total = 0.0
+    foreach ($pod in @($gatewayPods.items | Where-Object {
+        $_.status.phase -eq 'Running' -and
+        $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and
+        @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
+    })) {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        $localPort = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+        $listener.Stop()
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = (Get-Command kubectl).Source
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @('port-forward', '-n', $GatewayNamespace, "pod/$($pod.metadata.name)", "${localPort}:8080")) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+        $forward = [Diagnostics.Process]::Start($startInfo)
+        $metrics = ''
+        try {
+            $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+            do {
+                if ($forward.HasExited) { throw "Gateway metrics port-forward exited: $($forward.StandardError.ReadToEnd())" }
+                try {
+                    $metrics = (Invoke-WebRequest -Uri "http://127.0.0.1:${localPort}/metrics" -TimeoutSec 2).Content
+                    break
+                }
+                catch {
+                    Start-Sleep -Milliseconds 200
+                }
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+            if ([string]::IsNullOrWhiteSpace($metrics)) { throw 'Timed out reading gateway metrics through port-forward.' }
+        }
+        finally {
+            if (-not $forward.HasExited) { $forward.Kill($true) }
+            $forward.WaitForExit()
+            $forward.Dispose()
+        }
+        $match = [Regex]::Match($metrics, "(?m)^$([Regex]::Escape($MetricName))\{$escapedLabels\}\s+([0-9.eE+-]+)$")
+        if ($match.Success) { $total += [double]::Parse($match.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) }
+    }
+    return $total
 }
 
 try {
@@ -68,11 +135,48 @@ try {
     $vip = @($service.status.loadBalancer.ingress | ForEach-Object { $_.ip } | Where-Object { $_ })[0]
     if ([string]::IsNullOrWhiteSpace($vip)) { throw 'Traefik LoadBalancer has no assigned VIP.' }
     Write-Result PASS "Traefik has VIP $vip from MetalLB pool $pool and preserves source IP."
+    $connectionAddress = if ([string]::IsNullOrWhiteSpace($ExternalAddress)) { $vip } else { $ExternalAddress }
+
+    $addressPool = Get-Json @('get', 'ipaddresspool', $pool, '-n', $MetalLbNamespace) 'Read MetalLB address pool'
+    if (@($addressPool.spec.serviceAllocation.namespaces) -notcontains $TraefikNamespace) { throw 'MetalLB pool is not scoped to the Traefik namespace.' }
+    $advertisement = Get-Json @('get', 'l2advertisement', $MetalLbAdvertisement, '-n', $MetalLbNamespace) 'Read MetalLB L2 advertisement'
+    if (@($advertisement.spec.ipAddressPools) -notcontains $pool) { throw 'MetalLB advertisement does not reference the Traefik address pool.' }
+    $traefikPods = Get-Json @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read Traefik pods'
+    $speakerPods = Get-Json @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
+    $traefikNodes = @($traefikPods.items | Where-Object { $_.status.phase -eq 'Running' -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
+    $speakerNodes = @($speakerPods.items | Where-Object { $_.status.phase -eq 'Running' -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
+    $missingSpeakerNodes = @($traefikNodes | Where-Object { $speakerNodes -notcontains $_ })
+    if ($traefikNodes.Count -lt 2 -or $missingSpeakerNodes.Count -gt 0) { throw 'MetalLB speakers are not ready on every node hosting a ready Traefik replica.' }
+    Write-Result PASS 'MetalLB pool, L2 advertisement, and intended Traefik/speaker node placement are consistent.'
+
+    $traefikDeployment = Get-Json @('get', 'deployment', $TraefikRelease, '-n', $TraefikNamespace) 'Read Traefik timeout configuration'
+    $traefikArguments = @($traefikDeployment.spec.template.spec.containers[0].args)
+    foreach ($timeoutName in @('readtimeout', 'writetimeout', 'idletimeout')) {
+        $timeoutArgument = @($traefikArguments | Where-Object { $_ -match "respondingtimeouts\.$timeoutName=([0-9]+)s$" })
+        if ($timeoutArgument.Count -ne 1 -or [int]([Regex]::Match($timeoutArgument[0], '=([0-9]+)s$').Groups[1].Value) -le $HeartbeatSeconds) {
+            throw "Traefik $timeoutName must be configured in seconds beyond the $HeartbeatSeconds-second heartbeat."
+        }
+    }
+    Write-Result PASS "Traefik read, write, and idle timeouts exceed the $HeartbeatSeconds-second heartbeat."
+    foreach ($fieldName in @('RequestAddr', 'RequestPath', 'RequestPort')) {
+        if ($traefikArguments -notcontains "--accesslog.fields.names.$fieldName=drop") { throw "Traefik access logs do not drop $fieldName." }
+    }
+    if ($traefikArguments -notcontains '--accesslog.fields.headers.defaultmode=drop') { throw 'Traefik access logs do not drop request headers by default.' }
+    Write-Result PASS 'Traefik access logs drop request headers and credential-bearing request fields.'
 
     $certificate = Get-Json @('get', 'certificate', $CertificateName, '-n', $GatewayNamespace) 'Read edge Certificate'
     $ready = @($certificate.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' })
     if ($ready.Count -ne 1) { throw 'Edge Certificate is not Ready.' }
-    Write-Result PASS 'Certificate is Ready.'
+    if (@($certificate.spec.dnsNames) -notcontains $HostName) { throw "Certificate does not cover configured host $HostName." }
+    if ([string]::IsNullOrWhiteSpace($certificate.spec.secretName)) { throw 'Certificate does not publish a TLS Secret.' }
+    $notAfter = [DateTimeOffset]::Parse($certificate.status.notAfter)
+    if ($notAfter -le [DateTimeOffset]::UtcNow) { throw 'Edge Certificate is expired.' }
+
+    $route = Get-Json @('get', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway IngressRoute'
+    if ($route.spec.tls.secretName -ne $certificate.spec.secretName) { throw 'IngressRoute and Certificate reference different TLS Secrets.' }
+    $expectedMatch = "Host(``$HostName``) && Path(``$Path``)"
+    if (@($route.spec.routes.match) -notcontains $expectedMatch) { throw 'IngressRoute does not match the configured host and path exactly.' }
+    Write-Result PASS "Certificate is Ready for $HostName through $notAfter and is bound to the exact route."
 
     $gateway = Get-Json @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Deployment'
     if ($gateway.status.availableReplicas -lt 2) { throw 'Fewer than two gateway replicas are available for failover.' }
@@ -85,29 +189,68 @@ try {
     Write-Result PASS 'At least two ready, non-terminating gateway endpoints are routable.'
 
     $dnsAddresses = @([Net.Dns]::GetHostAddresses($HostName) | ForEach-Object { $_.IPAddressToString })
-    if ($dnsAddresses -notcontains $vip) { throw "DNS for $HostName does not contain assigned VIP $vip." }
-    Write-Result PASS "DNS resolves $HostName to the assigned VIP."
+    if ($dnsAddresses -notcontains $connectionAddress) { throw "DNS for $HostName does not contain configured external address $connectionAddress." }
+    if ($connectionAddress -eq $vip) { Write-Result PASS "DNS resolves $HostName to the assigned VIP." }
+    else { Write-Result PASS "DNS resolves $HostName to configured NAT address $connectionAddress; MetalLB separately assigned VIP $vip." }
+
+    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and -not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
+        throw 'Specify either CertificateAuthorityPath or CertificateAuthoritySecretName, not both.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
+        $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace, '-o', 'jsonpath={.data.tls\.crt}') 'Read public CA certificate'
+        $temporaryCaPath = [IO.Path]::GetTempFileName()
+        [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
+        $CertificateAuthorityPath = $temporaryCaPath
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
+        $CertificateAuthorityPath = [IO.Path]::GetFullPath($CertificateAuthorityPath)
+        if (-not (Test-Path -LiteralPath $CertificateAuthorityPath -PathType Leaf)) { throw 'CertificateAuthorityPath must identify an existing file.' }
+    }
+    $curlCommon = @('--silent', '--show-error', '--noproxy', $HostName, '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:${ExternalPort}:$connectionAddress")
+    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) { $curlCommon += @('--cacert', $CertificateAuthorityPath) }
 
     $webSocketKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
-    $upgradeArguments = @(
-        '--silent', '--show-error', '--http1.1', '--max-time', "$TimeoutSeconds",
-        '--resolve', "${HostName}:443:$vip",
+    $upgradeArguments = $curlCommon + @(
+        '--http1.1',
         '--header', 'Connection: Upgrade',
         '--header', 'Upgrade: websocket',
         '--header', 'Sec-WebSocket-Version: 13',
         '--header', "Sec-WebSocket-Key: $webSocketKey",
         '--header', 'Sec-WebSocket-Protocol: cormier.realtime.v1',
-        '--header', "Origin: $Origin",
-        '--output', '/dev/null',
+        '--header', "Origin: $effectiveOrigin",
+        '--output', $nullDevice,
         '--write-out', '%{http_code}',
-        "https://${HostName}${Path}"
+        "https://${externalAuthority}${Path}"
     )
     $routeStatus = Invoke-Checked curl $upgradeArguments 'Validate TLS route'
     if ($routeStatus.Trim() -ne '401') { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
     Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
-    $invalidStatus = Invoke-Checked curl @('--silent', '--show-error', '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:443:$vip", '--output', '/dev/null', '--write-out', '%{http_code}', "https://${HostName}/not-a-realtime-route") 'Validate invalid route rejection'
+    $invalidStatus = Invoke-Checked curl ($curlCommon + @('--output', $nullDevice, '--write-out', '%{http_code}', "https://${externalAuthority}/not-a-realtime-route")) 'Validate invalid route rejection'
     if ($invalidStatus.Trim() -ne '404') { throw "Invalid route returned unexpected status $($invalidStatus.Trim())." }
     Write-Result PASS 'Invalid route is rejected.'
+
+    $wrongHostStatus = Invoke-Checked curl ($curlCommon + @('--header', "Host: invalid.$HostName", '--output', $nullDevice, '--write-out', '%{http_code}', "https://${externalAuthority}${Path}")) 'Validate invalid host rejection'
+    if ($wrongHostStatus.Trim() -ne '404') { throw "Invalid host returned unexpected status $($wrongHostStatus.Trim())." }
+    Write-Result PASS 'Invalid host is rejected.'
+
+    $originFailuresBefore = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="failure"'
+    $invalidOriginArguments = $upgradeArguments.Clone()
+    $originIndex = [Array]::IndexOf($invalidOriginArguments, "Origin: $effectiveOrigin")
+    $invalidOriginArguments[$originIndex] = 'Origin: https://invalid.example'
+    $invalidOriginStatus = Invoke-Checked curl $invalidOriginArguments 'Validate invalid Origin rejection'
+    if ($invalidOriginStatus.Trim() -ne '401') { throw "Invalid Origin returned unexpected status $($invalidOriginStatus.Trim())." }
+    $originFailuresAfter = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="failure"'
+    if ($originFailuresAfter -le $originFailuresBefore) { throw 'Invalid Origin did not increment the gateway Origin-rejection metric.' }
+    Write-Result PASS 'Invalid Origin is rejected by the gateway and recorded without credential data.'
+
+    if ([string]::IsNullOrWhiteSpace($ExpectedClientIp)) {
+        Write-Result SKIP 'Observed source-IP validation skipped because ExpectedClientIp is unset.'
+    }
+    else {
+        $accessLogs = Invoke-Checked kubectl @('logs', '-n', $TraefikNamespace, '-l', $TraefikPodSelector, '--since=2m', '--prefix=true') 'Read recent redacted Traefik access logs'
+        if ($accessLogs -notmatch ('"ClientHost"\s*:\s*"' + [Regex]::Escape($ExpectedClientIp) + '"')) { throw "Traefik did not observe expected client source IP $ExpectedClientIp." }
+        Write-Result PASS "Traefik observed the expected client source IP $ExpectedClientIp."
+    }
 
     $ticket = [Environment]::GetEnvironmentVariable($TicketEnvironmentVariable)
     if ([string]::IsNullOrWhiteSpace($ticket)) {
@@ -115,12 +258,44 @@ try {
     }
     else {
         $socket = [Net.WebSockets.ClientWebSocket]::new()
+        $trustedCa = $null
         $connectionTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
         $socket.Options.AddSubProtocol('cormier.realtime.v1')
-        $socket.Options.SetRequestHeader('Origin', $Origin)
+        $socket.Options.SetRequestHeader('Origin', $effectiveOrigin)
+        if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
+            $trustedCa = [Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateAuthorityPath)
+            if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
+                Add-Type -TypeDefinition @'
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+namespace Cormier.Realtime.EdgeValidation;
+
+public static class CustomRootValidator
+{
+    public static RemoteCertificateValidationCallback Create(X509Certificate2 trustedRoot) =>
+        (_, certificate, _, errors) =>
+        {
+            if (certificate is null || (errors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0)
+            {
+                return false;
+            }
+
+            using var candidate = new X509Certificate2(certificate);
+            using var customChain = new X509Chain();
+            customChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            customChain.ChainPolicy.CustomTrustStore.Add(trustedRoot);
+            customChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            return customChain.Build(candidate);
+        };
+}
+'@
+            }
+            $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedCa)
+        }
         try {
-            $uri = [Uri]::new("wss://${HostName}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")
-            $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
+            $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")
+            $null = $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
             $validationDeadline = [DateTimeOffset]::UtcNow.AddSeconds($LongConnectionSeconds)
             $receiveBuffer = [byte[]]::new(16384)
             do {
@@ -136,7 +311,7 @@ try {
                 $acknowledged = $false
                 $receiveTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
                 try {
-                    $socket.SendAsync(
+                    $null = $socket.SendAsync(
                         [ArraySegment[byte]]::new($pingBytes),
                         [Net.WebSockets.WebSocketMessageType]::Text,
                         $true,
@@ -175,6 +350,7 @@ try {
         finally {
             try { $connectionTimeout.Dispose() } catch {}
             try { $socket.Dispose() } catch {}
+            try { if ($null -ne $trustedCa) { $trustedCa.Dispose() } } catch {}
         }
     }
 }
@@ -183,5 +359,8 @@ catch {
     exit 1
 }
 finally {
+    if (-not [string]::IsNullOrWhiteSpace($temporaryCaPath) -and (Test-Path -LiteralPath $temporaryCaPath)) {
+        Remove-Item -LiteralPath $temporaryCaPath -Force
+    }
     $summary.GetEnumerator() | ForEach-Object { Write-Host "$($_.Key): $($_.Value)" }
 }

@@ -7,7 +7,7 @@ metadata:
     {{- include "realtime-gateway.labels" . | nindent 4 }}
 spec:
   entryPoints:
-    - websecure
+    - {{ .Values.ingressRoute.entryPoint | quote }}
   routes:
     - match: Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)
       kind: Rule
@@ -15,7 +15,7 @@ spec:
         - name: {{ include "realtime-gateway.fullname" . }}
           port: http
           responseForwarding:
-            flushInterval: -1
+            flushInterval: "-1ms"
   tls:
     secretName: {{ .Values.ingressRoute.tlsSecretName | quote }}
 {{- end }}

@@ -14,9 +14,16 @@ Examples:
 
 `Remove` and `RestoreRedis` require `-Force`. `RedisUsername`, `RedisPasswordKey`, and `RedisAdminPasswordKey` select Secret keys without accepting their values; in managed mode the password key must match the ACL username as required by the pinned Redis chart. Automation uses an exclusive per-target lock, bounded timeouts, pre-change state capture, redacted logs, validated archive rotation, and forced gateway rollouts after credential rotation. It never creates Secrets.
 
-`Test-RealtimeEdge.ps1` performs read-only external edge validation after deployment. It verifies the assigned MetalLB VIP, `externalTrafficPolicy: Local`, certificate readiness, ready non-terminating gateway endpoints, DNS, TLS routing, and optionally an authenticated long-lived WSS connection. Supply the single-use WSS ticket via `REALTIME_EDGE_TICKET`; the script never logs it. The ticket is necessarily sent in the gateway's query-string protocol, so the Traefik values drop request path, address, and port access-log fields in addition to request headers.
+`Test-RealtimeEdge.ps1` performs read-only external edge validation after deployment. It verifies the assigned MetalLB VIP, pool and advertisement scope, speaker placement, `externalTrafficPolicy: Local`, certificate readiness, ready non-terminating gateway endpoints, DNS, TLS routing, and optionally an authenticated long-lived WSS connection. Pass `-ExpectedClientIp` to verify observed source-IP preservation from Traefik's JSON `ClientHost` field. Supply the single-use WSS ticket via `REALTIME_EDGE_TICKET`; the script never logs it. The ticket is necessarily sent in the gateway's query-string protocol, so the Traefik values drop request path, address, port, and all header access-log fields.
 
 ```powershell
 $env:REALTIME_EDGE_TICKET = '<ephemeral-ticket>'
 ./scripts/Test-RealtimeEdge.ps1 -ExpectedContext kind-development
+```
+
+`Invoke-RealtimeEdgeFailureTest.ps1` runs one bounded failure scenario at a time against an explicitly named non-production context. It captures a baseline, injects the failure, restores reversible state in `finally`, reruns the external validator, and writes redacted evidence below the configurable evidence directory. It supports gateway pod deletion/outage/rollout, Traefik restart, MetalLB speaker restart, cert-manager renewal, route and certificate-reference mismatch, and an extra-opt-in node drain. Use `-WhatIf` to inspect a run; mutating runs require confirmation unless the operator deliberately supplies `-Confirm:$false`.
+
+```powershell
+./scripts/Invoke-RealtimeEdgeFailureTest.ps1 -Scenario GatewayPodDelete -Environment development -ExpectedContext kind-development
+./scripts/Invoke-RealtimeEdgeFailureTest.ps1 -Scenario NodeDrain -Environment development -ExpectedContext kind-development -NodeName worker-1 -AllowNodeDrain
 ```

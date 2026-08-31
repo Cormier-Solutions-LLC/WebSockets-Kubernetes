@@ -26,6 +26,54 @@ ingressRoute:
   path: /realtime/ws
   tlsSecretName: ""
 
+observability:
+  environment: development
+  cluster: development-cluster
+  platformMetrics:
+    certificateName: ""
+    metalLbAdvertisementMode: l2
+    metalLbNamespace: metallb-system
+    # Replace the TEST-NET example with the configured edge LoadBalancer VIP.
+    metalLbAddress: 192.0.2.1
+    # Namespace and service-label regex exported by the Traefik metrics deployment.
+    traefikNamespace: traefik
+    # Empty derives a regex from this chart's rendered fullname.
+    traefikServicePattern: ""
+    # Empty Redis exporter coordinates derive from this release and its configured Redis endpoint.
+    redisNamespace: ""
+    redisInstance: ""
+  alertThresholds:
+    queueDepth: 100
+    handlerLatencySeconds: 0.25
+    redisLatencySeconds: 0.01
+    reconnectRatio: 0.5
+  links:
+    logsUrl: https://logs.example.com/
+    tracesUrl: https://traces.example.com/
+    kubernetesUrl: https://kubernetes.example.com/
+    runbookBaseUrl: https://docs.example.com/runbooks
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    additionalLabels: {}
+  grafanaDashboard:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+  prometheusRule:
+    enabled: true
+    additionalLabels: {}
+    routingLabels:
+      team: platform
+      service: ""
+  alertmanagerConfig:
+    enabled: false
+    receiverName: realtime-platform
+    webhookSecret:
+      name: ""
+      key: url
+
 gateway:
   shutdownDrainSeconds: 25
   detailedHealthChecks: false
@@ -74,6 +122,12 @@ autoscaling:
   maxReplicas: 12
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 75
+  connectionsMetric:
+    enabled: false
+    targetAverageValue: "500"
+  queueDepthMetric:
+    enabled: false
+    targetAverageValue: "64"
 
 topologySpreadConstraints:
   enabled: true
@@ -86,6 +140,12 @@ networkPolicy:
   ingressPodSelector:
     matchLabels:
       app.kubernetes.io/name: traefik
+  monitoringNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+  monitoringPodSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
   redisNamespaceSelector: {}
   redisPodSelector: {}
   allowExternalRedisEgress: true

@@ -27,18 +27,21 @@ public sealed class RealtimeWebSocketHandler(
     {
         if (state.IsDraining)
         {
+            metrics.RecordHandshake("rejected", "draining");
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return;
         }
 
         if (!context.WebSockets.IsWebSocketRequest)
         {
+            metrics.RecordHandshake("rejected", "not_websocket");
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
 
         if (!context.WebSockets.WebSocketRequestedProtocols.Contains(SubProtocol, StringComparer.Ordinal))
         {
+            metrics.RecordHandshake("rejected", "subprotocol");
             context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
             context.Response.Headers.SecWebSocketProtocol = SubProtocol;
             return;
@@ -49,12 +52,14 @@ public sealed class RealtimeWebSocketHandler(
             context.RequestAborted);
         if (!authentication.Succeeded)
         {
+            metrics.RecordHandshake("rejected", "authentication");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
 
         if (state.IsDraining)
         {
+            metrics.RecordHandshake("rejected", "draining");
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return;
         }
@@ -68,6 +73,7 @@ public sealed class RealtimeWebSocketHandler(
             authentication.SessionId);
         if (!registry.Add(connection))
         {
+            metrics.RecordHandshake("rejected", "registration");
             await connection.RequestCloseAsync(
                 registry.IsDraining
                     ? RealtimeCloseStatus.ServiceRestart
@@ -78,18 +84,31 @@ public sealed class RealtimeWebSocketHandler(
                 context.RequestAborted);
             return;
         }
+        metrics.RecordHandshake("accepted", "accepted");
 
         using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         var sender = connection.RunSenderAsync(connectionCancellation.Token);
-        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation);
+        var heartbeatCloseReason = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation, heartbeatCloseReason);
         var closeReason = "client_disconnect";
         try
         {
             closeReason = await RunReceiverAsync(connection, connectionCancellation.Token);
+            if (heartbeatCloseReason.Task.IsCompletedSuccessfully)
+            {
+                closeReason = heartbeatCloseReason.Task.Result;
+            }
         }
         catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
         {
-            closeReason = "cancelled";
+            try
+            {
+                closeReason = await heartbeat ?? "cancelled";
+            }
+            catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
+            {
+                closeReason = "cancelled";
+            }
         }
         catch (WebSocketException)
         {
@@ -230,7 +249,6 @@ public sealed class RealtimeWebSocketHandler(
                     continue;
                 }
 
-                metrics.RecordMessage("inbound", "accepted");
                 await dispatcher.DispatchAsync(connection, envelope, cancellationToken);
             }
 
@@ -242,9 +260,10 @@ public sealed class RealtimeWebSocketHandler(
         }
     }
 
-    private async Task RunHeartbeatAsync(
+    private async Task<string?> RunHeartbeatAsync(
         RealtimeConnection connection,
-        CancellationTokenSource connectionCancellation)
+        CancellationTokenSource connectionCancellation,
+        TaskCompletionSource<string> closeReason)
     {
         var cancellationToken = connectionCancellation.Token;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatSeconds));
@@ -254,40 +273,45 @@ public sealed class RealtimeWebSocketHandler(
             switch (revalidation)
             {
                 case IdentityRevalidation.Invalid:
+                    closeReason.TrySetResult("authentication_invalid");
                     await connection.RequestCloseAsync(
                         RealtimeCloseStatus.AuthenticationExpired,
                         "authentication_invalid",
                         cancellationToken);
                     connectionCancellation.Cancel();
-                    return;
+                    return "authentication_invalid";
 
                 case IdentityRevalidation.Unavailable:
+                    closeReason.TrySetResult("authentication_unavailable");
                     await connection.RequestCloseAsync(
                         WebSocketCloseStatus.InternalServerError,
                         "authentication_unavailable",
                         cancellationToken);
                     connectionCancellation.Cancel();
-                    return;
+                    return "authentication_unavailable";
             }
 
             if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
             {
+                closeReason.TrySetResult("authentication_expired");
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.AuthenticationExpired,
                     "authentication_expired",
                     cancellationToken);
                 connectionCancellation.Cancel();
-                return;
+                return "authentication_expired";
             }
 
             if (DateTimeOffset.UtcNow - connection.LastActivity > TimeSpan.FromSeconds(options.IdleTimeoutSeconds))
             {
+                metrics.RecordHeartbeatTimeout();
+                closeReason.TrySetResult("heartbeat_timeout");
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.HeartbeatTimeout,
                     "heartbeat_timeout",
                     cancellationToken);
                 connectionCancellation.Cancel();
-                return;
+                return "heartbeat_timeout";
             }
 
             if (!connection.TryEnqueue(new ServerMessageEnvelope(
@@ -296,16 +320,21 @@ public sealed class RealtimeWebSocketHandler(
                     Guid.NewGuid().ToString("N"),
                     DateTimeOffset.UtcNow,
                     "system/heartbeat")) &&
-                connection.HasExceededSlowConsumerLimit)
+                connection.HasExceededSlowConsumerLimit &&
+                connection.TryMarkSlowConsumerDisconnect())
             {
+                metrics.RecordSlowConsumerDisconnect();
+                closeReason.TrySetResult("slow_consumer");
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.SlowConsumer,
                     "slow_consumer",
                     cancellationToken);
                 connectionCancellation.Cancel();
-                return;
+                return "slow_consumer";
             }
         }
+
+        return null;
     }
 
     private async ValueTask<IdentityRevalidation> RevalidateIdentityAsync(

@@ -1,0 +1,181 @@
+name: Promote or roll back immutable gateway image
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Promote the requested digest or roll back to the previous digest
+        required: true
+        type: choice
+        options: [promote, rollback]
+      environment:
+        description: Protected GitHub deployment environment
+        required: true
+        type: choice
+        options: [development, staging, production]
+      publishRunId:
+        description: Trusted publish workflow run containing release evidence
+        required: false
+        type: string
+      sourceCommit:
+        description: Source commit named by the trusted release artifact
+        required: false
+        type: string
+      rollbackPublishRunId:
+        description: Prior trusted publish run; required for rollback
+        required: false
+        type: string
+      rollbackSourceCommit:
+        description: Prior source commit; required for rollback
+        required: false
+        type: string
+      releaseName:
+        description: Configured Helm release name
+        required: true
+        type: string
+      namespace:
+        description: Configured Kubernetes namespace
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+concurrency:
+  group: promote-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.releaseName }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Select trusted release evidence
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          PUBLISH_RUN_ID: ${{ inputs.publishRunId }}
+          SOURCE_COMMIT: ${{ inputs.sourceCommit }}
+          ROLLBACK_RUN_ID: ${{ inputs.rollbackPublishRunId }}
+          ROLLBACK_COMMIT: ${{ inputs.rollbackSourceCommit }}
+        run: |
+          $runId = if ($env:OPERATION -eq 'rollback') { $env:ROLLBACK_RUN_ID } else { $env:PUBLISH_RUN_ID }
+          $commit = if ($env:OPERATION -eq 'rollback') { $env:ROLLBACK_COMMIT } else { $env:SOURCE_COMMIT }
+          if ($runId -notmatch '^[1-9][0-9]*$') { throw 'A trusted publish workflow run ID is required.' }
+          if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'A full lowercase source commit is required.' }
+          $workflowRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$runId" | ConvertFrom-Json
+          if ($workflowRun.path -ne '.github/workflows/publish.yml' -or $workflowRun.event -ne 'workflow_run' -or $workflowRun.conclusion -ne 'success') {
+            throw 'The selected run is not a successful trusted publish workflow run.'
+          }
+          "run_id=$runId" >> $env:GITHUB_OUTPUT
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ steps.release.outputs.commit }}
+          path: artifacts/release
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.release.outputs.run_id }}
+      - name: Verify immutable digest against trusted release evidence
+        id: artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ steps.release.outputs.commit }}
+          RELEASE_NAME: ${{ inputs.releaseName }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          $manifest = Get-Content -LiteralPath artifacts/release/release-manifest.json -Raw | ConvertFrom-Json
+          if ($manifest.schemaVersion -ne 1 -or $manifest.sourceCommit -ne $env:EXPECTED_COMMIT) { throw 'Release evidence does not match the requested tested commit.' }
+          if ($manifest.digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Release evidence has an invalid immutable digest.' }
+          if ($manifest.image -notmatch '^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$') { throw 'Release evidence has an invalid image repository.' }
+          if ($manifest.archiveSha256 -notmatch '^[a-f0-9]{64}$' -or $manifest.ciRunId -lt 1) { throw 'Release evidence is incomplete.' }
+          $ciRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($manifest.ciRunId)" | ConvertFrom-Json
+          if ($ciRun.path -ne '.github/workflows/ci.yml' -or $ciRun.event -ne 'push' -or $ciRun.head_branch -ne 'main' -or $ciRun.conclusion -ne 'success' -or $ciRun.head_sha -ne $env:EXPECTED_COMMIT) {
+            throw 'Release evidence does not reference the successful main-branch CI run for the requested commit.'
+          }
+          if ($env:RELEASE_NAME -notmatch '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' -or $env:RELEASE_NAME.Length -gt 53) { throw 'releaseName must be a DNS label of at most 53 characters.' }
+          if ($env:NAMESPACE -notmatch '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' -or $env:NAMESPACE.Length -gt 63) { throw 'namespace must be a DNS label of at most 63 characters.' }
+          "digest=$($manifest.digest)" >> $env:GITHUB_OUTPUT
+          "repository=$($manifest.image)" >> $env:GITHUB_OUTPUT
+          "registry=$($manifest.image.Split('/')[0])" >> $env:GITHUB_OUTPUT
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.artifact.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+      - name: Verify published manifest exists
+        run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
+      - name: Render the exact promotion bundle
+        env:
+          DEPLOY_ENABLED: ${{ vars.KUBERNETES_DEPLOY_ENABLED }}
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+          HELM_VALUES_CONTENT: ${{ secrets.HELM_VALUES }}
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG_CONTENT }}
+          IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
+          RELEASE_NAME: ${{ inputs.releaseName }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          mkdir -p artifacts/promotion
+          values_args=()
+          api_args=()
+          if [ -n "$HELM_VALUES_CONTENT" ]; then
+            values_path="$RUNNER_TEMP/promotion-values.yaml"
+            printf '%s' "$HELM_VALUES_CONTENT" > "$values_path"
+            chmod 600 "$values_path"
+            values_args=(--values "$values_path")
+          elif [ "$DEPLOY_ENABLED" = 'true' ]; then
+            echo 'The protected environment must configure the HELM_VALUES secret when deployment is enabled.' >&2
+            exit 1
+          fi
+          if [ "$DEPLOY_ENABLED" = 'true' ]; then
+            test -n "$KUBECONFIG_CONTENT"
+            render_kubeconfig="$RUNNER_TEMP/render-kubeconfig"
+            printf '%s' "$KUBECONFIG_CONTENT" > "$render_kubeconfig"
+            chmod 600 "$render_kubeconfig"
+            if KUBECONFIG="$render_kubeconfig" kubectl get --raw /apis/monitoring.coreos.com/v1 > "$RUNNER_TEMP/monitoring-v1.json" 2>/dev/null; then
+              for kind in ServiceMonitor PrometheusRule; do
+                if jq --exit-status --arg kind "$kind" '.resources[] | select(.kind == $kind)' "$RUNNER_TEMP/monitoring-v1.json" >/dev/null; then
+                  api_args+=(--api-versions "monitoring.coreos.com/v1/$kind")
+                fi
+              done
+            fi
+            if KUBECONFIG="$render_kubeconfig" kubectl get --raw /apis/monitoring.coreos.com/v1alpha1 > "$RUNNER_TEMP/monitoring-v1alpha1.json" 2>/dev/null && jq --exit-status '.resources[] | select(.kind == "AlertmanagerConfig")' "$RUNNER_TEMP/monitoring-v1alpha1.json" >/dev/null; then
+              api_args+=(--api-versions "monitoring.coreos.com/v1alpha1/AlertmanagerConfig")
+            fi
+          fi
+          helm template "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" "${values_args[@]}" "${api_args[@]}" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST" > artifacts/promotion/rendered.yaml
+          printf '{"schemaVersion":1,"operation":"%s","environment":"%s","image":"%s","digest":"%s","release":"%s","namespace":"%s","workflowRunId":%s}\n' "${{ inputs.operation }}" "${{ inputs.environment }}" "$IMAGE_REPOSITORY" "$DIGEST" "$RELEASE_NAME" "$NAMESPACE" "${{ github.run_id }}" > artifacts/promotion/evidence.json
+          grep --quiet "@$DIGEST" artifacts/promotion/rendered.yaml
+      - name: Deploy exact digest when the environment enables deployment
+        if: vars.KUBERNETES_DEPLOY_ENABLED == 'true'
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG_CONTENT }}
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+          HELM_VALUES_CONTENT: ${{ secrets.HELM_VALUES }}
+          IMAGE_REPOSITORY: ${{ steps.artifact.outputs.repository }}
+          RELEASE_NAME: ${{ inputs.releaseName }}
+          NAMESPACE: ${{ inputs.namespace }}
+        run: |
+          test -n "$KUBECONFIG_CONTENT"
+          test -n "$HELM_VALUES_CONTENT"
+          kubeconfig_path="$RUNNER_TEMP/kubeconfig"
+          values_path="$RUNNER_TEMP/deployment-values.yaml"
+          printf '%s' "$KUBECONFIG_CONTENT" > "$kubeconfig_path"
+          printf '%s' "$HELM_VALUES_CONTENT" > "$values_path"
+          chmod 600 "$kubeconfig_path" "$values_path"
+          KUBECONFIG="$kubeconfig_path" helm upgrade --install "$RELEASE_NAME" helm/realtime-gateway --namespace "$NAMESPACE" --atomic --wait --values "$values_path" --set-string image.repository="$IMAGE_REPOSITORY" --set-string image.digest="$DIGEST"
+          deployment_name=$(awk '/^kind: Deployment$/{found=1} found && /^  name:/{print $2; exit}' artifacts/promotion/rendered.yaml)
+          test -n "$deployment_name"
+          KUBECONFIG="$kubeconfig_path" kubectl -n "$NAMESPACE" rollout status deployment/"$deployment_name" --timeout=5m
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promotion-${{ inputs.environment }}-${{ github.run_id }}
+          path: artifacts/promotion
+          if-no-files-found: error

@@ -43,12 +43,12 @@ public sealed class RealtimeConnectionRegistry(
 
     public bool Remove(string connectionId, string reason)
     {
-        if (!_connections.TryRemove(connectionId, out _))
+        if (!_connections.TryRemove(connectionId, out var connection))
         {
             return false;
         }
 
-        metrics.RecordConnectionClosed(reason);
+        metrics.RecordConnectionClosed(reason, DateTimeOffset.UtcNow - connection.CreatedAt);
         return true;
     }
 
@@ -124,8 +124,11 @@ public sealed class RealtimeConnectionRegistry(
                 continue;
             }
 
-            if (!connection.TryEnqueue(envelope) && connection.HasExceededSlowConsumerLimit)
+            if (!connection.TryEnqueue(envelope) &&
+                connection.HasExceededSlowConsumerLimit &&
+                connection.TryMarkSlowConsumerDisconnect())
             {
+                metrics.RecordSlowConsumerDisconnect();
                 AddBoundedClose(
                     ref closeTasks,
                     connection,

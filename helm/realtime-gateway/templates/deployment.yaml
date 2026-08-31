@@ -58,10 +58,12 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
           ports:
-            - { name: http, containerPort: 8080, protocol: TCP }
+            - { name: http, containerPort: {{ .Values.service.targetPort }}, protocol: TCP }
           envFrom:
             - configMapRef: { name: {{ include "realtime-gateway.fullname" . }} }
           env:
+            - name: ASPNETCORE_HTTP_PORTS
+              value: {{ .Values.service.targetPort | quote }}
             - name: Redis__Password
               valueFrom:
                 secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.credentialsSecret.passwordKey }} }

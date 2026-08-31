@@ -16,4 +16,16 @@ spec:
       resource:
         name: memory
         target: { type: Utilization, averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }} }
+    {{- if .Values.autoscaling.connectionsMetric.enabled }}
+    - type: Pods
+      pods:
+        metric: { name: cormier_realtime_active_connections }
+        target: { type: AverageValue, averageValue: {{ .Values.autoscaling.connectionsMetric.targetAverageValue | quote }} }
+    {{- end }}
+    {{- if .Values.autoscaling.queueDepthMetric.enabled }}
+    - type: Pods
+      pods:
+        metric: { name: cormier_realtime_queue_depth }
+        target: { type: AverageValue, averageValue: {{ .Values.autoscaling.queueDepthMetric.targetAverageValue | quote }} }
+    {{- end }}
 {{- end }}

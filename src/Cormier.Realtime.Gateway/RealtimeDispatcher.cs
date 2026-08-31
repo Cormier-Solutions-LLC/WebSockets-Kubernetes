@@ -20,98 +20,138 @@ public sealed class RealtimeDispatcher(
         MessageEnvelope envelope,
         CancellationToken cancellationToken)
     {
-        using var activity = Activities.StartActivity("realtime.command", ActivityKind.Consumer);
-        activity?.SetTag("messaging.operation", envelope.Type);
-        activity?.SetTag("messaging.message.conversation_id", envelope.CorrelationId);
-
-        if (string.Equals(envelope.Type, ProtocolMessageTypes.Ping, StringComparison.Ordinal))
+        var started = Stopwatch.GetTimestamp();
+        var outcome = "success";
+        var messageOutcome = "accepted";
+        var redisOperation = "publish";
+        var redisStarted = Stopwatch.GetTimestamp();
+        try
         {
-            connection.TryEnqueue(Acknowledge(envelope));
-            return;
-        }
+            using var activity = Activities.StartActivity("realtime.command", ActivityKind.Consumer);
+            activity?.SetTag("messaging.operation", envelope.Type);
+            activity?.SetTag("messaging.message.conversation_id", envelope.CorrelationId);
 
-        if (!RealtimeRouteAuthorizer.TryAuthorize(connection.Identity, envelope.Route, out var route))
-        {
-            metrics.RecordAuthorizationFailure(envelope.Type);
-            connection.TryEnqueue(Error(
-                envelope,
-                ProtocolErrorCodes.Unauthorized,
-                "The server-derived identity is not authorized for this route."));
-            return;
-        }
-
-        if (string.Equals(envelope.Type, ProtocolMessageTypes.Subscribe, StringComparison.Ordinal))
-        {
-            if (!connection.TrySubscribe(route))
+            if (string.Equals(envelope.Type, ProtocolMessageTypes.Ping, StringComparison.Ordinal))
             {
-                connection.TryEnqueue(Error(
-                    envelope,
-                    ProtocolErrorCodes.InvalidEnvelope,
-                    "Subscription limit reached or route already subscribed."));
+                connection.TryEnqueue(Acknowledge(envelope));
                 return;
             }
 
-            connection.TryEnqueue(Acknowledge(envelope));
-            return;
-        }
-
-        if (string.Equals(envelope.Type, ProtocolMessageTypes.Unsubscribe, StringComparison.Ordinal))
-        {
-            connection.Unsubscribe(route);
-            connection.TryEnqueue(Acknowledge(envelope));
-            return;
-        }
-
-        if (!string.Equals(envelope.Type, ProtocolMessageTypes.Publish, StringComparison.Ordinal))
-        {
-            connection.TryEnqueue(Error(
-                envelope,
-                ProtocolErrorCodes.UnsupportedType,
-                "Unsupported command type."));
-            return;
-        }
-
-        var busMessage = new RealtimeBusMessage(
-            Guid.NewGuid().ToString("N"),
-            connection.Identity.TenantId,
-            route.UserId,
-            route.Topic,
-            envelope.CorrelationId,
-            DateTimeOffset.UtcNow,
-            envelope.Payload,
-            BuildSourceInstance(gatewayOptions.ServiceName, Environment.MachineName));
-
-        try
-        {
-            var eventClass = GetApprovedDurableEventClass(envelope.Payload);
-            if (eventClass is not null)
+            if (!RealtimeRouteAuthorizer.TryAuthorize(connection.Identity, envelope.Route, out var route))
             {
-                await durableStore.AppendAsync(
-                    new DurableStreamMessage(
-                        eventClass,
-                        busMessage.MessageId,
-                        busMessage.TenantId,
-                        busMessage.UserId,
-                        busMessage.Topic,
-                        busMessage.CorrelationId,
-                        busMessage.Timestamp,
-                        busMessage.Payload,
-                        busMessage.SourceInstance),
-                    cancellationToken);
-                metrics.RecordRedisOperation("stream_append", true);
+                outcome = "failure";
+                messageOutcome = "rejected";
+                metrics.RecordAuthorizationFailure(envelope.Type);
+                connection.TryEnqueue(Error(
+                    envelope,
+                    ProtocolErrorCodes.Unauthorized,
+                    "The server-derived identity is not authorized for this route."));
+                return;
             }
 
-            await messageBus.PublishAsync(busMessage, cancellationToken);
-            metrics.RecordRedisOperation("publish", true);
-            connection.TryEnqueue(Acknowledge(envelope));
+            if (string.Equals(envelope.Type, ProtocolMessageTypes.Subscribe, StringComparison.Ordinal))
+            {
+                if (!connection.TrySubscribe(route))
+                {
+                    outcome = "failure";
+                    messageOutcome = "rejected";
+                    connection.TryEnqueue(Error(
+                        envelope,
+                        ProtocolErrorCodes.InvalidEnvelope,
+                        "Subscription limit reached or route already subscribed."));
+                    return;
+                }
+
+                connection.TryEnqueue(Acknowledge(envelope));
+                return;
+            }
+
+            if (string.Equals(envelope.Type, ProtocolMessageTypes.Unsubscribe, StringComparison.Ordinal))
+            {
+                connection.Unsubscribe(route);
+                connection.TryEnqueue(Acknowledge(envelope));
+                return;
+            }
+
+            if (!string.Equals(envelope.Type, ProtocolMessageTypes.Publish, StringComparison.Ordinal))
+            {
+                outcome = "failure";
+                messageOutcome = "rejected";
+                connection.TryEnqueue(Error(
+                    envelope,
+                    ProtocolErrorCodes.UnsupportedType,
+                    "Unsupported command type."));
+                return;
+            }
+
+            var busMessage = new RealtimeBusMessage(
+                Guid.NewGuid().ToString("N"),
+                connection.Identity.TenantId,
+                route.UserId,
+                route.Topic,
+                envelope.CorrelationId,
+                DateTimeOffset.UtcNow,
+                envelope.Payload,
+                BuildSourceInstance(gatewayOptions.ServiceName, Environment.MachineName));
+
+            try
+            {
+                var eventClass = GetApprovedDurableEventClass(envelope.Payload);
+                if (eventClass is not null)
+                {
+                    redisOperation = "stream_append";
+                    redisStarted = Stopwatch.GetTimestamp();
+                    await durableStore.AppendAsync(
+                        new DurableStreamMessage(
+                            eventClass,
+                            busMessage.MessageId,
+                            busMessage.TenantId,
+                            busMessage.UserId,
+                            busMessage.Topic,
+                            busMessage.CorrelationId,
+                            busMessage.Timestamp,
+                            busMessage.Payload,
+                            busMessage.SourceInstance),
+                        cancellationToken);
+                    metrics.RecordRedisOperation("stream_append", true);
+                    metrics.RecordRedisDuration("stream_append", Stopwatch.GetElapsedTime(redisStarted), true);
+                }
+
+                redisOperation = "publish";
+                redisStarted = Stopwatch.GetTimestamp();
+                await messageBus.PublishAsync(busMessage, cancellationToken);
+                metrics.RecordRedisOperation("publish", true);
+                metrics.RecordRedisDuration("publish", Stopwatch.GetElapsedTime(redisStarted), true);
+                connection.TryEnqueue(Acknowledge(envelope));
+            }
+            catch (RedisException)
+            {
+                outcome = "failure";
+                messageOutcome = "error";
+                metrics.RecordRedisOperation(redisOperation, false);
+                metrics.RecordRedisDuration(redisOperation, Stopwatch.GetElapsedTime(redisStarted), false);
+                connection.TryEnqueue(Error(
+                    envelope,
+                    ProtocolErrorCodes.InternalError,
+                    "The messaging service is temporarily unavailable."));
+            }
         }
-        catch (RedisException)
+        catch (OperationCanceledException)
         {
-            metrics.RecordRedisOperation("publish", false);
-            connection.TryEnqueue(Error(
-                envelope,
-                ProtocolErrorCodes.InternalError,
-                "The messaging service is temporarily unavailable."));
+            outcome = "cancelled";
+            messageOutcome = "error";
+            throw;
+        }
+        catch
+        {
+            outcome = "failure";
+            messageOutcome = "error";
+            throw;
+        }
+        finally
+        {
+            metrics.RecordMessage("inbound", messageOutcome);
+            metrics.RecordHandlerDuration("dispatch", Stopwatch.GetElapsedTime(started), outcome);
         }
     }
 

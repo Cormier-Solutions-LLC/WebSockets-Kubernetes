@@ -12,26 +12,35 @@ permissions:
 
 jobs:
   helm-and-automation:
-    runs-on: cormier-runners
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Parse PowerShell lifecycle scripts
-        shell: pwsh
         run: |
-          $failed = $false
-          Get-ChildItem scripts -Filter '*.ps1' | ForEach-Object {
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) { $errors | Format-List; $failed = $true }
-          }
-          if ($failed) { exit 1 }
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview mcr.microsoft.com/powershell@sha256:042240d57ec9e47e511033b92625a8d95875ee5860af3015992c248b58a8be81 -NoLogo -NoProfile -Command '
+            $failed = $false
+            Get-ChildItem /work/scripts -Filter "*.ps1" | ForEach-Object {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+              if ($errors.Count -gt 0) { $errors | Format-List; $failed = $true }
+            }
+            if ($failed) { exit 1 }
+          '
       - name: Helm lint, schema, and render validation
         run: |
+          jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json
           docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 lint helm/realtime-gateway --strict
           docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime > /tmp/external.yaml
           docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime --values cluster/redis/managed-gateway-values.example.yaml > /tmp/managed.yaml
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime --api-versions monitoring.coreos.com/v1/ServiceMonitor --api-versions monitoring.coreos.com/v1/PrometheusRule --api-versions monitoring.coreos.com/v1alpha1/AlertmanagerConfig --set observability.alertmanagerConfig.enabled=true --set observability.alertmanagerConfig.webhookSecret.name=ci-alert-webhook --set autoscaling.connectionsMetric.enabled=true --set autoscaling.queueDepthMetric.enabled=true > /tmp/observability.yaml
           grep --quiet 'kind: Deployment' /tmp/external.yaml
           grep --quiet 'kind: NetworkPolicy' /tmp/managed.yaml
+          grep --quiet 'kind: ServiceMonitor' /tmp/observability.yaml
+          grep --quiet 'kind: PrometheusRule' /tmp/observability.yaml
+          grep --quiet 'kind: AlertmanagerConfig' /tmp/observability.yaml
+          grep --quiet 'cormier_realtime_active_connections' /tmp/observability.yaml
+          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > /tmp/prometheus-rules.yaml
+          docker run --rm -v /tmp:/work --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /work/prometheus-rules.yaml
       - name: Render pinned managed Redis topology
         run: |
           docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml
@@ -40,7 +49,7 @@ jobs:
           grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
 
   build-test-aot:
-    runs-on: cormier-runners
+    runs-on: ubuntu-latest
     services:
       redis:
         image: redis:7.4-alpine
@@ -95,6 +104,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:8080/health/startup >/dev/null
           curl --fail --silent http://127.0.0.1:8080/health/live >/dev/null
           curl --fail --silent http://127.0.0.1:8080/metrics | grep --quiet cormier_realtime_health_requests_total
+          curl --fail --silent http://127.0.0.1:8080/metrics | docker run --rm --interactive --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check metrics
       - name: Create OCI archive with .NET SDK
         run: dotnet publish src/Cormier.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore /t:PublishContainer /p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/cormier-realtime-gateway.tar.gz
       - name: Smoke-test rootless read-only OCI image
@@ -200,7 +210,7 @@ jobs:
 
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: cormier-runners
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write

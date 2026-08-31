@@ -13,7 +13,14 @@ spec:
         - namespaceSelector: {{ toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
           podSelector: {{ toYaml .Values.networkPolicy.ingressPodSelector | nindent 12 }}
       ports:
-        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: {{ .Values.service.targetPort }} }
+    {{- if .Values.observability.serviceMonitor.enabled }}
+    - from:
+        - namespaceSelector: {{ toYaml .Values.networkPolicy.monitoringNamespaceSelector | nindent 12 }}
+          podSelector: {{ toYaml .Values.networkPolicy.monitoringPodSelector | nindent 12 }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.service.targetPort }} }
+    {{- end }}
   egress:
     - to:
         - namespaceSelector: {}

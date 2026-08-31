@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Redis;
+using StackExchange.Redis;
 
 namespace Cormier.Realtime.Gateway;
 
@@ -25,7 +27,18 @@ public sealed class RealtimeAuthenticator(
         var ticket = request.Query["ticket"].ToString();
         if (!string.IsNullOrWhiteSpace(ticket))
         {
-            var identity = await ticketStore.ConsumeAsync(ticket, audience, cancellationToken);
+            RealtimeIdentity? identity;
+            try
+            {
+                identity = await ObserveRedisAsync(
+                    "ticket_consume",
+                    () => ticketStore.ConsumeAsync(ticket, audience, cancellationToken));
+            }
+            catch (RedisException)
+            {
+                metrics.RecordAuthentication(false, "ticket");
+                throw;
+            }
             metrics.RecordAuthentication(identity is not null, "ticket");
             return identity is null
                 ? new AuthenticationResult(null, "invalid_ticket")
@@ -45,6 +58,7 @@ public sealed class RealtimeAuthenticator(
             metrics.RecordAuthentication(false, "origin");
             return new AuthenticationResult(null, "origin_rejected");
         }
+        metrics.RecordAuthentication(true, "origin");
 
         if (!request.Cookies.TryGetValue(options.SessionCookieName, out var sessionId) ||
             string.IsNullOrWhiteSpace(sessionId))
@@ -53,7 +67,18 @@ public sealed class RealtimeAuthenticator(
             return new AuthenticationResult(null, "session_missing");
         }
 
-        var sessionIdentity = await sessionStore.ValidateAsync(sessionId, cancellationToken);
+        RealtimeIdentity? sessionIdentity;
+        try
+        {
+            sessionIdentity = await ObserveRedisAsync(
+                "session_read",
+                () => sessionStore.ValidateAsync(sessionId, cancellationToken));
+        }
+        catch (RedisException)
+        {
+            metrics.RecordAuthentication(false, "session");
+            throw;
+        }
         metrics.RecordAuthentication(sessionIdentity is not null, "session");
         return sessionIdentity is null
             ? new AuthenticationResult(null, "session_invalid")
@@ -63,7 +88,34 @@ public sealed class RealtimeAuthenticator(
     public ValueTask<RealtimeIdentity?> RevalidateSessionAsync(
         string sessionId,
         CancellationToken cancellationToken) =>
-        sessionStore.ValidateAsync(sessionId, cancellationToken);
+        ObserveRedisAsync("session_read", () => sessionStore.ValidateAsync(sessionId, cancellationToken));
+
+    public ValueTask<string> IssueTicketAsync(
+        RealtimeIdentity identity,
+        string audience,
+        TimeSpan lifetime,
+        CancellationToken cancellationToken) =>
+        ObserveRedisAsync(
+            "ticket_issue",
+            () => ticketStore.IssueAsync(identity, audience, lifetime, cancellationToken));
+
+    private async ValueTask<T> ObserveRedisAsync<T>(string operation, Func<ValueTask<T>> action)
+    {
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            var result = await action();
+            metrics.RecordRedisOperation(operation, true);
+            metrics.RecordRedisDuration(operation, Stopwatch.GetElapsedTime(started), true);
+            return result;
+        }
+        catch (RedisException)
+        {
+            metrics.RecordRedisOperation(operation, false);
+            metrics.RecordRedisDuration(operation, Stopwatch.GetElapsedTime(started), false);
+            throw;
+        }
+    }
 
     public bool IsAllowedOrigin(string origin)
     {

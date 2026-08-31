@@ -135,6 +135,40 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public async Task ClosingConnectionDoesNotReportQueueSaturation()
+    {
+        using var metrics = new GatewayMetrics();
+        await using var connection = new RealtimeConnection(
+            new OpenWebSocket(),
+            Identity(),
+            new RealtimeOptions { OutboundQueueCapacity = 1, SlowConsumerStrikeLimit = 1 },
+            metrics);
+
+        await connection.RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "test_close", CancellationToken.None);
+
+        Assert.False(connection.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "ignored")));
+        Assert.Contains("cormier_realtime_queue_dropped_total 0", metrics.RenderPrometheus(), StringComparison.Ordinal);
+        Assert.False(connection.HasExceededSlowConsumerLimit);
+    }
+
+    [Fact]
+    public async Task FailedCloseFrameRecordsOnlyTheFailureOutcome()
+    {
+        using var metrics = new GatewayMetrics();
+        await using var connection = new RealtimeConnection(
+            new FailingCloseWebSocket(),
+            Identity(),
+            new RealtimeOptions(),
+            metrics);
+
+        await connection.RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "test_close", CancellationToken.None);
+
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"1000\"} 0", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"1011\"} 1", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegistryDisconnectsSlowConsumerWithoutCrossTenantDelivery()
     {
         using var metrics = new GatewayMetrics();
@@ -161,8 +195,22 @@ public sealed class ProtocolSecurityTests
                 "instance-a"),
             CancellationToken.None);
 
+        await registry.DeliverAsync(
+            new RealtimeBusMessage(
+                "message-2",
+                "tenant-1",
+                null,
+                "orders",
+                "correlation-2",
+                Now,
+                Payload,
+                "instance-a"),
+            CancellationToken.None);
+
         Assert.Equal(RealtimeCloseStatus.SlowConsumer, socket.CloseStatus);
-        Assert.Contains("cormier_realtime_websocket_closes_total 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"4008\"} 1", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_slow_consumer_disconnects_total 1", rendered, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -334,5 +382,14 @@ public sealed class ProtocolSecurityTests
 
             return release;
         }
+    }
+
+    private sealed class FailingCloseWebSocket : OpenWebSocket
+    {
+        public override Task CloseOutputAsync(
+            WebSocketCloseStatus closeStatus,
+            string? statusDescription,
+            CancellationToken cancellationToken) =>
+            throw new WebSocketException("Simulated close-frame failure.");
     }
 }

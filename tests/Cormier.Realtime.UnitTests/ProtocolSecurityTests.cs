@@ -152,6 +152,23 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public async Task FailedCloseFrameRecordsOnlyTheFailureOutcome()
+    {
+        using var metrics = new GatewayMetrics();
+        await using var connection = new RealtimeConnection(
+            new FailingCloseWebSocket(),
+            Identity(),
+            new RealtimeOptions(),
+            metrics);
+
+        await connection.RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "test_close", CancellationToken.None);
+
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"1000\"} 0", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"1011\"} 1", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegistryDisconnectsSlowConsumerWithoutCrossTenantDelivery()
     {
         using var metrics = new GatewayMetrics();
@@ -351,5 +368,14 @@ public sealed class ProtocolSecurityTests
 
             return release;
         }
+    }
+
+    private sealed class FailingCloseWebSocket : OpenWebSocket
+    {
+        public override Task CloseOutputAsync(
+            WebSocketCloseStatus closeStatus,
+            string? statusDescription,
+            CancellationToken cancellationToken) =>
+            throw new WebSocketException("Simulated close-frame failure.");
     }
 }

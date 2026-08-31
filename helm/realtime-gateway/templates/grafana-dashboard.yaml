@@ -1,5 +1,5 @@
 {{- if .Values.observability.grafanaDashboard.enabled }}
-{{- $traefikServicePattern := default (printf ".*%s.*" (include "realtime-gateway.fullname" .)) .Values.observability.platformMetrics.traefikServicePattern }}
+{{- $traefikServicePattern := default (printf "^%s-%s-%v@kubernetescrd$" .Release.Namespace (include "realtime-gateway.fullname" .) .Values.service.port) .Values.observability.platformMetrics.traefikServicePattern }}
 {{- $dashboardIdentity := printf "%s/%s" .Release.Namespace (include "realtime-gateway.fullname" .) }}
 {{- $dashboardUid := printf "realtime-%s" (sha256sum $dashboardIdentity | trunc 31) }}
 {{- $dashboardTitle := printf "Realtime Gateway (%s) Production Diagnostics" $dashboardIdentity }}

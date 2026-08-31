@@ -207,6 +207,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("reason=~\"abrupt_disconnect|socket_closed\"", rules, StringComparison.Ordinal);
         Assert.Contains("traefikNamespace", rules, StringComparison.Ordinal);
         Assert.Contains("service=~{{ $traefikServicePattern", rules, StringComparison.Ordinal);
+        Assert.Contains("printf \"^%s-%s-%v@kubernetescrd$\"", rules, StringComparison.Ordinal);
         Assert.Contains("kube_deployment_status_replicas_available", rules, StringComparison.Ordinal);
         Assert.Contains("kube_deployment_spec_replicas", rules, StringComparison.Ordinal);
         Assert.Contains("absent(certmanager_certificate_ready_status", rules, StringComparison.Ordinal);
@@ -234,6 +235,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("closeReason.TrySetResult(\"slow_consumer\")", handler, StringComparison.Ordinal);
         Assert.Contains("return \"heartbeat_timeout\"", handler, StringComparison.Ordinal);
         Assert.Contains("return \"slow_consumer\"", handler, StringComparison.Ordinal);
+
+        var connection = Read("src/Cormier.Realtime.Gateway/RealtimeConnection.cs");
+        Assert.Contains("RemoveQueuedMessage()", connection, StringComparison.Ordinal);
+        Assert.Contains("Interlocked.CompareExchange(ref _queuedMessages, queued - 1, queued)", connection, StringComparison.Ordinal);
 
         var dispatcher = Read("src/Cormier.Realtime.Gateway/RealtimeDispatcher.cs");
         Assert.Contains("catch (OperationCanceledException)", dispatcher, StringComparison.Ordinal);

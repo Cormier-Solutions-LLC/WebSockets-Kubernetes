@@ -112,8 +112,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
         _metrics.RecordQueueEnqueued();
         if (!_outbound.Writer.TryWrite(message))
         {
-            Interlocked.Decrement(ref _queuedMessages);
-            _metrics.RecordQueueDequeued();
+            RemoveQueuedMessage();
             if (IsOpen)
             {
                 _metrics.RecordQueueDrop();
@@ -133,8 +132,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
     {
         await foreach (var message in _outbound.Reader.ReadAllAsync(cancellationToken))
         {
-            _metrics.RecordQueueDequeued();
-            Interlocked.Decrement(ref _queuedMessages);
+            RemoveQueuedMessage();
             var started = Stopwatch.GetTimestamp();
             var payload = JsonSerializer.SerializeToUtf8Bytes(
                 message,
@@ -181,11 +179,11 @@ public sealed class RealtimeConnection : IAsyncDisposable
             _outbound.Writer.TryComplete();
             await _sendLock.WaitAsync(cancellationToken);
             lockTaken = true;
-            _metrics.RecordCloseCode((int)status);
             if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
             {
                 await _socket.CloseOutputAsync(status, description, cancellationToken);
             }
+            _metrics.RecordCloseCode((int)status);
         }
         catch (Exception exception) when (exception is WebSocketException or IOException or ObjectDisposedException)
         {
@@ -228,5 +226,23 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
         _socket.Dispose();
         _sendLock.Dispose();
+    }
+
+    private void RemoveQueuedMessage()
+    {
+        while (true)
+        {
+            var queued = Volatile.Read(ref _queuedMessages);
+            if (queued <= 0)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _queuedMessages, queued - 1, queued) == queued)
+            {
+                _metrics.RecordQueueDequeued();
+                return;
+            }
+        }
     }
 }

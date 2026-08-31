@@ -1,6 +1,6 @@
 {{- if and .Values.observability.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
 {{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
-{{- $traefikServicePattern := default (printf ".*%s.*" (include "realtime-gateway.fullname" .)) .Values.observability.platformMetrics.traefikServicePattern }}
+{{- $traefikServicePattern := default (printf "^%s-%s-%v@kubernetescrd$" .Release.Namespace (include "realtime-gateway.fullname" .) .Values.service.port) .Values.observability.platformMetrics.traefikServicePattern }}
 {{- $_ := set .Values.observability.prometheusRule.routingLabels "service" (default (include "realtime-gateway.fullname" .) .Values.observability.prometheusRule.routingLabels.service) }}
 {{- $_ := set .Values.observability.prometheusRule.routingLabels "namespace" .Release.Namespace }}
 {{- $_ := set .Values.observability.prometheusRule.routingLabels "environment" .Values.observability.environment }}

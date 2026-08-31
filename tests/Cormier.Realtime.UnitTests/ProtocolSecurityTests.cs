@@ -195,8 +195,22 @@ public sealed class ProtocolSecurityTests
                 "instance-a"),
             CancellationToken.None);
 
+        await registry.DeliverAsync(
+            new RealtimeBusMessage(
+                "message-2",
+                "tenant-1",
+                null,
+                "orders",
+                "correlation-2",
+                Now,
+                Payload,
+                "instance-a"),
+            CancellationToken.None);
+
         Assert.Equal(RealtimeCloseStatus.SlowConsumer, socket.CloseStatus);
-        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"4008\"} 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_websocket_closes_total{code=\"4008\"} 1", rendered, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_slow_consumer_disconnects_total 1", rendered, StringComparison.Ordinal);
     }
 
     [Fact]

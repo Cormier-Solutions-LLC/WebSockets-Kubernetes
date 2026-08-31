@@ -238,6 +238,8 @@ public sealed class DeploymentContractTests
 
         var connection = Read("src/Cormier.Realtime.Gateway/RealtimeConnection.cs");
         Assert.Contains("RemoveQueuedMessage()", connection, StringComparison.Ordinal);
+        Assert.Contains("lock (_queueAccountingLock)", connection, StringComparison.Ordinal);
+        Assert.Contains("Volatile.Write(ref _disposing, 1)", connection, StringComparison.Ordinal);
         Assert.Contains("Interlocked.CompareExchange(ref _queuedMessages, queued - 1, queued)", connection, StringComparison.Ordinal);
 
         var dispatcher = Read("src/Cormier.Realtime.Gateway/RealtimeDispatcher.cs");
@@ -298,7 +300,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("HELM_VALUES_CONTENT", promote, StringComparison.Ordinal);
         Assert.Contains("kubectl get --raw /apis/monitoring.coreos.com/v1", promote, StringComparison.Ordinal);
         Assert.Contains("api_args+=(--api-versions", promote, StringComparison.Ordinal);
-        Assert.Contains("$workflowRun.head_sha -ne $commit", promote, StringComparison.Ordinal);
+        Assert.DoesNotContain("$workflowRun.head_sha -ne $commit", promote, StringComparison.Ordinal);
+        Assert.Contains("$ciRun.head_sha -ne $env:EXPECTED_COMMIT", promote, StringComparison.Ordinal);
+        Assert.Contains("$ciRun.path -ne '.github/workflows/ci.yml'", promote, StringComparison.Ordinal);
+        Assert.Contains("group: promote-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.releaseName }}", promote, StringComparison.Ordinal);
+        Assert.Contains("cancel-in-progress: false", promote, StringComparison.Ordinal);
         Assert.Contains("ref: ${{ steps.release.outputs.commit }}", promote, StringComparison.Ordinal);
         Assert.Contains("publishRunId:\n        description:", promote.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("publishRunId:\n        description: Trusted publish workflow run containing release evidence\n        required: false", promote.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);

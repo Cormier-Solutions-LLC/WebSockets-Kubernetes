@@ -25,10 +25,13 @@ public sealed class RealtimeConnection : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _correlations = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _correlationOrder = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly object _queueAccountingLock = new();
     private RealtimeIdentity _identity;
     private long _lastActivityTicks = DateTimeOffset.UtcNow.UtcTicks;
     private int _slowConsumerStrikes;
+    private int _slowConsumerDisconnectRecorded;
     private int _closeRequested;
+    private int _disposing;
     private int _queuedMessages;
 
     public RealtimeConnection(
@@ -65,7 +68,10 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public DateTimeOffset LastActivity => new(Interlocked.Read(ref _lastActivityTicks), TimeSpan.Zero);
 
-    public bool IsOpen => _socket.State == WebSocketState.Open && Volatile.Read(ref _closeRequested) == 0;
+    public bool IsOpen =>
+        _socket.State == WebSocketState.Open &&
+        Volatile.Read(ref _closeRequested) == 0 &&
+        Volatile.Read(ref _disposing) == 0;
 
     public void RecordActivity() => Interlocked.Exchange(ref _lastActivityTicks, DateTimeOffset.UtcNow.UtcTicks);
 
@@ -103,30 +109,36 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public bool TryEnqueue(ServerMessageEnvelope message)
     {
-        if (!IsOpen)
+        lock (_queueAccountingLock)
         {
-            return false;
-        }
-
-        Interlocked.Increment(ref _queuedMessages);
-        _metrics.RecordQueueEnqueued();
-        if (!_outbound.Writer.TryWrite(message))
-        {
-            RemoveQueuedMessage();
-            if (IsOpen)
+            if (!IsOpen)
             {
-                _metrics.RecordQueueDrop();
-                Interlocked.Increment(ref _slowConsumerStrikes);
+                return false;
             }
-            return false;
-        }
 
-        Interlocked.Exchange(ref _slowConsumerStrikes, 0);
-        return true;
+            Interlocked.Increment(ref _queuedMessages);
+            _metrics.RecordQueueEnqueued();
+            if (!_outbound.Writer.TryWrite(message))
+            {
+                RemoveQueuedMessage();
+                if (IsOpen)
+                {
+                    _metrics.RecordQueueDrop();
+                    Interlocked.Increment(ref _slowConsumerStrikes);
+                }
+                return false;
+            }
+
+            Interlocked.Exchange(ref _slowConsumerStrikes, 0);
+            return true;
+        }
     }
 
     public bool HasExceededSlowConsumerLimit =>
         Volatile.Read(ref _slowConsumerStrikes) >= _options.SlowConsumerStrikeLimit;
+
+    public bool TryMarkSlowConsumerDisconnect() =>
+        Interlocked.CompareExchange(ref _slowConsumerDisconnectRecorded, 1, 0) == 0;
 
     public async Task RunSenderAsync(CancellationToken cancellationToken)
     {
@@ -217,8 +229,12 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _outbound.Writer.TryComplete();
-        _metrics.RecordQueueRemoved(Interlocked.Exchange(ref _queuedMessages, 0));
+        lock (_queueAccountingLock)
+        {
+            Volatile.Write(ref _disposing, 1);
+            _outbound.Writer.TryComplete();
+            _metrics.RecordQueueRemoved(Interlocked.Exchange(ref _queuedMessages, 0));
+        }
         if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
             await RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "connection_complete", CancellationToken.None);
@@ -230,18 +246,21 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     private void RemoveQueuedMessage()
     {
-        while (true)
+        lock (_queueAccountingLock)
         {
-            var queued = Volatile.Read(ref _queuedMessages);
-            if (queued <= 0)
+            while (true)
             {
-                return;
-            }
+                var queued = Volatile.Read(ref _queuedMessages);
+                if (queued <= 0)
+                {
+                    return;
+                }
 
-            if (Interlocked.CompareExchange(ref _queuedMessages, queued - 1, queued) == queued)
-            {
-                _metrics.RecordQueueDequeued();
-                return;
+                if (Interlocked.CompareExchange(ref _queuedMessages, queued - 1, queued) == queued)
+                {
+                    _metrics.RecordQueueDequeued();
+                    return;
+                }
             }
         }
     }

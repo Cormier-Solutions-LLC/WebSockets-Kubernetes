@@ -124,7 +124,9 @@ public sealed class RealtimeConnectionRegistry(
                 continue;
             }
 
-            if (!connection.TryEnqueue(envelope) && connection.HasExceededSlowConsumerLimit)
+            if (!connection.TryEnqueue(envelope) &&
+                connection.HasExceededSlowConsumerLimit &&
+                connection.TryMarkSlowConsumerDisconnect())
             {
                 metrics.RecordSlowConsumerDisconnect();
                 AddBoundedClose(

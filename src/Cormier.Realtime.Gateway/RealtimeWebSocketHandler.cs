@@ -320,7 +320,8 @@ public sealed class RealtimeWebSocketHandler(
                     Guid.NewGuid().ToString("N"),
                     DateTimeOffset.UtcNow,
                     "system/heartbeat")) &&
-                connection.HasExceededSlowConsumerLimit)
+                connection.HasExceededSlowConsumerLimit &&
+                connection.TryMarkSlowConsumerDisconnect())
             {
                 metrics.RecordSlowConsumerDisconnect();
                 closeReason.TrySetResult("slow_consumer");

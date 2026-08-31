@@ -119,8 +119,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("redirections:", traefikValues, StringComparison.Ordinal);
         Assert.DoesNotContain("redirectTo:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
-        Assert.Contains("maxUnavailable: 0", traefikValues, StringComparison.Ordinal);
-        Assert.Contains("maxSurge: 1", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("maxUnavailable: 1", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("maxSurge: 0", traefikValues, StringComparison.Ordinal);
         Assert.Contains("requiredDuringSchedulingIgnoredDuringExecution", traefikValues, StringComparison.Ordinal);
         Assert.Contains("defaultmode: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("general:", traefikValues, StringComparison.Ordinal);
@@ -196,6 +196,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("active MetalLB BGP announcer", script, StringComparison.Ordinal);
         Assert.Contains("eligibleAdvertisementNodes", script, StringComparison.Ordinal);
         Assert.Contains("Get-MaxUnavailableCount", script, StringComparison.Ordinal);
+        Assert.Contains("namespaceSelectors", script, StringComparison.Ordinal);
+        Assert.Contains("ipAddressPoolSelectors", script, StringComparison.Ordinal);
+        Assert.Contains("Fewer than two active MetalLB BGP announcers", script, StringComparison.Ordinal);
+        Assert.Contains("PodDisruptionBudget", script, StringComparison.Ordinal);
+        Assert.Contains("rollout scheduling deadlock", script, StringComparison.Ordinal);
         Assert.Contains("required two-replica floor", script, StringComparison.Ordinal);
         Assert.Contains("CreateInvoker($connectionAddress", script, StringComparison.Ordinal);
         Assert.Contains("remainingMilliseconds", script, StringComparison.Ordinal);

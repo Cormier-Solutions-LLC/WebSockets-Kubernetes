@@ -187,6 +187,18 @@ function Get-MaxUnavailableCount([object]$Value, [int]$Replicas) {
     return $count
 }
 
+function Get-RoundedAvailabilityCount([object]$Value, [int]$Replicas, [string]$Description) {
+    $text = [string]$Value
+    if ($text -match '^([0-9]+)%$') {
+        $percentage = [int]$Matches[1]
+        if ($percentage -gt 100) { throw "$Description percentage cannot exceed 100%." }
+        return [int][Math]::Ceiling($Replicas * $percentage / 100.0)
+    }
+    $count = 0
+    if (-not [int]::TryParse($text, [ref]$count) -or $count -lt 0) { throw "$Description '$text' is invalid." }
+    return $count
+}
+
 function Get-CertificateRequestMaterial([string]$Name, [string]$Namespace) {
     $requests = Get-Json @('get', 'certificaterequests', '-n', $Namespace) 'Read public cert-manager certificate requests'
     $request = @($requests.items | Where-Object {
@@ -282,7 +294,16 @@ try {
     $connectionAddress = if ([string]::IsNullOrWhiteSpace($ExternalAddress)) { $vip } else { $ExternalAddress }
 
     $addressPool = Get-Json @('get', 'ipaddresspool', $pool, '-n', $MetalLbNamespace) 'Read MetalLB address pool'
-    if (@($addressPool.spec.serviceAllocation.namespaces) -notcontains $TraefikNamespace) { throw 'MetalLB pool is not scoped to the Traefik namespace.' }
+    $traefikNamespaceObject = Get-Json @('get', 'namespace', $TraefikNamespace) 'Read Traefik namespace labels'
+    $poolNamespacesProperty = $addressPool.spec.serviceAllocation.PSObject.Properties['namespaces']
+    $poolNamespaces = @()
+    if ($null -ne $poolNamespacesProperty -and $null -ne $poolNamespacesProperty.Value) { $poolNamespaces = @($poolNamespacesProperty.Value) }
+    $namespaceSelectorsProperty = $addressPool.spec.serviceAllocation.PSObject.Properties['namespaceSelectors']
+    $namespaceSelectors = @()
+    if ($null -ne $namespaceSelectorsProperty -and $null -ne $namespaceSelectorsProperty.Value) { $namespaceSelectors = @($namespaceSelectorsProperty.Value) }
+    $namespaceIsSelected = $poolNamespaces -contains $TraefikNamespace -or
+        @($namespaceSelectors | Where-Object { Test-LabelSelector $_ $traefikNamespaceObject.metadata.labels }).Count -gt 0
+    if (-not $namespaceIsSelected) { throw 'MetalLB pool is not scoped to the Traefik namespace by name or namespace selector.' }
     $serviceSelectorsProperty = $addressPool.spec.serviceAllocation.PSObject.Properties['serviceSelectors']
     $serviceSelectors = @()
     if ($null -ne $serviceSelectorsProperty -and $null -ne $serviceSelectorsProperty.Value) { $serviceSelectors = @($serviceSelectorsProperty.Value) }
@@ -293,7 +314,16 @@ try {
     if (@($addressPool.spec.addresses | Where-Object { Test-IpAddressInPool $parsedVip ([string]$_) }).Count -eq 0) { throw "Traefik VIP $vip is outside the selected MetalLB address pool." }
     $advertisementKind = if ($MetalLbAdvertisementMode -eq 'l2') { 'l2advertisement' } else { 'bgpadvertisement' }
     $advertisement = Get-Json @('get', $advertisementKind, $MetalLbAdvertisement, '-n', $MetalLbNamespace) "Read MetalLB $MetalLbAdvertisementMode advertisement"
-    if (@($advertisement.spec.ipAddressPools) -notcontains $pool) { throw 'MetalLB advertisement does not reference the Traefik address pool.' }
+    $advertisedPoolNamesProperty = $advertisement.spec.PSObject.Properties['ipAddressPools']
+    $advertisedPoolNames = @()
+    if ($null -ne $advertisedPoolNamesProperty -and $null -ne $advertisedPoolNamesProperty.Value) { $advertisedPoolNames = @($advertisedPoolNamesProperty.Value) }
+    $poolSelectorsProperty = $advertisement.spec.PSObject.Properties['ipAddressPoolSelectors']
+    $poolSelectors = @()
+    if ($null -ne $poolSelectorsProperty -and $null -ne $poolSelectorsProperty.Value) { $poolSelectors = @($poolSelectorsProperty.Value) }
+    $advertisementSelectsAllPools = $advertisedPoolNames.Count -eq 0 -and $poolSelectors.Count -eq 0
+    $poolIsAdvertised = $advertisementSelectsAllPools -or $advertisedPoolNames -contains $pool -or
+        @($poolSelectors | Where-Object { Test-LabelSelector $_ $addressPool.metadata.labels }).Count -gt 0
+    if (-not $poolIsAdvertised) { throw 'MetalLB advertisement does not reference the Traefik address pool by name or pool selector.' }
     $traefikPods = Get-Json @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read Traefik pods'
     $speakerPods = Get-Json @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
     $readyTraefikPods = @($traefikPods.items | Where-Object { $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 })
@@ -325,8 +355,8 @@ try {
         $activeAnnouncers = @($bgpStatuses.items | Where-Object {
             $_.status.serviceName -eq $TraefikService -and $_.status.serviceNamespace -eq $TraefikNamespace
         } | ForEach-Object { $_.status.node } | Where-Object { $_ } | Sort-Object -Unique)
-        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $eligibleAdvertisementNodes -notcontains $_ }).Count -gt 0) {
-            throw 'No active MetalLB BGP announcer is an intended node with both a ready speaker and local Traefik endpoint.'
+        if ($activeAnnouncers.Count -lt 2 -or @($activeAnnouncers | Where-Object { $eligibleAdvertisementNodes -notcontains $_ }).Count -gt 0) {
+            throw 'Fewer than two active MetalLB BGP announcers are intended nodes with both a ready speaker and local Traefik endpoint.'
         }
     }
     Write-Result PASS "MetalLB pool, $MetalLbAdvertisementMode advertisement, and intended Traefik/speaker node placement are consistent."
@@ -339,6 +369,30 @@ try {
     $maxUnavailableValue = if ($null -eq $maxUnavailableProperty) { '25%' } else { $maxUnavailableProperty.Value }
     $maxUnavailable = Get-MaxUnavailableCount $maxUnavailableValue $desiredTraefikReplicas
     if ($desiredTraefikReplicas - $maxUnavailable -lt 2) { throw 'Traefik rolling update can reduce ready replicas below the required two-replica floor.' }
+    $maxSurgeProperty = $traefikDeployment.spec.strategy.rollingUpdate.PSObject.Properties['maxSurge']
+    $maxSurgeValue = if ($null -eq $maxSurgeProperty) { '25%' } else { $maxSurgeProperty.Value }
+    $maxSurge = Get-RoundedAvailabilityCount $maxSurgeValue $desiredTraefikReplicas 'Traefik maxSurge'
+    $requiredHostnameAntiAffinity = @($traefikDeployment.spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution | Where-Object {
+        $_.topologyKey -eq 'kubernetes.io/hostname' -and (Test-LabelSelector $_.labelSelector $traefikDeployment.spec.template.metadata.labels)
+    }).Count -gt 0
+    if ($requiredHostnameAntiAffinity -and ($maxUnavailable -lt 1 -or $maxSurge -ne 0)) {
+        throw 'Traefik hard hostname anti-affinity requires maxUnavailable of at least one and maxSurge zero to avoid a rollout scheduling deadlock.'
+    }
+    $traefikPdbs = Get-Json @('get', 'poddisruptionbudgets', '-n', $TraefikNamespace) 'Read Traefik disruption budgets'
+    $protectivePdbs = @($traefikPdbs.items | Where-Object {
+        Test-LabelSelector $_.spec.selector $traefikDeployment.spec.template.metadata.labels
+    } | Where-Object {
+        $minAvailableProperty = $_.spec.PSObject.Properties['minAvailable']
+        $maxUnavailablePdbProperty = $_.spec.PSObject.Properties['maxUnavailable']
+        if ($null -ne $minAvailableProperty) {
+            (Get-RoundedAvailabilityCount $minAvailableProperty.Value $desiredTraefikReplicas 'Traefik PDB minAvailable') -ge 2
+        }
+        elseif ($null -ne $maxUnavailablePdbProperty) {
+            $desiredTraefikReplicas - (Get-RoundedAvailabilityCount $maxUnavailablePdbProperty.Value $desiredTraefikReplicas 'Traefik PDB maxUnavailable') -ge 2
+        }
+        else { $false }
+    })
+    if ($protectivePdbs.Count -lt 1) { throw 'No deployed Traefik PodDisruptionBudget selects the workload and preserves at least two replicas.' }
     if ([long]$traefikDeployment.status.observedGeneration -lt [long]$traefikDeployment.metadata.generation -or
         [int]$traefikDeployment.status.updatedReplicas -ne $desiredTraefikReplicas -or
         [int]$traefikDeployment.status.readyReplicas -ne $desiredTraefikReplicas -or

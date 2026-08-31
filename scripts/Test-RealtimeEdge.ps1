@@ -175,6 +175,18 @@ function Test-LabelSelector([object]$Selector, [object]$Labels) {
     return $true
 }
 
+function Get-MaxUnavailableCount([object]$Value, [int]$Replicas) {
+    $text = [string]$Value
+    if ($text -match '^([0-9]+)%$') {
+        $percentage = [int]$Matches[1]
+        if ($percentage -gt 100) { throw 'Traefik maxUnavailable percentage cannot exceed 100%.' }
+        return [int][Math]::Floor($Replicas * $percentage / 100.0)
+    }
+    $count = 0
+    if (-not [int]::TryParse($text, [ref]$count) -or $count -lt 0) { throw "Traefik maxUnavailable '$text' is invalid." }
+    return $count
+}
+
 function Get-CertificateRequestMaterial([string]$Name, [string]$Namespace) {
     $requests = Get-Json @('get', 'certificaterequests', '-n', $Namespace) 'Read public cert-manager certificate requests'
     $request = @($requests.items | Where-Object {
@@ -272,7 +284,8 @@ try {
     $addressPool = Get-Json @('get', 'ipaddresspool', $pool, '-n', $MetalLbNamespace) 'Read MetalLB address pool'
     if (@($addressPool.spec.serviceAllocation.namespaces) -notcontains $TraefikNamespace) { throw 'MetalLB pool is not scoped to the Traefik namespace.' }
     $serviceSelectorsProperty = $addressPool.spec.serviceAllocation.PSObject.Properties['serviceSelectors']
-    $serviceSelectors = if ($null -eq $serviceSelectorsProperty -or $null -eq $serviceSelectorsProperty.Value) { @() } else { @($serviceSelectorsProperty.Value) }
+    $serviceSelectors = @()
+    if ($null -ne $serviceSelectorsProperty -and $null -ne $serviceSelectorsProperty.Value) { $serviceSelectors = @($serviceSelectorsProperty.Value) }
     if ($serviceSelectors.Count -gt 0 -and @($serviceSelectors | Where-Object { Test-LabelSelector $_ $service.metadata.labels }).Count -eq 0) {
         throw 'Traefik Service labels do not match any service selector on the selected MetalLB pool.'
     }
@@ -288,12 +301,22 @@ try {
     $speakerNodes = @($speakerPods.items | Where-Object { $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
     $missingSpeakerNodes = @($traefikNodes | Where-Object { $speakerNodes -notcontains $_ })
     if ($traefikNodes.Count -lt 2 -or $missingSpeakerNodes.Count -gt 0) { throw 'MetalLB speakers are not ready on every node hosting a ready Traefik replica.' }
+    $advertisementNodeSelectorsProperty = $advertisement.spec.PSObject.Properties['nodeSelectors']
+    $advertisementNodeSelectors = @()
+    if ($null -ne $advertisementNodeSelectorsProperty -and $null -ne $advertisementNodeSelectorsProperty.Value) { $advertisementNodeSelectors = @($advertisementNodeSelectorsProperty.Value) }
+    $clusterNodes = Get-Json @('get', 'nodes') 'Read MetalLB advertisement node labels'
+    $eligibleAdvertisementNodes = @($clusterNodes.items | Where-Object {
+        $candidateNode = $_
+        $traefikNodes -contains $candidateNode.metadata.name -and $speakerNodes -contains $candidateNode.metadata.name -and
+        ($advertisementNodeSelectors.Count -eq 0 -or @($advertisementNodeSelectors | Where-Object { Test-LabelSelector $_ $candidateNode.metadata.labels }).Count -gt 0)
+    } | ForEach-Object { $_.metadata.name } | Sort-Object -Unique)
+    if ($eligibleAdvertisementNodes.Count -lt 2) { throw 'MetalLB advertisement node selectors leave fewer than two ready local-endpoint announcers for failover.' }
     if ($MetalLbAdvertisementMode -eq 'l2') {
         $l2Statuses = Get-Json @('get', 'servicel2status', '-n', $MetalLbNamespace) 'Read active MetalLB L2 announcer status'
         $activeAnnouncers = @($l2Statuses.items | Where-Object {
             $_.status.serviceName -eq $TraefikService -and $_.status.serviceNamespace -eq $TraefikNamespace
         } | ForEach-Object { $_.status.node } | Where-Object { $_ } | Sort-Object -Unique)
-        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $traefikNodes -notcontains $_ -or $speakerNodes -notcontains $_ }).Count -gt 0) {
+        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $eligibleAdvertisementNodes -notcontains $_ }).Count -gt 0) {
             throw 'The active MetalLB L2 announcer is not an intended node with both a ready speaker and local Traefik endpoint.'
         }
     }
@@ -302,7 +325,7 @@ try {
         $activeAnnouncers = @($bgpStatuses.items | Where-Object {
             $_.status.serviceName -eq $TraefikService -and $_.status.serviceNamespace -eq $TraefikNamespace
         } | ForEach-Object { $_.status.node } | Where-Object { $_ } | Sort-Object -Unique)
-        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $traefikNodes -notcontains $_ -or $speakerNodes -notcontains $_ }).Count -gt 0) {
+        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $eligibleAdvertisementNodes -notcontains $_ }).Count -gt 0) {
             throw 'No active MetalLB BGP announcer is an intended node with both a ready speaker and local Traefik endpoint.'
         }
     }
@@ -311,6 +334,11 @@ try {
     $traefikDeployment = Get-Json @('get', 'deployment', $TraefikRelease, '-n', $TraefikNamespace) 'Read Traefik timeout configuration'
     $traefikArguments = @($traefikDeployment.spec.template.spec.containers[0].args)
     $desiredTraefikReplicas = [int]$traefikDeployment.spec.replicas
+    if ($traefikDeployment.spec.strategy.type -ne 'RollingUpdate') { throw 'Traefik Deployment must use RollingUpdate to preserve edge availability.' }
+    $maxUnavailableProperty = $traefikDeployment.spec.strategy.rollingUpdate.PSObject.Properties['maxUnavailable']
+    $maxUnavailableValue = if ($null -eq $maxUnavailableProperty) { '25%' } else { $maxUnavailableProperty.Value }
+    $maxUnavailable = Get-MaxUnavailableCount $maxUnavailableValue $desiredTraefikReplicas
+    if ($desiredTraefikReplicas - $maxUnavailable -lt 2) { throw 'Traefik rolling update can reduce ready replicas below the required two-replica floor.' }
     if ([long]$traefikDeployment.status.observedGeneration -lt [long]$traefikDeployment.metadata.generation -or
         [int]$traefikDeployment.status.updatedReplicas -ne $desiredTraefikReplicas -or
         [int]$traefikDeployment.status.readyReplicas -ne $desiredTraefikReplicas -or

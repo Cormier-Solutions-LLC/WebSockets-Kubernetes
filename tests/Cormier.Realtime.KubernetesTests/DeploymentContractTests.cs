@@ -153,6 +153,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("ConnectionReadyFile", script, StringComparison.Ordinal);
         Assert.Contains("ConnectionStopFile", script, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
+        Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedServedCertificateSecretName", script, StringComparison.Ordinal);
+        Assert.Contains("externally served TLS leaf", script, StringComparison.Ordinal);
+        Assert.Contains("Traefik desired and running revisions", script, StringComparison.Ordinal);
+        Assert.Contains("x-cormier-origin-validated", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--since-time=", script, StringComparison.Ordinal);
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("CertificateAuthoritySecretKey", script, StringComparison.Ordinal);
@@ -216,6 +221,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("Acquire-FailureLock", script, StringComparison.Ordinal);
         Assert.Contains("Release-FailureLock", script, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
+        Assert.Contains("ContinuitySafetySeconds", script, StringComparison.Ordinal);
+        Assert.Contains("FailureLockNamespace", script, StringComparison.Ordinal);
+        Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedServedCertificateSecretName", script, StringComparison.Ordinal);
         Assert.Contains("DeletedPodUid", script, StringComparison.Ordinal);
         Assert.Contains("metadata.annotations", script, StringComparison.Ordinal);
         Assert.Contains("status.phase -eq 'Running'", script, StringComparison.Ordinal);

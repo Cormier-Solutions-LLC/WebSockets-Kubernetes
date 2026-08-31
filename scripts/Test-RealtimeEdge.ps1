@@ -47,14 +47,18 @@ param(
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretNamespace = '',
     [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$ExpectedServedCertificateSecretName = '',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$ExpectedServedCertificateSecretNamespace = '',
+    [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$ExpectedServedCertificateSecretKey = 'tls.crt',
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
     [Parameter()][ValidateRange(0, 65535)][int]$GatewayMetricsPort = 0,
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
     [Parameter()][string]$TicketRefreshCommand = '',
     [Parameter()][switch]$RequireReconnect,
-    [Parameter()][ValidateRange(5,900)][int]$LongConnectionSeconds = 30,
+    [Parameter()][switch]$ReconnectOnTransportFailure,
+    [Parameter()][ValidateRange(5,3600)][int]$LongConnectionSeconds = 30,
     [Parameter()][ValidateRange(5,300)][int]$HeartbeatSeconds = 15,
-    [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120,
+    [Parameter()][ValidateRange(30,900)][int]$TimeoutSeconds = 120,
     [Parameter()][string]$ConnectionReadyFile = '',
     [Parameter()][string]$ConnectionStopFile = ''
 )
@@ -96,6 +100,27 @@ function Test-CertificateDnsName([string]$Pattern, [string]$Candidate) {
     if (-not $Candidate.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
     $prefix = $Candidate.Substring(0, $Candidate.Length - $suffix.Length)
     return -not [string]::IsNullOrWhiteSpace($prefix) -and -not $prefix.Contains('.')
+}
+
+function Assert-TraefikArguments([string[]]$Arguments, [string]$Source) {
+    foreach ($timeoutName in @('readtimeout', 'writetimeout', 'idletimeout')) {
+        $timeoutArgument = @($Arguments | Where-Object { $_ -match "respondingtimeouts\.$timeoutName=([0-9]+)s$" })
+        if ($timeoutArgument.Count -ne 1 -or [int]([Regex]::Match($timeoutArgument[0], '=([0-9]+)s$').Groups[1].Value) -le $HeartbeatSeconds) {
+            throw "$Source $timeoutName must be configured in seconds beyond the $HeartbeatSeconds-second heartbeat."
+        }
+    }
+    foreach ($fieldName in @('RequestAddr', 'RequestPath', 'RequestPort')) {
+        if ($Arguments -notcontains "--accesslog.fields.names.$fieldName=drop") { throw "$Source access logs do not drop $fieldName." }
+    }
+    if ($Arguments -notcontains '--accesslog.fields.headers.defaultmode=drop') { throw "$Source access logs do not drop request headers by default." }
+}
+
+function Test-TransportFailure([Exception]$Exception) {
+    for ($current = $Exception; $null -ne $current; $current = $current.InnerException) {
+        if ($current -is [Net.WebSockets.WebSocketException] -or $current -is [IO.IOException] -or
+            $current -is [Net.Sockets.SocketException] -or $current -is [OperationCanceledException]) { return $true }
+    }
+    return $false
 }
 
 function Get-MetricValue([string]$MetricName, [string]$Labels) {
@@ -180,26 +205,23 @@ try {
     if (@($advertisement.spec.ipAddressPools) -notcontains $pool) { throw 'MetalLB advertisement does not reference the Traefik address pool.' }
     $traefikPods = Get-Json @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read Traefik pods'
     $speakerPods = Get-Json @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
-    $traefikNodes = @($traefikPods.items | Where-Object { $_.status.phase -eq 'Running' -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
-    $speakerNodes = @($speakerPods.items | Where-Object { $_.status.phase -eq 'Running' -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
+    $readyTraefikPods = @($traefikPods.items | Where-Object { $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 })
+    $traefikNodes = @($readyTraefikPods | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
+    $speakerNodes = @($speakerPods.items | Where-Object { $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
     $missingSpeakerNodes = @($traefikNodes | Where-Object { $speakerNodes -notcontains $_ })
     if ($traefikNodes.Count -lt 2 -or $missingSpeakerNodes.Count -gt 0) { throw 'MetalLB speakers are not ready on every node hosting a ready Traefik replica.' }
     Write-Result PASS "MetalLB pool, $MetalLbAdvertisementMode advertisement, and intended Traefik/speaker node placement are consistent."
 
     $traefikDeployment = Get-Json @('get', 'deployment', $TraefikRelease, '-n', $TraefikNamespace) 'Read Traefik timeout configuration'
     $traefikArguments = @($traefikDeployment.spec.template.spec.containers[0].args)
-    foreach ($timeoutName in @('readtimeout', 'writetimeout', 'idletimeout')) {
-        $timeoutArgument = @($traefikArguments | Where-Object { $_ -match "respondingtimeouts\.$timeoutName=([0-9]+)s$" })
-        if ($timeoutArgument.Count -ne 1 -or [int]([Regex]::Match($timeoutArgument[0], '=([0-9]+)s$').Groups[1].Value) -le $HeartbeatSeconds) {
-            throw "Traefik $timeoutName must be configured in seconds beyond the $HeartbeatSeconds-second heartbeat."
-        }
-    }
-    Write-Result PASS "Traefik read, write, and idle timeouts exceed the $HeartbeatSeconds-second heartbeat."
-    foreach ($fieldName in @('RequestAddr', 'RequestPath', 'RequestPort')) {
-        if ($traefikArguments -notcontains "--accesslog.fields.names.$fieldName=drop") { throw "Traefik access logs do not drop $fieldName." }
-    }
-    if ($traefikArguments -notcontains '--accesslog.fields.headers.defaultmode=drop') { throw 'Traefik access logs do not drop request headers by default.' }
-    Write-Result PASS 'Traefik access logs drop request headers and credential-bearing request fields.'
+    $desiredTraefikReplicas = [int]$traefikDeployment.spec.replicas
+    if ([long]$traefikDeployment.status.observedGeneration -lt [long]$traefikDeployment.metadata.generation -or
+        [int]$traefikDeployment.status.updatedReplicas -ne $desiredTraefikReplicas -or
+        [int]$traefikDeployment.status.readyReplicas -ne $desiredTraefikReplicas -or
+        $readyTraefikPods.Count -ne $desiredTraefikReplicas) { throw 'Traefik running pods are not fully updated and ready.' }
+    Assert-TraefikArguments $traefikArguments 'Traefik desired revision'
+    foreach ($pod in $readyTraefikPods) { Assert-TraefikArguments @($pod.spec.containers[0].args) "Traefik pod/$($pod.metadata.name)" }
+    Write-Result PASS 'Traefik desired and running revisions enforce heartbeat-safe timeouts and access-log redaction.'
 
     $certificate = Get-Json @('get', 'certificate', $CertificateName, '-n', $GatewayNamespace) 'Read edge Certificate'
     $ready = @($certificate.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' })
@@ -249,6 +271,48 @@ try {
     $curlCommon = @('--silent', '--show-error', '--noproxy', $HostName, '--max-time', "$TimeoutSeconds", '--resolve', "${HostName}:${ExternalPort}:$connectionAddress")
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) { $curlCommon += @('--cacert', $CertificateAuthorityPath) }
 
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedServedCertificateSecretName)) {
+        $servedSecretNamespace = if ([string]::IsNullOrWhiteSpace($ExpectedServedCertificateSecretNamespace)) { $GatewayNamespace } else { $ExpectedServedCertificateSecretNamespace }
+        $servedJsonPathKey = $ExpectedServedCertificateSecretKey -replace '\.', '\.'
+        $encodedServedCertificate = Invoke-Checked kubectl @('get', 'secret', $ExpectedServedCertificateSecretName, '-n', $servedSecretNamespace, '-o', "jsonpath={.data.$servedJsonPathKey}") 'Read expected public served certificate'
+        if ([string]::IsNullOrWhiteSpace($encodedServedCertificate)) { throw "Expected certificate Secret $ExpectedServedCertificateSecretName does not contain key $ExpectedServedCertificateSecretKey." }
+        if ($null -eq ('Cormier.Realtime.EdgeValidation.ServedCertificate' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+
+namespace Cormier.Realtime.EdgeValidation;
+
+public static class ServedCertificate
+{
+    public static string Sha256(string host, string address, int port)
+    {
+        using var client = new TcpClient();
+        client.Connect(address, port);
+        using var tls = new SslStream(client.GetStream(), false, (_, _, _, _) => true);
+        tls.AuthenticateAsClient(host);
+        using var certificate = new X509Certificate2(tls.RemoteCertificate ?? throw new AuthenticationException("The edge did not serve a certificate."));
+        return Convert.ToHexString(SHA256.HashData(certificate.RawData));
+    }
+}
+'@
+        }
+        $expectedCertificates = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+        try {
+            $expectedCertificates.ImportFromPem([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedServedCertificate.Trim())))
+            if ($expectedCertificates.Count -lt 1) { throw 'Expected served certificate data contains no public certificates.' }
+            $expectedFingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expectedCertificates[0].RawData))
+            $servedFingerprint = [Cormier.Realtime.EdgeValidation.ServedCertificate]::Sha256($HostName, $connectionAddress, $ExternalPort)
+            if ($servedFingerprint -ne $expectedFingerprint) { throw 'The externally served TLS leaf does not match the configured expected Secret.' }
+        }
+        finally { foreach ($expectedCertificate in $expectedCertificates) { $expectedCertificate.Dispose() } }
+        Write-Result PASS "Externally served TLS leaf matches Secret $servedSecretNamespace/$ExpectedServedCertificateSecretName."
+    }
+
     $accessLogSinceTime = [DateTimeOffset]::UtcNow.ToString('O')
     $webSocketKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
     $upgradeArguments = $curlCommon + @(
@@ -260,14 +324,11 @@ try {
         '--header', 'Sec-WebSocket-Protocol: cormier.realtime.v1',
         '--header', "Origin: $effectiveOrigin",
         '--output', $nullDevice,
-        '--write-out', '%{http_code}',
+        '--write-out', '%{http_code}|%header{x-cormier-origin-validated}',
         "https://${externalAuthority}${Path}"
     )
-    $originSuccessBefore = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="success"'
     $routeStatus = Invoke-Checked curl $upgradeArguments 'Validate TLS route'
-    if ($routeStatus.Trim() -ne '401') { throw "Approved route returned unexpected status $($routeStatus.Trim())." }
-    $originSuccessAfter = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="success"'
-    if ($originSuccessAfter -le $originSuccessBefore) { throw 'Approved Origin did not reach the session-authentication path.' }
+    if ($routeStatus.Trim() -ne '401|true') { throw "Approved Origin did not reach the session-authentication path; response was $($routeStatus.Trim())." }
     Write-Result PASS 'TLS handshake and authenticated approved route are reachable.'
     $invalidStatus = Invoke-Checked curl ($curlCommon + @('--output', $nullDevice, '--write-out', '%{http_code}', "https://${externalAuthority}/not-a-realtime-route")) 'Validate invalid route rejection'
     if ($invalidStatus.Trim() -ne '404') { throw "Invalid route returned unexpected status $($invalidStatus.Trim())." }
@@ -282,7 +343,7 @@ try {
     $originIndex = [Array]::IndexOf($invalidOriginArguments, "Origin: $effectiveOrigin")
     $invalidOriginArguments[$originIndex] = 'Origin: https://invalid.example'
     $invalidOriginStatus = Invoke-Checked curl $invalidOriginArguments 'Validate invalid Origin rejection'
-    if ($invalidOriginStatus.Trim() -ne '401') { throw "Invalid Origin returned unexpected status $($invalidOriginStatus.Trim())." }
+    if ($invalidOriginStatus.Trim() -ne '401|false') { throw "Invalid Origin returned unexpected status $($invalidOriginStatus.Trim())." }
     $originFailuresAfter = Get-MetricValue 'cormier_realtime_authentication_total' 'method="origin",outcome="failure"'
     if ($originFailuresAfter -le $originFailuresBefore) { throw 'Invalid Origin did not increment the gateway Origin-rejection metric.' }
     Write-Result PASS 'Invalid Origin is rejected by the gateway and recorded without credential data.'
@@ -301,12 +362,9 @@ try {
         Write-Result SKIP "Authenticated WSS validation skipped because $TicketEnvironmentVariable is unset."
     }
     else {
-        $socket = [Net.WebSockets.ClientWebSocket]::new()
+        $socket = $null
         $trustedRoots = $null
         $socketInvoker = $null
-        $connectionTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
-        $socket.Options.AddSubProtocol('cormier.realtime.v1')
-        $socket.Options.SetRequestHeader('Origin', $effectiveOrigin)
         if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath)) {
             $trustedRoots = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
             $trustedRoots.ImportFromPemFile($CertificateAuthorityPath)
@@ -380,17 +438,31 @@ public static class CustomRootValidator
             }
         }
         try {
-            $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($ticket))")
-            if ([string]::IsNullOrWhiteSpace($ExternalAddress)) {
-                $null = $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
-            }
-            else {
-                if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
-                    throw 'The pinned WSS transport helper could not be loaded.'
+            function Connect-AuthenticatedSocket([string]$EphemeralTicket) {
+                $candidateSocket = [Net.WebSockets.ClientWebSocket]::new()
+                $candidateInvoker = $null
+                $connectTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
+                try {
+                    $candidateSocket.Options.AddSubProtocol('cormier.realtime.v1')
+                    $candidateSocket.Options.SetRequestHeader('Origin', $effectiveOrigin)
+                    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
+                        $candidateSocket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedRoots)
+                    }
+                    $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($EphemeralTicket))")
+                    if ([string]::IsNullOrWhiteSpace($ExternalAddress)) { $null = $candidateSocket.ConnectAsync($uri, $connectTimeout.Token).GetAwaiter().GetResult() }
+                    else {
+                        if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) { throw 'The pinned WSS transport helper could not be loaded.' }
+                        $candidateInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedRoots)
+                        $null = $candidateSocket.ConnectAsync($uri, $candidateInvoker, $connectTimeout.Token).GetAwaiter().GetResult()
+                    }
+                    return [pscustomobject]@{ Socket = $candidateSocket; Invoker = $candidateInvoker }
                 }
-                $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedRoots)
-                $null = $socket.ConnectAsync($uri, $socketInvoker, $connectionTimeout.Token).GetAwaiter().GetResult()
+                catch { $candidateSocket.Dispose(); if ($null -ne $candidateInvoker) { $candidateInvoker.Dispose() }; throw }
+                finally { $connectTimeout.Dispose() }
             }
+            $connected = Connect-AuthenticatedSocket $ticket
+            $socket = $connected.Socket
+            $socketInvoker = $connected.Invoker
             if (-not [string]::IsNullOrWhiteSpace($ConnectionReadyFile)) {
                 [IO.File]::WriteAllText([IO.Path]::GetFullPath($ConnectionReadyFile), [DateTimeOffset]::UtcNow.ToString('O'))
             }
@@ -429,20 +501,9 @@ public static class CustomRootValidator
                             if ($refreshedTicket -notmatch '^[A-Za-z0-9_-]{32,128}$') { throw 'TicketRefreshCommand returned an invalid ticket.' }
                             $socket.Dispose()
                             if ($null -ne $socketInvoker) { $socketInvoker.Dispose(); $socketInvoker = $null }
-                            $socket = [Net.WebSockets.ClientWebSocket]::new()
-                            $socket.Options.AddSubProtocol('cormier.realtime.v1')
-                            $socket.Options.SetRequestHeader('Origin', $effectiveOrigin)
-                            if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
-                                $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedRoots)
-                            }
-                            $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($refreshedTicket))")
-                            if ([string]::IsNullOrWhiteSpace($ExternalAddress)) {
-                                $null = $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
-                            }
-                            else {
-                                $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedRoots)
-                                $null = $socket.ConnectAsync($uri, $socketInvoker, $connectionTimeout.Token).GetAwaiter().GetResult()
-                            }
+                            $connected = Connect-AuthenticatedSocket $refreshedTicket
+                            $socket = $connected.Socket
+                            $socketInvoker = $connected.Invoker
                             $reconnectCount++
                             $reconnectRequired = $true
                             break
@@ -459,6 +520,19 @@ public static class CustomRootValidator
                             $acknowledged = $true
                         }
                     }
+                }
+                catch {
+                    if (-not $ReconnectOnTransportFailure -or -not (Test-TransportFailure $_.Exception)) { throw }
+                    if ([string]::IsNullOrWhiteSpace($TicketRefreshCommand)) { throw 'WSS transport recovery requires TicketRefreshCommand to obtain a fresh single-use ticket.' }
+                    $refreshedTicket = (Invoke-Checked $TicketRefreshCommand @() 'Refresh WSS ticket after transport failure').Trim()
+                    if ($refreshedTicket -notmatch '^[A-Za-z0-9_-]{32,128}$') { throw 'TicketRefreshCommand returned an invalid ticket.' }
+                    $socket.Dispose()
+                    if ($null -ne $socketInvoker) { $socketInvoker.Dispose(); $socketInvoker = $null }
+                    $connected = Connect-AuthenticatedSocket $refreshedTicket
+                    $socket = $connected.Socket
+                    $socketInvoker = $connected.Invoker
+                    $reconnectCount++
+                    $reconnectRequired = $true
                 }
                 finally {
                     $receiveTimeout.Dispose()
@@ -477,8 +551,7 @@ public static class CustomRootValidator
             Write-Result PASS "Authenticated WSS continuity completed with $reconnectCount service-restart reconnect(s)."
         }
         finally {
-            try { $connectionTimeout.Dispose() } catch {}
-            try { $socket.Dispose() } catch {}
+            try { if ($null -ne $socket) { $socket.Dispose() } } catch {}
             try { if ($null -ne $socketInvoker) { $socketInvoker.Dispose() } } catch {}
             try { if ($null -ne $trustedRoots) { foreach ($root in $trustedRoots) { $root.Dispose() } } } catch {}
         }

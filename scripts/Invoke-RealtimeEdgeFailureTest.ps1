@@ -28,6 +28,7 @@ param(
     [Parameter()][ValidateSet('l2', 'bgp')][string]$MetalLbAdvertisementMode = 'l2',
     [Parameter()][string]$MetalLbSpeakerSelector = 'component=speaker',
     [Parameter()][string]$MetalLbSpeakerNode = '',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$FailureLockNamespace = '',
     [Parameter()][ValidatePattern('^[a-z0-9.-]+$')][string]$HostName = 'realtime.cormier.local',
     [Parameter()][ValidatePattern('^/[A-Za-z0-9._/-]*$')][string]$Path = '/realtime/ws',
     [Parameter()][ValidatePattern('^$|^https://[a-z0-9.-]+(:[0-9]{1,5})?$')][string]$Origin = '',
@@ -44,6 +45,7 @@ param(
     [Parameter()][string]$NodeName = '',
     [Parameter()][switch]$AllowNodeDrain,
     [Parameter()][ValidateRange(30, 900)][int]$TimeoutSeconds = 300,
+    [Parameter()][ValidateRange(120, 3600)][int]$ContinuitySafetySeconds = 1800,
     [Parameter()][ValidateRange(5, 300)][int]$HeartbeatSeconds = 15,
     [Parameter()][string]$EvidenceDirectory = '.evidence/edge'
 )
@@ -68,6 +70,7 @@ $failureLockName = ''
 $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName}:$ExternalPort" }
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 $effectiveGatewayHpaName = if ([string]::IsNullOrWhiteSpace($GatewayHpaName)) { $GatewayRelease } else { $GatewayHpaName }
+$effectiveFailureLockNamespace = if ([string]::IsNullOrWhiteSpace($FailureLockNamespace)) { $MetalLbNamespace } else { $FailureLockNamespace }
 
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
     $stderrPath = [IO.Path]::GetTempFileName()
@@ -148,7 +151,7 @@ function Set-RouteValue([string]$JsonPointer, [string]$Value, [string]$Descripti
     Invoke-Checked kubectl @('patch', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace, '--type=json', '-p', $patch) $Description | Out-Null
 }
 
-function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '') {
+function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '', [string]$ExpectedServedSecretOverride = '', [string]$ExpectedServedNamespaceOverride = '') {
     $effectiveCertificate = if ([string]::IsNullOrWhiteSpace($CertificateOverride)) { $CertificateName } else { $CertificateOverride }
     $effectiveAuthoritySecret = if ([string]::IsNullOrWhiteSpace($AuthoritySecretOverride)) { $CertificateAuthoritySecretName } else { $AuthoritySecretOverride }
     $effectiveAuthoritySecretKey = if ([string]::IsNullOrWhiteSpace($AuthoritySecretKeyOverride)) { $CertificateAuthoritySecretKey } else { $AuthoritySecretKeyOverride }
@@ -173,22 +176,26 @@ function Get-EdgeValidationArguments([string]$CertificateOverride = '', [string]
     if (-not [string]::IsNullOrWhiteSpace($ExternalAddress)) { $arguments += @('-ExternalAddress', $ExternalAddress) }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedClientIp)) { $arguments += @('-ExpectedClientIp', $ExpectedClientIp) }
     if (-not [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) { $arguments += @('-TicketRefreshCommand', $TicketRefreshCommand) }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedServedSecretOverride)) {
+        $arguments += @('-ExpectedServedCertificateSecretName', $ExpectedServedSecretOverride, '-ExpectedServedCertificateSecretKey', 'tls.crt')
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedServedNamespaceOverride)) { $arguments += @('-ExpectedServedCertificateSecretNamespace', $ExpectedServedNamespaceOverride) }
+    }
     return $arguments
 }
 
-function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '') {
+function Invoke-EdgeValidation([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '', [string]$ExpectedServedSecretOverride = '', [string]$ExpectedServedNamespaceOverride = '') {
     $ticket = [Environment]::GetEnvironmentVariable($TicketEnvironmentVariable)
     try {
         [Environment]::SetEnvironmentVariable($TicketEnvironmentVariable, $null)
-        return Invoke-Checked pwsh (Get-EdgeValidationArguments $CertificateOverride $AuthoritySecretOverride $AuthoritySecretKeyOverride $AuthoritySecretNamespaceOverride) 'Run external edge validation'
+        return Invoke-Checked pwsh (Get-EdgeValidationArguments $CertificateOverride $AuthoritySecretOverride $AuthoritySecretKeyOverride $AuthoritySecretNamespaceOverride $ExpectedServedSecretOverride $ExpectedServedNamespaceOverride) 'Run external edge validation'
     }
     finally { [Environment]::SetEnvironmentVariable($TicketEnvironmentVariable, $ticket) }
 }
 
-function Invoke-EdgeValidationWithRetry([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '') {
+function Invoke-EdgeValidationWithRetry([string]$CertificateOverride = '', [string]$AuthoritySecretOverride = '', [string]$AuthoritySecretKeyOverride = '', [string]$AuthoritySecretNamespaceOverride = '', [string]$ExpectedServedSecretOverride = '', [string]$ExpectedServedNamespaceOverride = '') {
     $lastError = $null
     foreach ($attempt in 1..3) {
-        try { return Invoke-EdgeValidation $CertificateOverride $AuthoritySecretOverride $AuthoritySecretKeyOverride $AuthoritySecretNamespaceOverride }
+        try { return Invoke-EdgeValidation $CertificateOverride $AuthoritySecretOverride $AuthoritySecretKeyOverride $AuthoritySecretNamespaceOverride $ExpectedServedSecretOverride $ExpectedServedNamespaceOverride }
         catch {
             $lastError = $_
             if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
@@ -204,8 +211,9 @@ function Start-ContinuityProbe {
     $script:continuityReadyPath = Join-Path $evidencePath 'continuity-ready.marker'
     $script:continuityStopPath = Join-Path $evidencePath 'continuity-stop.marker'
     $arguments = Get-EdgeValidationArguments
-    $arguments += @('-LongConnectionSeconds', $TimeoutSeconds, '-ConnectionReadyFile', $continuityReadyPath, '-ConnectionStopFile', $continuityStopPath)
-    if ($Scenario -eq 'GatewayRollout') { $arguments += '-RequireReconnect' }
+    $arguments += @('-LongConnectionSeconds', $ContinuitySafetySeconds, '-ConnectionReadyFile', $continuityReadyPath, '-ConnectionStopFile', $continuityStopPath)
+    if ($Scenario -in @('GatewayRollout', 'TraefikRestart')) { $arguments += '-RequireReconnect' }
+    if ($Scenario -in @('TraefikRestart', 'NodeDrain')) { $arguments += '-ReconnectOnTransportFailure' }
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = (Get-Command pwsh).Source
     $startInfo.UseShellExecute = $false
@@ -228,7 +236,7 @@ function Start-ContinuityProbe {
 function Complete-ContinuityProbe {
     if ($null -eq $continuityProcess) { return }
     [IO.File]::WriteAllText($continuityStopPath, [DateTimeOffset]::UtcNow.ToString('O'))
-    if (-not $continuityProcess.WaitForExit($TimeoutSeconds * 1000)) {
+    if (-not $continuityProcess.WaitForExit($ContinuitySafetySeconds * 1000)) {
         $continuityProcess.Kill($true)
         throw 'Authenticated continuity probe did not complete within the timeout.'
     }
@@ -305,20 +313,25 @@ function Restore-GatewayHpa {
 }
 
 function Acquire-FailureLock {
-    $identity = "$ExpectedContext|$GatewayNamespace|$GatewayRelease|$TraefikNamespace|$TraefikRelease|$MetalLbNamespace"
+    $identity = switch ($Scenario) {
+        'TraefikRestart' { "$ExpectedContext|traefik|$TraefikNamespace|$TraefikRelease" }
+        'MetalLbSpeakerRestart' { "$ExpectedContext|metallb|$MetalLbNamespace|speaker" }
+        'NodeDrain' { "$ExpectedContext|node|$NodeName" }
+        default { "$ExpectedContext|gateway|$GatewayNamespace|$GatewayRelease" }
+    }
     $hashBytes = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))
     $suffix = ([Convert]::ToHexString($hashBytes)).ToLowerInvariant().Substring(0, 16)
     $script:failureLockName = "realtime-failure-$suffix"
     try {
-        Invoke-Checked kubectl @('create', 'configmap', $failureLockName, '-n', $GatewayNamespace, "--from-literal=holder=$([Guid]::NewGuid().ToString('N'))") 'Acquire exclusive edge failure-test lock' | Out-Null
+        Invoke-Checked kubectl @('create', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, "--from-literal=holder=$([Guid]::NewGuid().ToString('N'))") 'Acquire exclusive edge failure-test lock' | Out-Null
         $script:lockAcquired = $true
     }
-    catch { throw "CONCURRENT: another failure test holds lock configmap/$failureLockName in namespace $GatewayNamespace." }
+    catch { throw "CONCURRENT: another failure test holds lock configmap/$failureLockName in namespace $effectiveFailureLockNamespace." }
 }
 
 function Release-FailureLock {
     if (-not $lockAcquired) { return }
-    Invoke-Checked kubectl @('delete', 'configmap', $failureLockName, '-n', $GatewayNamespace, '--ignore-not-found=true') 'Release edge failure-test lock' | Out-Null
+    Invoke-Checked kubectl @('delete', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, '--ignore-not-found=true') 'Release edge failure-test lock' | Out-Null
     $script:lockAcquired = $false
 }
 
@@ -331,6 +344,8 @@ if ($context -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$Expected
 if ($Environment -match '^(prod|production)$') { throw 'SAFETY STOP: failure tests cannot target an environment named prod or production.' }
 $gatewayNamespaceMetadata = Get-KubeJson @('get', 'namespace', $GatewayNamespace) 'Read gateway namespace safety labels'
 Assert-ApprovedMetadata $gatewayNamespaceMetadata.metadata "namespace $GatewayNamespace"
+$lockNamespaceMetadata = Get-KubeJson @('get', 'namespace', $effectiveFailureLockNamespace) 'Read failure-lock namespace safety labels'
+Assert-ApprovedMetadata $lockNamespaceMetadata.metadata "failure-lock namespace $effectiveFailureLockNamespace"
 if ($Scenario -in @('TraefikRestart', 'NodeDrain')) {
     $traefikNamespaceMetadata = Get-KubeJson @('get', 'namespace', $TraefikNamespace) 'Read Traefik namespace safety labels'
     Assert-ApprovedMetadata $traefikNamespaceMetadata.metadata "namespace $TraefikNamespace"
@@ -353,7 +368,7 @@ if ($Scenario -eq 'NodeDrain') {
 if ($Scenario -eq 'MetalLbSpeakerRestart' -and $MetalLbAdvertisementMode -eq 'bgp' -and [string]::IsNullOrWhiteSpace($MetalLbSpeakerNode)) {
     throw 'BGP MetalLbSpeakerRestart requires an explicit -MetalLbSpeakerNode.'
 }
-if ($Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'NodeDrain') -and [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) {
+if ($Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'TraefikRestart', 'NodeDrain') -and [string]::IsNullOrWhiteSpace($TicketRefreshCommand)) {
     throw "$Scenario requires TicketRefreshCommand so an expected service-restart close can reconnect with a fresh single-use ticket."
 }
 
@@ -421,7 +436,11 @@ try {
                 $speakerNode = [string]$matchingStatuses[0].status.node
             }
             $speakers = Get-KubeJson @('get', 'pods', '-n', $MetalLbNamespace, '-l', $MetalLbSpeakerSelector) 'Read MetalLB speakers'
-            $speakerName = @($speakers.items | Where-Object { $_.status.phase -eq 'Running' -and $_.spec.nodeName -eq $speakerNode } | Select-Object -First 1).metadata.name
+            $speakerName = @($speakers.items | Where-Object {
+                $_.status.phase -eq 'Running' -and $_.spec.nodeName -eq $speakerNode -and
+                $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and
+                @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
+            } | Select-Object -First 1).metadata.name
             if ([string]::IsNullOrWhiteSpace($speakerName)) { throw "No running MetalLB speaker is available on announcing node $speakerNode." }
             $speakerUid = [string]@($speakers.items | Where-Object { $_.metadata.name -eq $speakerName } | Select-Object -First 1).metadata.uid
             Start-ContinuityProbe
@@ -471,7 +490,7 @@ try {
             $replacementAuthoritySecret = if ([string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and $CertificateAuthoritySecretName -eq $originalTlsSecret) { $replacementSecretName } else { '' }
             $replacementAuthorityKey = if ([string]::IsNullOrWhiteSpace($replacementAuthoritySecret)) { '' } else { 'tls.crt' }
             $replacementAuthorityNamespace = if ([string]::IsNullOrWhiteSpace($replacementAuthoritySecret)) { '' } else { $GatewayNamespace }
-            Invoke-EdgeValidationWithRetry $replacementCertificateName $replacementAuthoritySecret $replacementAuthorityKey $replacementAuthorityNamespace | Set-Content -LiteralPath (Join-Path $evidencePath 'replacement-certificate.log') -Encoding utf8NoBOM
+            Invoke-EdgeValidationWithRetry $replacementCertificateName $replacementAuthoritySecret $replacementAuthorityKey $replacementAuthorityNamespace $replacementSecretName $GatewayNamespace | Set-Content -LiteralPath (Join-Path $evidencePath 'replacement-certificate.log') -Encoding utf8NoBOM
         }
         'RouteMismatch' {
             $route = Get-KubeJson @('get', 'ingressroute', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway route'

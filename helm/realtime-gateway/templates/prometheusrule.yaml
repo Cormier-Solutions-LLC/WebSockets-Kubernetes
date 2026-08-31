@@ -178,7 +178,7 @@ spec:
           {{- if eq .Values.observability.platformMetrics.metalLbAdvertisementMode "bgp" }}
           expr: (max(metallb_bgp_session_up{namespace={{ .Values.observability.platformMetrics.metalLbNamespace | quote }}}) < 1) or absent(metallb_bgp_session_up{namespace={{ .Values.observability.platformMetrics.metalLbNamespace | quote }}})
           {{- else }}
-          expr: sum(rate(metallb_layer2_requests_received{namespace={{ .Values.observability.platformMetrics.metalLbNamespace | quote }}}[5m])) > 0 and sum(rate(metallb_layer2_responses_sent{namespace={{ .Values.observability.platformMetrics.metalLbNamespace | quote }}}[5m])) == 0
+          expr: sum(rate(metallb_layer2_requests_received{namespace={{ .Values.observability.platformMetrics.metalLbNamespace | quote }},ip={{ .Values.observability.platformMetrics.metalLbAddress | quote }}}[5m])) > 0 and sum(rate(metallb_layer2_responses_sent{namespace={{ .Values.observability.platformMetrics.metalLbNamespace | quote }},ip={{ .Values.observability.platformMetrics.metalLbAddress | quote }}}[5m])) == 0
           {{- end }}
           for: 5m
           labels:

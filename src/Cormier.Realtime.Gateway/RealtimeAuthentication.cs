@@ -58,6 +58,7 @@ public sealed class RealtimeAuthenticator(
             metrics.RecordAuthentication(false, "origin");
             return new AuthenticationResult(null, "origin_rejected");
         }
+        metrics.RecordAuthentication(true, "origin");
 
         if (!request.Cookies.TryGetValue(options.SessionCookieName, out var sessionId) ||
             string.IsNullOrWhiteSpace(sessionId))

@@ -107,7 +107,7 @@
       },
       "targets": [
         {
-          "expr": "sum(kube_pod_status_ready{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\",condition=\"true\"})",
+          "expr": "sum(kube_pod_status_ready{namespace=~\"$namespace\",pod=~\"$pod\",condition=\"true\"})",
           "legendFormat": "ready"
         }
       ]
@@ -274,15 +274,15 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(container_cpu_usage_seconds_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"}[$__rate_interval]))",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"}[$__rate_interval]))",
           "legendFormat": "cpu"
         },
         {
-          "expr": "sum(container_memory_working_set_bytes{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"})",
+          "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"})",
           "legendFormat": "memory"
         },
         {
-          "expr": "sum(rate(container_cpu_cfs_throttled_seconds_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"}[$__rate_interval]))",
+          "expr": "sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~\"$namespace\",pod=~\"$pod\",container!=\"\"}[$__rate_interval]))",
           "legendFormat": "throttled"
         }
       ]
@@ -299,11 +299,11 @@
       },
       "targets": [
         {
-          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\",pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{pod}} restarts"
         },
         {
-          "expr": "kube_deployment_status_replicas_unavailable{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",deployment=\"__SERVICE_NAME__\"}",
+          "expr": "kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\",deployment=\"__SERVICE_NAME__\"}",
           "legendFormat": "unavailable"
         }
       ]
@@ -320,11 +320,11 @@
       },
       "targets": [
         {
-          "expr": "sum by (code) (rate(traefik_service_requests_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__TRAEFIK_NAMESPACE__\",service=~\"__TRAEFIK_SERVICE_PATTERN__\",code=~\"4..|5..\"}[$__rate_interval]))",
+          "expr": "sum by (code) (rate(traefik_service_requests_total{namespace=\"__TRAEFIK_NAMESPACE__\",service=~\"__TRAEFIK_SERVICE_PATTERN__\",code=~\"4..|5..\"}[$__rate_interval]))",
           "legendFormat": "HTTP {{code}}/s"
         },
         {
-          "expr": "sum(traefik_service_open_connections{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__TRAEFIK_NAMESPACE__\",service=~\"__TRAEFIK_SERVICE_PATTERN__\"})",
+          "expr": "sum(traefik_service_open_connections{namespace=\"__TRAEFIK_NAMESPACE__\",service=~\"__TRAEFIK_SERVICE_PATTERN__\"})",
           "legendFormat": "open connections"
         }
       ]
@@ -341,23 +341,23 @@
       },
       "targets": [
         {
-          "expr": "redis_memory_used_bytes{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_memory_used_bytes{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "memory"
         },
         {
-          "expr": "redis_connected_slaves{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_connected_slaves{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "replicas"
         },
         {
-          "expr": "redis_connected_clients{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_connected_clients{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "clients"
         },
         {
-          "expr": "redis_master_link_up{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_master_link_up{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "primary link"
         },
         {
-          "expr": "redis_rdb_last_bgsave_status{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_rdb_last_bgsave_status{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "RDB save"
         }
       ]
@@ -374,15 +374,15 @@
       },
       "targets": [
         {
-          "expr": "max(metallb_k8s_client_config_stale_bool{environment=~\"$environment\",cluster=~\"$cluster\"})",
+          "expr": "max(metallb_k8s_client_config_stale_bool{namespace=\"__METALLB_NAMESPACE__\"})",
           "legendFormat": "config stale"
         },
         {
-          "expr": "sum(rate(metallb_layer2_responses_sent{environment=~\"$environment\",cluster=~\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum(rate(metallb_layer2_responses_sent{namespace=\"__METALLB_NAMESPACE__\",ip=\"__METALLB_ADDRESS__\"}[$__rate_interval]))",
           "legendFormat": "L2 responses/s"
         },
         {
-          "expr": "min(metallb_bgp_session_up{environment=~\"$environment\",cluster=~\"$cluster\"})",
+          "expr": "min(metallb_bgp_session_up{namespace=\"__METALLB_NAMESPACE__\"})",
           "legendFormat": "BGP session up"
         }
       ]
@@ -399,7 +399,7 @@
       },
       "targets": [
         {
-          "expr": "(certmanager_certificate_expiration_timestamp_seconds{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",name=\"__CERTIFICATE_NAME__\"}-time())/86400",
+          "expr": "(certmanager_certificate_expiration_timestamp_seconds{namespace=~\"$namespace\",name=\"__CERTIFICATE_NAME__\"}-time())/86400",
           "legendFormat": "{{name}} days"
         }
       ]
@@ -416,19 +416,19 @@
       },
       "targets": [
         {
-          "expr": "redis_stream_group_lag{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_stream_group_lag{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "{{stream}} lag"
         },
         {
-          "expr": "redis_stream_group_pending_messages{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
+          "expr": "redis_stream_group_pending_messages{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}",
           "legendFormat": "{{stream}} pending"
         },
         {
-          "expr": "rate(redis_stream_messages_acked_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}[$__rate_interval])",
+          "expr": "rate(redis_stream_messages_acked_total{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}[$__rate_interval])",
           "legendFormat": "acks"
         },
         {
-          "expr": "rate(redis_stream_messages_claimed_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}[$__rate_interval])",
+          "expr": "rate(redis_stream_messages_claimed_total{namespace=\"__REDIS_NAMESPACE__\",instance=\"__REDIS_INSTANCE__\"}[$__rate_interval])",
           "legendFormat": "recovered"
         }
       ]
@@ -447,7 +447,7 @@
         "name": "environment",
         "label": "Environment",
         "type": "query",
-        "query": "label_values(up,environment)",
+        "query": "label_values(up{service=\"__SERVICE_NAME__\"},environment)",
         "includeAll": true,
         "allValue": ".*"
       },
@@ -455,7 +455,7 @@
         "name": "cluster",
         "label": "Cluster",
         "type": "query",
-        "query": "label_values(up{environment=~\"$environment\"},cluster)",
+        "query": "label_values(up{environment=~\"$environment\",service=\"__SERVICE_NAME__\"},cluster)",
         "includeAll": true,
         "allValue": ".*"
       },
@@ -463,7 +463,7 @@
         "name": "namespace",
         "label": "Namespace",
         "type": "query",
-        "query": "label_values(up{environment=~\"$environment\",cluster=~\"$cluster\"},namespace)",
+        "query": "label_values(up{environment=~\"$environment\",cluster=~\"$cluster\",service=\"__SERVICE_NAME__\"},namespace)",
         "includeAll": true,
         "allValue": ".*"
       },
@@ -479,7 +479,7 @@
         "name": "pod",
         "label": "Pod",
         "type": "query",
-        "query": "label_values(kube_pod_info{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",pod=~\"^__SERVICE_NAME__-[a-z0-9]+-[a-z0-9]+$\"},pod)",
+        "query": "label_values(kube_pod_info{namespace=~\"$namespace\",pod=~\"^__SERVICE_NAME__-[a-z0-9]+-[a-z0-9]+$\"},pod)",
         "includeAll": true,
         "allValue": ".*"
       }

@@ -88,11 +88,16 @@ public sealed class RealtimeWebSocketHandler(
 
         using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         var sender = connection.RunSenderAsync(connectionCancellation.Token);
-        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation);
+        var heartbeatCloseReason = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var heartbeat = RunHeartbeatAsync(connection, connectionCancellation, heartbeatCloseReason);
         var closeReason = "client_disconnect";
         try
         {
             closeReason = await RunReceiverAsync(connection, connectionCancellation.Token);
+            if (heartbeatCloseReason.Task.IsCompletedSuccessfully)
+            {
+                closeReason = heartbeatCloseReason.Task.Result;
+            }
         }
         catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
         {
@@ -257,7 +262,8 @@ public sealed class RealtimeWebSocketHandler(
 
     private async Task<string?> RunHeartbeatAsync(
         RealtimeConnection connection,
-        CancellationTokenSource connectionCancellation)
+        CancellationTokenSource connectionCancellation,
+        TaskCompletionSource<string> closeReason)
     {
         var cancellationToken = connectionCancellation.Token;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatSeconds));
@@ -267,6 +273,7 @@ public sealed class RealtimeWebSocketHandler(
             switch (revalidation)
             {
                 case IdentityRevalidation.Invalid:
+                    closeReason.TrySetResult("authentication_invalid");
                     await connection.RequestCloseAsync(
                         RealtimeCloseStatus.AuthenticationExpired,
                         "authentication_invalid",
@@ -275,6 +282,7 @@ public sealed class RealtimeWebSocketHandler(
                     return "authentication_invalid";
 
                 case IdentityRevalidation.Unavailable:
+                    closeReason.TrySetResult("authentication_unavailable");
                     await connection.RequestCloseAsync(
                         WebSocketCloseStatus.InternalServerError,
                         "authentication_unavailable",
@@ -285,6 +293,7 @@ public sealed class RealtimeWebSocketHandler(
 
             if (DateTimeOffset.UtcNow >= connection.Identity.ExpiresAt)
             {
+                closeReason.TrySetResult("authentication_expired");
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.AuthenticationExpired,
                     "authentication_expired",
@@ -296,6 +305,7 @@ public sealed class RealtimeWebSocketHandler(
             if (DateTimeOffset.UtcNow - connection.LastActivity > TimeSpan.FromSeconds(options.IdleTimeoutSeconds))
             {
                 metrics.RecordHeartbeatTimeout();
+                closeReason.TrySetResult("heartbeat_timeout");
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.HeartbeatTimeout,
                     "heartbeat_timeout",
@@ -313,6 +323,7 @@ public sealed class RealtimeWebSocketHandler(
                 connection.HasExceededSlowConsumerLimit)
             {
                 metrics.RecordSlowConsumerDisconnect();
+                closeReason.TrySetResult("slow_consumer");
                 await connection.RequestCloseAsync(
                     RealtimeCloseStatus.SlowConsumer,
                     "slow_consumer",

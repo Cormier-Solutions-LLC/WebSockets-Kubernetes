@@ -24,4 +24,6 @@ spec:
           targetLabel: service
         - targetLabel: environment
           replacement: {{ .Values.observability.environment | quote }}
+        - targetLabel: cluster
+          replacement: {{ .Values.observability.cluster | quote }}
 {{- end }}

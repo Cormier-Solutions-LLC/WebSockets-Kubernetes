@@ -135,6 +135,23 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public async Task ClosingConnectionDoesNotReportQueueSaturation()
+    {
+        using var metrics = new GatewayMetrics();
+        await using var connection = new RealtimeConnection(
+            new OpenWebSocket(),
+            Identity(),
+            new RealtimeOptions { OutboundQueueCapacity = 1, SlowConsumerStrikeLimit = 1 },
+            metrics);
+
+        await connection.RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "test_close", CancellationToken.None);
+
+        Assert.False(connection.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "ignored")));
+        Assert.Contains("cormier_realtime_queue_dropped_total 0", metrics.RenderPrometheus(), StringComparison.Ordinal);
+        Assert.False(connection.HasExceededSlowConsumerLimit);
+    }
+
+    [Fact]
     public async Task RegistryDisconnectsSlowConsumerWithoutCrossTenantDelivery()
     {
         using var metrics = new GatewayMetrics();

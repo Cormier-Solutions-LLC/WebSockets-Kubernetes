@@ -114,8 +114,11 @@ public sealed class RealtimeConnection : IAsyncDisposable
         {
             Interlocked.Decrement(ref _queuedMessages);
             _metrics.RecordQueueDequeued();
-            _metrics.RecordQueueDrop();
-            Interlocked.Increment(ref _slowConsumerStrikes);
+            if (IsOpen)
+            {
+                _metrics.RecordQueueDrop();
+                Interlocked.Increment(ref _slowConsumerStrikes);
+            }
             return false;
         }
 

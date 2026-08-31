@@ -34,6 +34,8 @@ pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a -ImageRegistry ghcr
 
 Domains, origins, host/server names, IPs, CIDRs, ports, Redis endpoints, image repositories, and Kubernetes identities are configuration inputs. Override the development examples through `appsettings`, environment variables (double underscores separate .NET configuration keys), Helm values, or deployment-script parameters; do not compile environment-specific network identities into the application.
 
+For observability, set `observability.cluster` to the Prometheus cluster scope and replace the TEST-NET `observability.platformMetrics.metalLbAddress` default with the edge LoadBalancer VIP. Redis exporter namespace/instance and the remaining platform selectors are independently configurable under `observability.platformMetrics`.
+
 The gateway listens on the ASP.NET Core configured address and exposes:
 
 - `/health/startup` — process initialization state.

@@ -239,6 +239,10 @@ try {
             Invoke-Checked kubectl @('drain', $NodeName, '--ignore-daemonsets', '--delete-emptydir-data', "--timeout=${TimeoutSeconds}s") 'Drain target node' | Out-Null
         }
     }
+
+    if ($Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'TraefikRestart', 'MetalLbSpeakerRestart', 'CertificateRenewal', 'NodeDrain')) {
+        Invoke-EdgeValidationWithRetry | Set-Content -LiteralPath (Join-Path $evidencePath 'during-failure.log') -Encoding utf8NoBOM
+    }
 }
 finally {
     if ($changed) {

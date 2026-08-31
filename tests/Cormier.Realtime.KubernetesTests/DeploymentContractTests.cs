@@ -174,6 +174,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Restore route match", script, StringComparison.Ordinal);
         Assert.Contains("Uncordon target node", script, StringComparison.Ordinal);
         Assert.Contains("Invoke-EdgeValidation", script, StringComparison.Ordinal);
+        Assert.Contains("during-failure.log", script, StringComparison.Ordinal);
         Assert.DoesNotContain("tls.key", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("redis-password", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("passwordKey", script, StringComparison.OrdinalIgnoreCase);

@@ -30,6 +30,7 @@ public sealed class DeploymentContractTests
         var strategy = schema.RootElement.GetProperty("properties").GetProperty("deploymentStrategy");
         var forbidden = strategy.GetProperty("not").GetProperty("properties");
         Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("replicaCount").GetProperty("minimum").GetInt32());
+        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("minReplicas").GetProperty("minimum").GetInt32());
         Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
@@ -151,11 +152,15 @@ public sealed class DeploymentContractTests
         Assert.Contains("ConnectCallback", script, StringComparison.Ordinal);
         Assert.Contains("ConnectionReadyFile", script, StringComparison.Ordinal);
         Assert.Contains("ConnectionStopFile", script, StringComparison.Ordinal);
+        Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
         Assert.Contains("--since-time=", script, StringComparison.Ordinal);
         Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
         Assert.Contains("CertificateAuthoritySecretKey", script, StringComparison.Ordinal);
         Assert.Contains("GatewayMetricsPort", script, StringComparison.Ordinal);
         Assert.Contains("CustomTrustStore.AddRange", script, StringComparison.Ordinal);
+        Assert.Contains("ExtraStore.Add", script, StringComparison.Ordinal);
+        Assert.Contains("Test-CertificateDnsName", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthoritySecretNamespace", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Get-Json @('get', 'secret'", script, StringComparison.Ordinal);
         Assert.Contains("PowerShell 7.4", script, StringComparison.Ordinal);
         Assert.Contains("Certificate does not cover configured host", script, StringComparison.Ordinal);
@@ -207,6 +212,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("Suspend gateway HPA", script, StringComparison.Ordinal);
         Assert.Contains("Restore gateway HPA", script, StringComparison.Ordinal);
         Assert.Contains("Assert-ApprovedMetadata", script, StringComparison.Ordinal);
+        Assert.Contains("Acquire-FailureLock", script, StringComparison.Ordinal);
+        Assert.Contains("Release-FailureLock", script, StringComparison.Ordinal);
+        Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
+        Assert.Contains("status.phase -eq 'Running'", script, StringComparison.Ordinal);
         Assert.DoesNotContain("2>&1", script, StringComparison.Ordinal);
         Assert.Contains("Restore route match", script, StringComparison.Ordinal);
         Assert.Contains("Uncordon target node", script, StringComparison.Ordinal);

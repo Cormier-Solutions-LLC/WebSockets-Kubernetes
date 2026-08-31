@@ -45,10 +45,13 @@ param(
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExternalAddress = '',
     [Parameter()][string]$CertificateAuthorityPath = '',
     [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretName = '',
+    [Parameter()][ValidatePattern('^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')][string]$CertificateAuthoritySecretNamespace = '',
     [Parameter()][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$CertificateAuthoritySecretKey = 'tls.crt',
     [Parameter()][ValidatePattern('^$|^[0-9a-fA-F:.]+$')][string]$ExpectedClientIp = '',
     [Parameter()][ValidateRange(0, 65535)][int]$GatewayMetricsPort = 0,
     [Parameter()][ValidatePattern('^[A-Z][A-Z0-9_]*$')][string]$TicketEnvironmentVariable = 'REALTIME_EDGE_TICKET',
+    [Parameter()][string]$TicketRefreshCommand = '',
+    [Parameter()][switch]$RequireReconnect,
     [Parameter()][ValidateRange(5,900)][int]$LongConnectionSeconds = 30,
     [Parameter()][ValidateRange(5,300)][int]$HeartbeatSeconds = 15,
     [Parameter()][ValidateRange(30,600)][int]$TimeoutSeconds = 120,
@@ -84,6 +87,15 @@ function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Descriptio
 
 function Get-Json([string[]]$Arguments, [string]$Description) {
     return (Invoke-Checked kubectl ($Arguments + @('-o', 'json')) $Description | ConvertFrom-Json)
+}
+
+function Test-CertificateDnsName([string]$Pattern, [string]$Candidate) {
+    if ($Pattern -ieq $Candidate) { return $true }
+    if (-not $Pattern.StartsWith('*.')) { return $false }
+    $suffix = $Pattern.Substring(1)
+    if (-not $Candidate.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $prefix = $Candidate.Substring(0, $Candidate.Length - $suffix.Length)
+    return -not [string]::IsNullOrWhiteSpace($prefix) -and -not $prefix.Contains('.')
 }
 
 function Get-MetricValue([string]$MetricName, [string]$Labels) {
@@ -192,7 +204,7 @@ try {
     $certificate = Get-Json @('get', 'certificate', $CertificateName, '-n', $GatewayNamespace) 'Read edge Certificate'
     $ready = @($certificate.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' })
     if ($ready.Count -ne 1) { throw 'Edge Certificate is not Ready.' }
-    if (@($certificate.spec.dnsNames) -notcontains $HostName) { throw "Certificate does not cover configured host $HostName." }
+    if (@($certificate.spec.dnsNames | Where-Object { Test-CertificateDnsName ([string]$_) $HostName }).Count -eq 0) { throw "Certificate does not cover configured host $HostName." }
     if ([string]::IsNullOrWhiteSpace($certificate.spec.secretName)) { throw 'Certificate does not publish a TLS Secret.' }
     $notAfter = [DateTimeOffset]::Parse($certificate.status.notAfter)
     if ($notAfter -le [DateTimeOffset]::UtcNow) { throw 'Edge Certificate is expired.' }
@@ -222,8 +234,9 @@ try {
         throw 'Specify either CertificateAuthorityPath or CertificateAuthoritySecretName, not both.'
     }
     if (-not [string]::IsNullOrWhiteSpace($CertificateAuthoritySecretName)) {
+        $authorityNamespace = if ([string]::IsNullOrWhiteSpace($CertificateAuthoritySecretNamespace)) { $GatewayNamespace } else { $CertificateAuthoritySecretNamespace }
         $jsonPathKey = $CertificateAuthoritySecretKey -replace '\.', '\.'
-        $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $GatewayNamespace, '-o', "jsonpath={.data.$jsonPathKey}") 'Read configured public CA certificate'
+        $encodedCertificate = Invoke-Checked kubectl @('get', 'secret', $CertificateAuthoritySecretName, '-n', $authorityNamespace, '-o', "jsonpath={.data.$jsonPathKey}") 'Read configured public CA certificate'
         if ([string]::IsNullOrWhiteSpace($encodedCertificate)) { throw "CA Secret $CertificateAuthoritySecretName does not contain key $CertificateAuthoritySecretKey." }
         $temporaryCaPath = [IO.Path]::GetTempFileName()
         [IO.File]::WriteAllBytes($temporaryCaPath, [Convert]::FromBase64String($encodedCertificate.Trim()))
@@ -310,7 +323,7 @@ namespace Cormier.Realtime.EdgeValidation;
 public static class CustomRootValidator
 {
     public static RemoteCertificateValidationCallback Create(X509Certificate2Collection trustedRoots) =>
-        (_, certificate, _, errors) =>
+        (_, certificate, peerChain, errors) =>
         {
             if (certificate is null || (errors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0)
             {
@@ -321,6 +334,13 @@ public static class CustomRootValidator
             using var customChain = new X509Chain();
             customChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             customChain.ChainPolicy.CustomTrustStore.AddRange(trustedRoots);
+            if (peerChain is not null)
+            {
+                for (var index = 1; index < peerChain.ChainElements.Count; index++)
+                {
+                    customChain.ChainPolicy.ExtraStore.Add(peerChain.ChainElements[index].Certificate);
+                }
+            }
             customChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             return customChain.Build(candidate);
         };
@@ -373,7 +393,10 @@ public static class CustomRootValidator
             }
             $validationDeadline = [DateTimeOffset]::UtcNow.AddSeconds($LongConnectionSeconds)
             $receiveBuffer = [byte[]]::new(16384)
+            $stopSignalObserved = $false
+            $reconnectCount = 0
             do {
+                $stopSignalObserved = -not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and (Test-Path -LiteralPath $ConnectionStopFile)
                 $correlationId = [Guid]::NewGuid().ToString('N')
                 $ping = [ordered]@{
                     version = '1.0'
@@ -384,6 +407,7 @@ public static class CustomRootValidator
                 } | ConvertTo-Json -Compress
                 $pingBytes = [Text.Encoding]::UTF8.GetBytes($ping)
                 $acknowledged = $false
+                $reconnectRequired = $false
                 $receiveTimeout = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
                 try {
                     $null = $socket.SendAsync(
@@ -396,7 +420,29 @@ public static class CustomRootValidator
                             [ArraySegment[byte]]::new($receiveBuffer),
                             $receiveTimeout.Token).GetAwaiter().GetResult()
                         if ($result.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close) {
-                            throw "WSS connection closed during validation with status $($socket.CloseStatus)."
+                            if ([int]$socket.CloseStatus -ne 1012) { throw "WSS connection closed during validation with status $($socket.CloseStatus)." }
+                            if ([string]::IsNullOrWhiteSpace($TicketRefreshCommand)) { throw 'WSS service restart requires TicketRefreshCommand to obtain a fresh single-use ticket.' }
+                            $refreshedTicket = (Invoke-Checked $TicketRefreshCommand @() 'Refresh WSS ticket after service restart').Trim()
+                            if ($refreshedTicket -notmatch '^[A-Za-z0-9_-]{32,128}$') { throw 'TicketRefreshCommand returned an invalid ticket.' }
+                            $socket.Dispose()
+                            if ($null -ne $socketInvoker) { $socketInvoker.Dispose(); $socketInvoker = $null }
+                            $socket = [Net.WebSockets.ClientWebSocket]::new()
+                            $socket.Options.AddSubProtocol('cormier.realtime.v1')
+                            $socket.Options.SetRequestHeader('Origin', $effectiveOrigin)
+                            if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
+                                $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedRoots)
+                            }
+                            $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($refreshedTicket))")
+                            if ([string]::IsNullOrWhiteSpace($ExternalAddress)) {
+                                $null = $socket.ConnectAsync($uri, $connectionTimeout.Token).GetAwaiter().GetResult()
+                            }
+                            else {
+                                $socketInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedRoots)
+                                $null = $socket.ConnectAsync($uri, $socketInvoker, $connectionTimeout.Token).GetAwaiter().GetResult()
+                            }
+                            $reconnectCount++
+                            $reconnectRequired = $true
+                            break
                         }
                         if ($result.MessageType -ne [Net.WebSockets.WebSocketMessageType]::Text -or -not $result.EndOfMessage) {
                             throw 'WSS server returned an invalid validation response.'
@@ -415,14 +461,17 @@ public static class CustomRootValidator
                     $receiveTimeout.Dispose()
                 }
 
+                if ($reconnectRequired) { continue }
+                if ($stopSignalObserved) { break }
+
                 $remainingSeconds = ($validationDeadline - [DateTimeOffset]::UtcNow).TotalSeconds
                 if ($remainingSeconds -gt 0) {
                     Start-Sleep -Seconds ([Math]::Min(10, $remainingSeconds))
                 }
-            } while (([string]::IsNullOrWhiteSpace($ConnectionStopFile) -and [DateTimeOffset]::UtcNow -lt $validationDeadline) -or
-                (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not (Test-Path -LiteralPath $ConnectionStopFile) -and [DateTimeOffset]::UtcNow -lt $validationDeadline))
-            if (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not (Test-Path -LiteralPath $ConnectionStopFile)) { throw 'Authenticated WSS continuity timed out before receiving its stop signal.' }
-            Write-Result PASS 'Authenticated WSS connection exchanged ping traffic for the required validation interval.'
+            } while ([DateTimeOffset]::UtcNow -lt $validationDeadline)
+            if (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not $stopSignalObserved) { throw 'Authenticated WSS continuity timed out before receiving its stop signal.' }
+            if ($RequireReconnect -and $reconnectCount -lt 1) { throw 'Authenticated WSS continuity did not observe and recover from a service-restart close.' }
+            Write-Result PASS "Authenticated WSS continuity completed with $reconnectCount service-restart reconnect(s)."
         }
         finally {
             try { $connectionTimeout.Dispose() } catch {}

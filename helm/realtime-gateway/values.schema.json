@@ -88,7 +88,7 @@
     "autoscaling": {
       "type": "object",
       "properties": {
-        "minReplicas": { "type": "integer", "minimum": 1 },
+        "minReplicas": { "type": "integer", "minimum": 2 },
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "connectionsMetric": { "type": "object", "required": ["enabled", "targetAverageValue"], "properties": { "enabled": { "type": "boolean" }, "targetAverageValue": { "type": "string", "pattern": "^[1-9][0-9]*$" } } },
         "queueDepthMetric": { "type": "object", "required": ["enabled", "targetAverageValue"], "properties": { "enabled": { "type": "boolean" }, "targetAverageValue": { "type": "string", "pattern": "^[1-9][0-9]*$" } } }

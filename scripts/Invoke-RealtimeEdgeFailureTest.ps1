@@ -71,8 +71,9 @@ $pinKubectlContext = $false
 $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName}:$ExternalPort" }
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 $effectiveGatewayHpaName = if ([string]::IsNullOrWhiteSpace($GatewayHpaName)) { $GatewayRelease } else { $GatewayHpaName }
-$effectiveFailureLockNamespace = 'kube-system'
+$effectiveFailureLockNamespace = ''
 $effectiveGatewayPodSelector = ''
+$effectiveGatewayMetricsPort = $GatewayMetricsPort
 
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
     $stderrPath = [IO.Path]::GetTempFileName()
@@ -90,6 +91,47 @@ function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Descriptio
 
 function Get-KubeJson([string[]]$Arguments, [string]$Description) {
     return (Invoke-Checked kubectl ($Arguments + @('-o', 'json')) $Description | ConvertFrom-Json)
+}
+
+function Get-GatewayActiveConnectionsByPod {
+    $values = @{}
+    $pods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', $effectiveGatewayPodSelector) 'Read gateway continuity metric targets'
+    foreach ($pod in @($pods.items | Where-Object {
+        $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and
+        @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
+    })) {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        $localPort = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+        $listener.Stop()
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = (Get-Command kubectl).Source
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @('--context', $ExpectedContext, 'port-forward', '-n', $GatewayNamespace, "pod/$($pod.metadata.name)", "${localPort}:$effectiveGatewayMetricsPort")) { $startInfo.ArgumentList.Add($argument) }
+        $forward = [Diagnostics.Process]::Start($startInfo)
+        $metrics = ''
+        try {
+            $deadline = [DateTimeOffset]::UtcNow.AddSeconds([Math]::Min(15, $TimeoutSeconds))
+            do {
+                if ($forward.HasExited) { throw "Gateway metrics port-forward exited: $($forward.StandardError.ReadToEnd())" }
+                try { $metrics = (Invoke-WebRequest -Uri "http://127.0.0.1:${localPort}/metrics" -TimeoutSec 2).Content }
+                catch { Start-Sleep -Milliseconds 200 }
+            } while ([string]::IsNullOrWhiteSpace($metrics) -and [DateTimeOffset]::UtcNow -lt $deadline)
+            if ([string]::IsNullOrWhiteSpace($metrics)) { throw "Timed out reading active connections from pod/$($pod.metadata.name)." }
+        }
+        finally {
+            if (-not $forward.HasExited) { $forward.Kill($true) }
+            $forward.WaitForExit()
+            $forward.Dispose()
+        }
+        $match = [Regex]::Match($metrics, '(?m)^cormier_realtime_active_connections\s+([0-9]+)$')
+        if (-not $match.Success) { throw "pod/$($pod.metadata.name) did not expose the active-connection metric." }
+        $values[[string]$pod.metadata.name] = [long]$match.Groups[1].Value
+    }
+    return $values
 }
 
 function Wait-Rollout([string]$Kind, [string]$Name, [string]$Namespace) {
@@ -211,7 +253,7 @@ function Start-ContinuityProbe {
     $script:continuityStopPath = Join-Path $evidencePath 'continuity-stop.marker'
     $arguments = Get-EdgeValidationArguments
     $arguments += @('-LongConnectionSeconds', $ContinuitySafetySeconds, '-ConnectionReadyFile', $continuityReadyPath, '-ConnectionStopFile', $continuityStopPath)
-    if ($Scenario -in @('GatewayRollout', 'TraefikRestart')) { $arguments += '-RequireReconnect' }
+    if ($Scenario -in @('GatewayPodDelete', 'GatewayRollout', 'TraefikRestart')) { $arguments += '-RequireReconnect' }
     if ($Scenario -in @('TraefikRestart', 'NodeDrain')) { $arguments += '-ReconnectOnTransportFailure' }
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = (Get-Command pwsh).Source
@@ -293,10 +335,12 @@ function Assert-ApprovedMetadata([object]$Metadata, [string]$TargetDescription) 
     if ($null -eq $Metadata.PSObject.Properties['labels'] -or $null -eq $Metadata.labels) { throw "SAFETY STOP: $TargetDescription has no approval labels." }
     $environmentLabel = $Metadata.labels.PSObject.Properties['cormier.io/environment']
     $approvalLabel = $Metadata.labels.PSObject.Properties['cormier.io/failure-testing']
+    $classificationLabel = $Metadata.labels.PSObject.Properties['cormier.io/environment-class']
     $targetEnvironment = if ($null -eq $environmentLabel) { '' } else { [string]$environmentLabel.Value }
     $failureApproval = if ($null -eq $approvalLabel) { '' } else { [string]$approvalLabel.Value }
-    if ($targetEnvironment -ne $Environment -or $failureApproval -ne 'approved') {
-        throw "SAFETY STOP: $TargetDescription must have cormier.io/environment=$Environment and cormier.io/failure-testing=approved."
+    $environmentClass = if ($null -eq $classificationLabel) { '' } else { [string]$classificationLabel.Value }
+    if ($targetEnvironment -ne $Environment -or $failureApproval -ne 'approved' -or $environmentClass -ne 'nonproduction') {
+        throw "SAFETY STOP: $TargetDescription must have cormier.io/environment=$Environment, cormier.io/environment-class=nonproduction, and cormier.io/failure-testing=approved."
     }
 }
 
@@ -389,14 +433,23 @@ if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'UNSUPPORTED: PowerShe
 $context = (Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context').Trim()
 if ($context -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$context'." }
 $pinKubectlContext = $true
-if ($Environment -match '^(prod|production)$') { throw 'SAFETY STOP: failure tests cannot target an environment named prod or production.' }
 $gatewayNamespaceMetadata = Get-KubeJson @('get', 'namespace', $GatewayNamespace) 'Read gateway namespace safety labels'
 Assert-ApprovedMetadata $gatewayNamespaceMetadata.metadata "namespace $GatewayNamespace"
+$lockNamespaces = Get-KubeJson @('get', 'namespaces', '-l', 'cormier.io/edge-failure-lock=canonical') 'Resolve canonical failure-lock namespace'
+$canonicalLockNamespaces = @($lockNamespaces.items | Where-Object { $_.status.phase -eq 'Active' })
+if ($canonicalLockNamespaces.Count -ne 1) { throw 'SAFETY STOP: exactly one Active namespace must carry cormier.io/edge-failure-lock=canonical.' }
+$effectiveFailureLockNamespace = [string]$canonicalLockNamespaces[0].metadata.name
 $gatewayDeploymentMetadata = Get-KubeJson @('get', 'deployment', $GatewayRelease, '-n', $GatewayNamespace) 'Read gateway Deployment selector'
 $effectiveGatewayPodSelector = if ([string]::IsNullOrWhiteSpace($GatewayPodSelector)) {
     @($gatewayDeploymentMetadata.spec.selector.matchLabels.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ','
 } else { $GatewayPodSelector }
 if ([string]::IsNullOrWhiteSpace($effectiveGatewayPodSelector)) { throw 'Gateway pod selector could not be derived from the Deployment.' }
+if ($effectiveGatewayMetricsPort -eq 0) {
+    $namedPort = @($gatewayDeploymentMetadata.spec.template.spec.containers[0].ports | Where-Object { $_.name -eq 'http' } | Select-Object -First 1)
+    if ($namedPort.Count -ne 1) { $namedPort = @($gatewayDeploymentMetadata.spec.template.spec.containers[0].ports | Select-Object -First 1) }
+    if ($namedPort.Count -ne 1) { throw 'Gateway Deployment does not expose a metrics-capable container port.' }
+    $effectiveGatewayMetricsPort = [int]$namedPort[0].containerPort
+}
 if ($Scenario -in @('TraefikRestart', 'NodeDrain')) {
     $traefikNamespaceMetadata = Get-KubeJson @('get', 'namespace', $TraefikNamespace) 'Read Traefik namespace safety labels'
     Assert-ApprovedMetadata $traefikNamespaceMetadata.metadata "namespace $TraefikNamespace"
@@ -453,15 +506,16 @@ try {
 
     switch ($Scenario) {
         'GatewayPodDelete' {
-            $pods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', $effectiveGatewayPodSelector) 'Read gateway pods'
-            $podName = @($pods.items | Where-Object {
-                $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and $_.status.phase -eq 'Running' -and
-                @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
-            } | Select-Object -First 1).metadata.name
-            if ([string]::IsNullOrWhiteSpace($podName)) { throw 'No gateway pod is available for deletion.' }
+            $beforeConnections = Get-GatewayActiveConnectionsByPod
             Start-ContinuityProbe
+            $afterConnections = Get-GatewayActiveConnectionsByPod
+            $continuityOwners = @($afterConnections.Keys | Where-Object {
+                $beforeConnections.ContainsKey($_) -and [long]$afterConnections[$_] -gt [long]$beforeConnections[$_]
+            })
+            if ($continuityOwners.Count -ne 1) { throw 'Could not uniquely identify the gateway pod serving the continuity socket from its active-connection metric.' }
+            $podName = [string]$continuityOwners[0]
             $changed = $true
-            Invoke-Checked kubectl @('delete', 'pod', $podName, '-n', $GatewayNamespace, '--wait=false') 'Delete one gateway pod' | Out-Null
+            Invoke-Checked kubectl @('delete', 'pod', $podName, '-n', $GatewayNamespace, '--wait=false') 'Delete the gateway pod serving the continuity socket' | Out-Null
             Wait-DeploymentFullyRecovered $GatewayRelease $GatewayNamespace
         }
         'GatewayRollout' {

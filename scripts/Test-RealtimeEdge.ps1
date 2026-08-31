@@ -148,6 +148,33 @@ function Test-IpAddressInPool([Net.IPAddress]$Candidate, [string]$Range) {
     return $true
 }
 
+function Test-LabelSelector([object]$Selector, [object]$Labels) {
+    $matchLabelsProperty = $Selector.PSObject.Properties['matchLabels']
+    if ($null -ne $matchLabelsProperty -and $null -ne $matchLabelsProperty.Value) {
+        foreach ($requirement in $matchLabelsProperty.Value.PSObject.Properties) {
+            $actual = $Labels.PSObject.Properties[$requirement.Name]
+            if ($null -eq $actual -or [string]$actual.Value -ne [string]$requirement.Value) { return $false }
+        }
+    }
+    $expressionsProperty = $Selector.PSObject.Properties['matchExpressions']
+    if ($null -ne $expressionsProperty -and $null -ne $expressionsProperty.Value) {
+        foreach ($requirement in @($expressionsProperty.Value)) {
+            $actual = $Labels.PSObject.Properties[[string]$requirement.key]
+            $present = $null -ne $actual
+            $valuesProperty = $requirement.PSObject.Properties['values']
+            $values = if ($null -eq $valuesProperty -or $null -eq $valuesProperty.Value) { @() } else { @($valuesProperty.Value | ForEach-Object { [string]$_ }) }
+            switch ([string]$requirement.operator) {
+                'In' { if (-not $present -or $values -notcontains [string]$actual.Value) { return $false } }
+                'NotIn' { if ($present -and $values -contains [string]$actual.Value) { return $false } }
+                'Exists' { if (-not $present) { return $false } }
+                'DoesNotExist' { if ($present) { return $false } }
+                default { throw "Unsupported Kubernetes label-selector operator '$($requirement.operator)'." }
+            }
+        }
+    }
+    return $true
+}
+
 function Get-CertificateRequestMaterial([string]$Name, [string]$Namespace) {
     $requests = Get-Json @('get', 'certificaterequests', '-n', $Namespace) 'Read public cert-manager certificate requests'
     $request = @($requests.items | Where-Object {
@@ -244,6 +271,11 @@ try {
 
     $addressPool = Get-Json @('get', 'ipaddresspool', $pool, '-n', $MetalLbNamespace) 'Read MetalLB address pool'
     if (@($addressPool.spec.serviceAllocation.namespaces) -notcontains $TraefikNamespace) { throw 'MetalLB pool is not scoped to the Traefik namespace.' }
+    $serviceSelectorsProperty = $addressPool.spec.serviceAllocation.PSObject.Properties['serviceSelectors']
+    $serviceSelectors = if ($null -eq $serviceSelectorsProperty -or $null -eq $serviceSelectorsProperty.Value) { @() } else { @($serviceSelectorsProperty.Value) }
+    if ($serviceSelectors.Count -gt 0 -and @($serviceSelectors | Where-Object { Test-LabelSelector $_ $service.metadata.labels }).Count -eq 0) {
+        throw 'Traefik Service labels do not match any service selector on the selected MetalLB pool.'
+    }
     $parsedVip = [Net.IPAddress]::Parse($vip)
     if (@($addressPool.spec.addresses | Where-Object { Test-IpAddressInPool $parsedVip ([string]$_) }).Count -eq 0) { throw "Traefik VIP $vip is outside the selected MetalLB address pool." }
     $advertisementKind = if ($MetalLbAdvertisementMode -eq 'l2') { 'l2advertisement' } else { 'bgpadvertisement' }
@@ -256,6 +288,15 @@ try {
     $speakerNodes = @($speakerPods.items | Where-Object { $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1 } | ForEach-Object { $_.spec.nodeName } | Sort-Object -Unique)
     $missingSpeakerNodes = @($traefikNodes | Where-Object { $speakerNodes -notcontains $_ })
     if ($traefikNodes.Count -lt 2 -or $missingSpeakerNodes.Count -gt 0) { throw 'MetalLB speakers are not ready on every node hosting a ready Traefik replica.' }
+    if ($MetalLbAdvertisementMode -eq 'l2') {
+        $l2Statuses = Get-Json @('get', 'servicel2status', '-n', $MetalLbNamespace) 'Read active MetalLB L2 announcer status'
+        $activeAnnouncers = @($l2Statuses.items | Where-Object {
+            $_.status.serviceName -eq $TraefikService -and $_.status.serviceNamespace -eq $TraefikNamespace
+        } | ForEach-Object { $_.status.node } | Where-Object { $_ } | Sort-Object -Unique)
+        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $traefikNodes -notcontains $_ -or $speakerNodes -notcontains $_ }).Count -gt 0) {
+            throw 'The active MetalLB L2 announcer is not an intended node with both a ready speaker and local Traefik endpoint.'
+        }
+    }
     Write-Result PASS "MetalLB pool, $MetalLbAdvertisementMode advertisement, and intended Traefik/speaker node placement are consistent."
 
     $traefikDeployment = Get-Json @('get', 'deployment', $TraefikRelease, '-n', $TraefikNamespace) 'Read Traefik timeout configuration'
@@ -588,10 +629,17 @@ public static class CustomRootValidator
                 if ($reconnectRequired) { continue }
                 if ($stopSignalObserved) { break }
 
-                $remainingSeconds = ($validationDeadline - [DateTimeOffset]::UtcNow).TotalSeconds
-                if ($remainingSeconds -gt 0) {
-                    Start-Sleep -Seconds ([Math]::Min($HeartbeatSeconds, $remainingSeconds))
-                }
+                $heartbeatDeadline = [DateTimeOffset]::UtcNow.AddSeconds($HeartbeatSeconds)
+                if ($heartbeatDeadline -gt $validationDeadline) { $heartbeatDeadline = $validationDeadline }
+                do {
+                    if (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and (Test-Path -LiteralPath $ConnectionStopFile)) {
+                        $stopSignalObserved = $true
+                        break
+                    }
+                    $remainingMilliseconds = ($heartbeatDeadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
+                    if ($remainingMilliseconds -gt 0) { Start-Sleep -Milliseconds ([Math]::Min(200, $remainingMilliseconds)) }
+                } while ([DateTimeOffset]::UtcNow -lt $heartbeatDeadline)
+                if ($stopSignalObserved) { break }
             } while ([DateTimeOffset]::UtcNow -lt $validationDeadline)
             if (-not [string]::IsNullOrWhiteSpace($ConnectionStopFile) -and -not $stopSignalObserved) { throw 'Authenticated WSS continuity timed out before receiving its stop signal.' }
             if ($RequireReconnect -and $reconnectCount -lt 1) { throw 'Authenticated WSS continuity did not observe and recover from a service-restart close.' }

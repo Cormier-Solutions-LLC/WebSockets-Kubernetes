@@ -31,6 +31,8 @@ public sealed class DeploymentContractTests
         var forbidden = strategy.GetProperty("not").GetProperty("properties");
         Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("replicaCount").GetProperty("minimum").GetInt32());
         Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("minReplicas").GetProperty("minimum").GetInt32());
+        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("maxReplicas").GetProperty("minimum").GetInt32());
+        Assert.Contains("autoscaling.maxReplicas must be greater than or equal to autoscaling.minReplicas", Read("helm/realtime-gateway/templates/hpa.yaml"), StringComparison.Ordinal);
         Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
@@ -163,7 +165,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Test-IpAddressInPool", script, StringComparison.Ordinal);
         Assert.Contains("curl 7.84.0", script, StringComparison.Ordinal);
         Assert.Contains("Sha256Async", script, StringComparison.Ordinal);
-        Assert.Contains("$HeartbeatSeconds, $remainingSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("$heartbeatDeadline", script, StringComparison.Ordinal);
         Assert.Contains("'--context', $ExpectedContext, 'port-forward'", script, StringComparison.Ordinal);
         Assert.Contains("observedClientAddresses", script, StringComparison.Ordinal);
         Assert.Contains("--since-time=", script, StringComparison.Ordinal);
@@ -188,6 +190,9 @@ public sealed class DeploymentContractTests
         Assert.Contains("HeartbeatSeconds", script, StringComparison.Ordinal);
         Assert.Contains("respondingtimeouts", script, StringComparison.Ordinal);
         Assert.Contains("accesslog.fields.names", script, StringComparison.Ordinal);
+        Assert.Contains("Test-LabelSelector", script, StringComparison.Ordinal);
+        Assert.Contains("active MetalLB L2 announcer", script, StringComparison.Ordinal);
+        Assert.Contains("remainingMilliseconds", script, StringComparison.Ordinal);
         Assert.Contains("$effectiveOrigin", script, StringComparison.Ordinal);
         Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
         Assert.Contains("Invalid route is rejected", script, StringComparison.Ordinal);
@@ -230,7 +235,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("Release-FailureLock", script, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
         Assert.Contains("ContinuitySafetySeconds", script, StringComparison.Ordinal);
-        Assert.Contains("$effectiveFailureLockNamespace = 'kube-system'", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/edge-failure-lock=canonical", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/environment-class", script, StringComparison.Ordinal);
+        Assert.Contains("Get-GatewayActiveConnectionsByPod", script, StringComparison.Ordinal);
+        Assert.Contains("Delete the gateway pod serving the continuity socket", script, StringComparison.Ordinal);
         Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
         Assert.Contains("Get-CertificateRequestCaPem", script, StringComparison.Ordinal);
         Assert.Contains("GatewayPodSelector", script, StringComparison.Ordinal);

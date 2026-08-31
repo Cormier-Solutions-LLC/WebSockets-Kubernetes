@@ -154,6 +154,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("ConnectionStopFile", script, StringComparison.Ordinal);
         Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
         Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
+        Assert.Contains("--context", script, StringComparison.Ordinal);
         Assert.Contains("ExpectedServedCertificateSecretName", script, StringComparison.Ordinal);
         Assert.Contains("externally served TLS leaf", script, StringComparison.Ordinal);
         Assert.Contains("Traefik desired and running revisions", script, StringComparison.Ordinal);
@@ -225,6 +226,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("FailureLockNamespace", script, StringComparison.Ordinal);
         Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
         Assert.Contains("ExpectedServedCertificateSecretName", script, StringComparison.Ordinal);
+        Assert.Contains("Reclaim expired edge failure-test lock", script, StringComparison.Ordinal);
+        Assert.Contains("Verify edge failure-test lock ownership", script, StringComparison.Ordinal);
+        Assert.Contains("--context", script, StringComparison.Ordinal);
+        Assert.Contains("deletionTimestamp", script, StringComparison.Ordinal);
         Assert.Contains("DeletedPodUid", script, StringComparison.Ordinal);
         Assert.Contains("metadata.annotations", script, StringComparison.Ordinal);
         Assert.Contains("status.phase -eq 'Running'", script, StringComparison.Ordinal);

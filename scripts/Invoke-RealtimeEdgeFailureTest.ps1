@@ -67,6 +67,8 @@ $originalHpa = $null
 $hpaRemoved = $false
 $lockAcquired = $false
 $failureLockName = ''
+$failureLockHolder = ''
+$pinKubectlContext = $false
 $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName}:$ExternalPort" }
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 $effectiveGatewayHpaName = if ([string]::IsNullOrWhiteSpace($GatewayHpaName)) { $GatewayRelease } else { $GatewayHpaName }
@@ -75,7 +77,8 @@ $effectiveFailureLockNamespace = if ([string]::IsNullOrWhiteSpace($FailureLockNa
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
     $stderrPath = [IO.Path]::GetTempFileName()
     try {
-        $output = @(& $File @Arguments 2> $stderrPath)
+        $effectiveArguments = if ($pinKubectlContext -and [IO.Path]::GetFileNameWithoutExtension($File) -eq 'kubectl') { @('--context', $ExpectedContext) + $Arguments } else { $Arguments }
+        $output = @(& $File @effectiveArguments 2> $stderrPath)
         $exitCode = $LASTEXITCODE
         $stderr = [IO.File]::ReadAllText($stderrPath).Trim()
         if ($exitCode -ne 0) { throw "$Description failed with exit code $exitCode." }
@@ -322,16 +325,45 @@ function Acquire-FailureLock {
     $hashBytes = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))
     $suffix = ([Convert]::ToHexString($hashBytes)).ToLowerInvariant().Substring(0, 16)
     $script:failureLockName = "realtime-failure-$suffix"
+    $script:failureLockHolder = [Guid]::NewGuid().ToString('N')
+    $expiresUtc = [DateTimeOffset]::UtcNow.AddSeconds($ContinuitySafetySeconds + (6 * $TimeoutSeconds) + 600).ToString('O')
     try {
-        Invoke-Checked kubectl @('create', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, "--from-literal=holder=$([Guid]::NewGuid().ToString('N'))") 'Acquire exclusive edge failure-test lock' | Out-Null
+        Invoke-Checked kubectl @('create', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, "--from-literal=holder=$failureLockHolder", "--from-literal=expiresUtc=$expiresUtc") 'Acquire exclusive edge failure-test lock' | Out-Null
         $script:lockAcquired = $true
     }
-    catch { throw "CONCURRENT: another failure test holds lock configmap/$failureLockName in namespace $effectiveFailureLockNamespace." }
+    catch {
+        $existingLock = Get-KubeJson @('get', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace) 'Read existing edge failure-test lock'
+        $existingExpiry = [DateTimeOffset]::MinValue
+        $expiryProperty = $existingLock.data.PSObject.Properties['expiresUtc']
+        if ($null -eq $expiryProperty -or -not [DateTimeOffset]::TryParse([string]$expiryProperty.Value, [ref]$existingExpiry) -or $existingExpiry -gt [DateTimeOffset]::UtcNow) {
+            throw "CONCURRENT: another failure test holds lock configmap/$failureLockName in namespace $effectiveFailureLockNamespace."
+        }
+        $replacementLock = [ordered]@{
+            apiVersion = 'v1'
+            kind = 'ConfigMap'
+            metadata = [ordered]@{ name = $failureLockName; namespace = $effectiveFailureLockNamespace; resourceVersion = [string]$existingLock.metadata.resourceVersion }
+            data = [ordered]@{ holder = $failureLockHolder; expiresUtc = $expiresUtc }
+        }
+        $lockManifestPath = [IO.Path]::GetTempFileName()
+        try {
+            $replacementLock | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $lockManifestPath -Encoding utf8NoBOM
+            Invoke-Checked kubectl @('replace', '-f', $lockManifestPath) 'Reclaim expired edge failure-test lock' | Out-Null
+            $script:lockAcquired = $true
+        }
+        finally { Remove-Item -LiteralPath $lockManifestPath -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Release-FailureLock {
     if (-not $lockAcquired) { return }
-    Invoke-Checked kubectl @('delete', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, '--ignore-not-found=true') 'Release edge failure-test lock' | Out-Null
+    $existingLockOutput = Invoke-Checked kubectl @('get', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, '--ignore-not-found=true', '-o', 'json') 'Verify edge failure-test lock ownership'
+    if (-not [string]::IsNullOrWhiteSpace($existingLockOutput)) {
+        $existingLock = $existingLockOutput | ConvertFrom-Json
+        if ([string]$existingLock.data.holder -eq $failureLockHolder) {
+            Invoke-Checked kubectl @('delete', 'configmap', $failureLockName, '-n', $effectiveFailureLockNamespace, '--ignore-not-found=true') 'Release edge failure-test lock' | Out-Null
+        }
+        else { Write-Warning "Failure lock ownership changed; configmap/$failureLockName was not deleted." }
+    }
     $script:lockAcquired = $false
 }
 
@@ -341,6 +373,7 @@ foreach ($command in @('kubectl', 'curl', 'pwsh')) {
 if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'UNSUPPORTED: PowerShell 7.4 or later is required.' }
 $context = (Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context').Trim()
 if ($context -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$context'." }
+$pinKubectlContext = $true
 if ($Environment -match '^(prod|production)$') { throw 'SAFETY STOP: failure tests cannot target an environment named prod or production.' }
 $gatewayNamespaceMetadata = Get-KubeJson @('get', 'namespace', $GatewayNamespace) 'Read gateway namespace safety labels'
 Assert-ApprovedMetadata $gatewayNamespaceMetadata.metadata "namespace $GatewayNamespace"
@@ -362,7 +395,10 @@ if ($Scenario -eq 'NodeDrain') {
     Assert-ApprovedMetadata $approvedNode.metadata "node $NodeName"
     $gatewayPods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', "app.kubernetes.io/instance=$GatewayRelease") 'Read selected gateway nodes'
     $traefikPods = Get-KubeJson @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read selected Traefik nodes'
-    $selectedNodes = @(@($gatewayPods.items) + @($traefikPods.items) | ForEach-Object { $_.spec.nodeName } | Where-Object { $_ } | Sort-Object -Unique)
+    $selectedNodes = @(@($gatewayPods.items) + @($traefikPods.items) | Where-Object {
+        $_.status.phase -eq 'Running' -and $null -eq $_.metadata.PSObject.Properties['deletionTimestamp'] -and
+        @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 1
+    } | ForEach-Object { $_.spec.nodeName } | Where-Object { $_ } | Sort-Object -Unique)
     if ($selectedNodes -notcontains $NodeName) { throw "SAFETY STOP: node $NodeName does not host a pod from the selected gateway or Traefik workload." }
 }
 if ($Scenario -eq 'MetalLbSpeakerRestart' -and $MetalLbAdvertisementMode -eq 'bgp' -and [string]::IsNullOrWhiteSpace($MetalLbSpeakerNode)) {

@@ -70,6 +70,7 @@ $externalAuthority = if ($ExternalPort -eq 443) { $HostName } else { "${HostName
 $effectiveOrigin = if ([string]::IsNullOrWhiteSpace($Origin)) { "https://$externalAuthority" } else { $Origin }
 $nullDevice = if ([OperatingSystem]::IsWindows()) { 'NUL' } else { '/dev/null' }
 $temporaryCaPath = ''
+$pinKubectlContext = $false
 
 function Write-Result([ValidateSet('PASS', 'SKIP', 'FAIL')][string]$Status, [string]$Message) {
     $summary[($Status -replace 'PASS', 'Passed' -replace 'SKIP', 'Skipped' -replace 'FAIL', 'Failed')]++
@@ -79,7 +80,8 @@ function Write-Result([ValidateSet('PASS', 'SKIP', 'FAIL')][string]$Status, [str
 function Invoke-Checked([string]$File, [string[]]$Arguments, [string]$Description) {
     $stderrPath = [IO.Path]::GetTempFileName()
     try {
-        $output = @(& $File @Arguments 2> $stderrPath)
+        $effectiveArguments = if ($pinKubectlContext -and [IO.Path]::GetFileNameWithoutExtension($File) -eq 'kubectl') { @('--context', $ExpectedContext) + $Arguments } else { $Arguments }
+        $output = @(& $File @effectiveArguments 2> $stderrPath)
         $exitCode = $LASTEXITCODE
         $stderr = [IO.File]::ReadAllText($stderrPath).Trim()
         if ($exitCode -ne 0) { throw "$Description failed with exit code $exitCode." }
@@ -187,6 +189,7 @@ try {
     if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'UNSUPPORTED: PowerShell 7.4 or later is required.' }
     $context = Invoke-Checked kubectl @('config', 'current-context') 'Read Kubernetes context'
     if ($context.Trim() -ne $ExpectedContext) { throw "TARGET MISMATCH: expected '$ExpectedContext', detected '$($context.Trim())'." }
+    $pinKubectlContext = $true
 
     $service = Get-Json @('get', 'service', $TraefikService, '-n', $TraefikNamespace) 'Read Traefik Service'
     if ($service.spec.type -ne 'LoadBalancer') { throw 'Traefik Service is not a LoadBalancer.' }
@@ -432,9 +435,6 @@ public static class CustomRootValidator
     }
 }
 '@
-            }
-            if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
-                $socket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedRoots)
             }
         }
         try {

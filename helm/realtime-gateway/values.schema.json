@@ -1,10 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["image", "service", "gateway", "redis", "resources"],
+  "required": ["image", "service", "deploymentStrategy", "gateway", "redis", "resources"],
   "additionalProperties": true,
   "properties": {
-    "replicaCount": { "type": "integer", "minimum": 1 },
+    "replicaCount": { "type": "integer", "minimum": 2 },
+    "deploymentStrategy": {
+      "type": "object",
+      "required": ["maxUnavailable", "maxSurge"],
+      "properties": {
+        "maxUnavailable": { "type": "integer", "minimum": 0, "maximum": 0 },
+        "maxSurge": { "type": "integer", "minimum": 1 }
+      },
+      "not": {
+        "properties": {
+          "maxUnavailable": { "const": 0 },
+          "maxSurge": { "const": 0 }
+        },
+        "required": ["maxUnavailable", "maxSurge"]
+      }
+    },
     "image": {
       "type": "object",
       "required": ["repository", "tag"],
@@ -17,8 +32,10 @@
     "service": { "type": "object", "required": ["port", "targetPort"], "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "targetPort": { "type": "integer", "minimum": 1024, "maximum": 65535 } } },
     "ingressRoute": {
       "type": "object",
+      "required": ["enabled", "entryPoint", "host", "path", "tlsSecretName"],
       "properties": {
         "enabled": { "type": "boolean" },
+        "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "minLength": 1, "maxLength": 63 },
         "host": { "type": "string", "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" },
         "path": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
         "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" }
@@ -71,8 +88,8 @@
     "autoscaling": {
       "type": "object",
       "properties": {
-        "minReplicas": { "type": "integer", "minimum": 1 },
-        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "minReplicas": { "type": "integer", "minimum": 2 },
+        "maxReplicas": { "type": "integer", "minimum": 2 },
         "connectionsMetric": { "type": "object", "required": ["enabled", "targetAverageValue"], "properties": { "enabled": { "type": "boolean" }, "targetAverageValue": { "type": "string", "pattern": "^[1-9][0-9]*$" } } },
         "queueDepthMetric": { "type": "object", "required": ["enabled", "targetAverageValue"], "properties": { "enabled": { "type": "boolean" }, "targetAverageValue": { "type": "string", "pattern": "^[1-9][0-9]*$" } } }
       }

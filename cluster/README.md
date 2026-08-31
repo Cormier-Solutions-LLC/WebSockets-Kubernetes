@@ -12,7 +12,7 @@ See the examples under `cluster/redis`. Never commit rendered Secrets or credent
 
 ## Development edge exposure
 
-`cluster/edge/development` is the environment-scoped edge configuration. It deliberately leaves the gateway Service as `ClusterIP`; only Traefik has a `LoadBalancer` Service. Apply `metallb.yaml` after confirming that `192.168.50.240-192.168.50.250` is reserved for this environment, then install Traefik chart `34.3.0` from `https://traefik.github.io/charts`:
+`cluster/edge/development` is an environment-scoped example. It deliberately leaves the gateway Service as `ClusterIP`; only Traefik has a `LoadBalancer` Service. Every identity in these files—including namespaces, release names, DNS names, certificate resources, pool names, and addresses—is configuration and must be replaced for the target environment. The committed `192.0.2.240-192.0.2.250` pool is an RFC 5737 documentation range and is intentionally not deployable as-is. Apply `metallb.yaml` only after replacing it with a reserved range routable in the target environment, then install Traefik chart `34.3.0` from `https://traefik.github.io/charts`:
 
 ```sh
 helm repo add traefik https://traefik.github.io/charts

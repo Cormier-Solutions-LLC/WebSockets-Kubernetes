@@ -53,6 +53,8 @@ public sealed class RealtimeWebSocketHandler(
         if (!authentication.Succeeded)
         {
             metrics.RecordHandshake("rejected", "authentication");
+            context.Response.Headers["X-Cormier-Origin-Validated"] =
+                authentication.FailureCode == "origin_rejected" ? "false" : "true";
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }

@@ -3,6 +3,12 @@ deployment:
   podLabels:
     cormier.io/edge: realtime
 
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+
 topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: kubernetes.io/hostname
@@ -11,10 +17,23 @@ topologySpreadConstraints:
       matchLabels:
         app.kubernetes.io/name: traefik
 
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: '{{ template "traefik.name" . }}'
+            app.kubernetes.io/instance: '{{ .Release.Name }}-{{ include "traefik.namespace" . }}'
+        topologyKey: kubernetes.io/hostname
+
 ports:
   web:
-    redirectTo:
-      port: websecure
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
   websecure:
     tls:
       enabled: true
@@ -35,13 +54,17 @@ providers:
 logs:
   access:
     enabled: true
+    format: json
     fields:
+      general:
+        defaultmode: keep
+        names:
+          RequestAddr: drop
+          RequestPath: drop
+          RequestPort: drop
       headers:
-        defaultMode: drop
-      names:
-        RequestAddr: drop
-        RequestPath: drop
-        RequestPort: drop
+        defaultmode: drop
+        names: {}
 
 metrics:
   prometheus:

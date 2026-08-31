@@ -10,6 +10,7 @@ public sealed class DeploymentContractTests
     public void GatewayChartContainsRequiredWorkloadControls()
     {
         var deployment = Read("helm/realtime-gateway/templates/deployment.yaml");
+        using var schema = JsonDocument.Parse(Read("helm/realtime-gateway/values.schema.json"));
 
         Assert.Contains("runAsNonRoot: true", deployment, StringComparison.Ordinal);
         Assert.Contains("readOnlyRootFilesystem: true", deployment, StringComparison.Ordinal);
@@ -20,9 +21,22 @@ public sealed class DeploymentContractTests
         Assert.Contains("readinessProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("livenessProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("topologySpreadConstraints:", deployment, StringComparison.Ordinal);
+        Assert.Contains("whenUnsatisfiable: DoNotSchedule", deployment, StringComparison.Ordinal);
+        Assert.Contains("deploymentStrategy.maxUnavailable", deployment, StringComparison.Ordinal);
+        Assert.Contains("deploymentStrategy.maxSurge", deployment, StringComparison.Ordinal);
         Assert.Contains("resources:", deployment, StringComparison.Ordinal);
         Assert.Contains("containerPort: {{ .Values.service.targetPort }}", deployment, StringComparison.Ordinal);
         Assert.Contains("ASPNETCORE_HTTP_PORTS", deployment, StringComparison.Ordinal);
+        var strategy = schema.RootElement.GetProperty("properties").GetProperty("deploymentStrategy");
+        var forbidden = strategy.GetProperty("not").GetProperty("properties");
+        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("replicaCount").GetProperty("minimum").GetInt32());
+        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("minReplicas").GetProperty("minimum").GetInt32());
+        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("maxReplicas").GetProperty("minimum").GetInt32());
+        Assert.Contains("autoscaling.maxReplicas must be greater than or equal to autoscaling.minReplicas", Read("helm/realtime-gateway/templates/hpa.yaml"), StringComparison.Ordinal);
+        Assert.Equal(0, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
+        Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxSurge").GetProperty("minimum").GetInt32());
+        Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
+        Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
     }
 
     [Fact]
@@ -96,11 +110,21 @@ public sealed class DeploymentContractTests
 
         Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
         Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)", route, StringComparison.Ordinal);
-        Assert.Contains("flushInterval: -1", route, StringComparison.Ordinal);
+        Assert.Contains(".Values.ingressRoute.entryPoint", route, StringComparison.Ordinal);
+        Assert.Contains("flushInterval: \"-1ms\"", route, StringComparison.Ordinal);
         Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);
+        Assert.Contains("https://realtime.cormier.local", gatewayValues, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://cormier.local", gatewayValues, StringComparison.Ordinal);
         Assert.Contains("externalTrafficPolicy: Local", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("redirections:", traefikValues, StringComparison.Ordinal);
+        Assert.DoesNotContain("redirectTo:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("replicas: 3", traefikValues, StringComparison.Ordinal);
-        Assert.Contains("defaultMode: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("maxUnavailable: 1", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("maxSurge: 0", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("requiredDuringSchedulingIgnoredDuringExecution", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("defaultmode: drop", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("general:", traefikValues, StringComparison.Ordinal);
+        Assert.Contains("format: json", traefikValues, StringComparison.Ordinal);
         Assert.Contains("RequestPath: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("RequestPort: drop", traefikValues, StringComparison.Ordinal);
         Assert.Contains("external-dns.alpha.kubernetes.io/hostname: realtime.cormier.local", traefikValues, StringComparison.Ordinal);
@@ -109,6 +133,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("topologySpreadConstraints:", traefikValues, StringComparison.Ordinal);
         Assert.Contains("development-traefik", metalLb, StringComparison.Ordinal);
         Assert.Contains("kind: L2Advertisement", metalLb, StringComparison.Ordinal);
+        Assert.Contains("192.0.2.240-192.0.2.250", metalLb, StringComparison.Ordinal);
         Assert.Contains("realtime.cormier.local", certificate, StringComparison.Ordinal);
     }
 
@@ -123,9 +148,140 @@ public sealed class DeploymentContractTests
         Assert.Contains("type ClusterIP", script, StringComparison.Ordinal);
         Assert.Contains("[Net.Dns]::GetHostAddresses", script, StringComparison.Ordinal);
         Assert.Contains("Certificate is Ready", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthorityPath", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthorityCertificateName", script, StringComparison.Ordinal);
+        Assert.Contains("ExternalPort", script, StringComparison.Ordinal);
+        Assert.Contains("ExternalAddress", script, StringComparison.Ordinal);
+        Assert.Contains("ConnectCallback", script, StringComparison.Ordinal);
+        Assert.Contains("ConnectionReadyFile", script, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStopFile", script, StringComparison.Ordinal);
+        Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
+        Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
+        Assert.Contains("--context", script, StringComparison.Ordinal);
+        Assert.Contains("Ready CertificateRequest", script, StringComparison.Ordinal);
+        Assert.Contains("externally served TLS leaf", script, StringComparison.Ordinal);
+        Assert.Contains("Traefik desired and running revisions", script, StringComparison.Ordinal);
+        Assert.Contains("x-cormier-origin-validated", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("GatewayPodSelector", script, StringComparison.Ordinal);
+        Assert.Contains("Test-IpAddressInPool", script, StringComparison.Ordinal);
+        Assert.Contains("curl 7.84.0", script, StringComparison.Ordinal);
+        Assert.Contains("Sha256Async", script, StringComparison.Ordinal);
+        Assert.Contains("$heartbeatDeadline", script, StringComparison.Ordinal);
+        Assert.Contains("'--context', $ExpectedContext, 'port-forward'", script, StringComparison.Ordinal);
+        Assert.Contains("observedClientAddresses", script, StringComparison.Ordinal);
+        Assert.Contains("--since-time=", script, StringComparison.Ordinal);
+        Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
+        Assert.Contains("Get-CertificateRequestMaterial", script, StringComparison.Ordinal);
+        Assert.Contains("GatewayMetricsPort", script, StringComparison.Ordinal);
+        Assert.Contains("CustomTrustStore.AddRange", script, StringComparison.Ordinal);
+        Assert.Contains("ExtraStore.Add", script, StringComparison.Ordinal);
+        Assert.Contains("Test-CertificateDnsName", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthorityCertificateNamespace", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Get-Json @('get', 'secret'", script, StringComparison.Ordinal);
+        Assert.Contains("PowerShell 7.4", script, StringComparison.Ordinal);
+        Assert.Contains("Certificate does not cover configured host", script, StringComparison.Ordinal);
+        Assert.Contains("IngressRoute and Certificate reference different TLS Secrets", script, StringComparison.Ordinal);
+        Assert.Contains("Invalid host is rejected", script, StringComparison.Ordinal);
+        Assert.Contains("Invalid Origin is rejected", script, StringComparison.Ordinal);
+        Assert.Contains("Approved Origin did not reach the session-authentication path", script, StringComparison.Ordinal);
+        Assert.Contains("cormier_realtime_authentication_total", script, StringComparison.Ordinal);
+        Assert.Contains("MetalLB speakers are not ready", script, StringComparison.Ordinal);
+        Assert.Contains("TraefikPodSelector", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedClientIp", script, StringComparison.Ordinal);
+        Assert.Contains("HeartbeatSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("respondingtimeouts", script, StringComparison.Ordinal);
+        Assert.Contains("accesslog.fields.names", script, StringComparison.Ordinal);
+        Assert.Contains("Test-LabelSelector", script, StringComparison.Ordinal);
+        Assert.Contains("active MetalLB L2 announcer", script, StringComparison.Ordinal);
+        Assert.Contains("active MetalLB BGP announcer", script, StringComparison.Ordinal);
+        Assert.Contains("eligibleAdvertisementNodes", script, StringComparison.Ordinal);
+        Assert.Contains("Get-MaxUnavailableCount", script, StringComparison.Ordinal);
+        Assert.Contains("namespaceSelectors", script, StringComparison.Ordinal);
+        Assert.Contains("ipAddressPoolSelectors", script, StringComparison.Ordinal);
+        Assert.Contains("Fewer than two active MetalLB BGP announcers", script, StringComparison.Ordinal);
+        Assert.Contains("PodDisruptionBudget", script, StringComparison.Ordinal);
+        Assert.Contains("rollout scheduling deadlock", script, StringComparison.Ordinal);
+        Assert.Contains("required two-replica floor", script, StringComparison.Ordinal);
+        Assert.Contains("CreateInvoker($connectionAddress", script, StringComparison.Ordinal);
+        Assert.Contains("remainingMilliseconds", script, StringComparison.Ordinal);
+        Assert.Contains("$effectiveOrigin", script, StringComparison.Ordinal);
         Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
         Assert.Contains("Invalid route is rejected", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Write-Host $ticket", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EdgeFailureAutomationIsBoundedAndRestoresState()
+    {
+        var script = Read("scripts/Invoke-RealtimeEdgeFailureTest.ps1");
+
+        Assert.Contains("SupportsShouldProcess", script, StringComparison.Ordinal);
+        Assert.Contains("TARGET MISMATCH", script, StringComparison.Ordinal);
+        Assert.Contains("SAFETY STOP", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/failure-testing", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/environment", script, StringComparison.Ordinal);
+        Assert.Contains("finally", script, StringComparison.Ordinal);
+        Assert.Contains("Restore gateway replicas", script, StringComparison.Ordinal);
+        Assert.Contains("Restore TLS Secret reference", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateRenewal", script, StringComparison.Ordinal);
+        Assert.Contains("parallel replacement Certificate", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete', 'secret', $tlsSecretName", script, StringComparison.Ordinal);
+        Assert.Contains("servicel2status", script, StringComparison.Ordinal);
+        Assert.Contains("exit code 60", script, StringComparison.Ordinal);
+        Assert.Contains("Wait-DeploymentFullyRecovered", script, StringComparison.Ordinal);
+        Assert.Contains("MetalLbAdvertisementMode", script, StringComparison.Ordinal);
+        Assert.Contains("Start-ContinuityProbe", script, StringComparison.Ordinal);
+        Assert.Contains("Complete-ContinuityProbe", script, StringComparison.Ordinal);
+        Assert.Contains("continuityStopPath", script, StringComparison.Ordinal);
+        Assert.Contains("replacement-certificate.log", script, StringComparison.Ordinal);
+        Assert.Contains("does not host a pod from the selected gateway or Traefik workload", script, StringComparison.Ordinal);
+        Assert.Contains("Baseline and recovery checks intentionally do not consume it", script, StringComparison.Ordinal);
+        Assert.Contains("CertificateAuthorityCertificateName", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedClientIp", script, StringComparison.Ordinal);
+        Assert.Contains("GatewayMetricsPort", script, StringComparison.Ordinal);
+        Assert.Contains("Suspend gateway HPA", script, StringComparison.Ordinal);
+        Assert.Contains("Restore gateway HPA", script, StringComparison.Ordinal);
+        Assert.Contains("Assert-ApprovedMetadata", script, StringComparison.Ordinal);
+        Assert.Contains("Acquire-FailureLock", script, StringComparison.Ordinal);
+        Assert.Contains("Release-FailureLock", script, StringComparison.Ordinal);
+        Assert.Contains("TicketRefreshCommand", script, StringComparison.Ordinal);
+        Assert.Contains("ContinuitySafetySeconds", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/edge-failure-lock=canonical", script, StringComparison.Ordinal);
+        Assert.Contains("cormier.io/environment-class", script, StringComparison.Ordinal);
+        Assert.Contains("Get-GatewayActiveConnectionsByPod", script, StringComparison.Ordinal);
+        Assert.Contains("Delete the gateway pod serving the continuity socket", script, StringComparison.Ordinal);
+        Assert.Contains("Inventory pods affected by node drain", script, StringComparison.Ordinal);
+        Assert.Contains("node-drain namespace", script, StringComparison.Ordinal);
+        Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
+        Assert.Contains("Get-CertificateRequestCaPem", script, StringComparison.Ordinal);
+        Assert.Contains("GatewayPodSelector", script, StringComparison.Ordinal);
+        Assert.Contains("realtime-edge-failure", script, StringComparison.Ordinal);
+        Assert.Contains("Release owned edge failure-test lock", script, StringComparison.Ordinal);
+        Assert.Contains("resourceVersion", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("get', 'secret'", script, StringComparison.Ordinal);
+        Assert.Contains("50 * $TimeoutSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("servicebgpstatus", script, StringComparison.Ordinal);
+        Assert.Contains("Prove every replica redistributed before ending the maintenance window", script, StringComparison.Ordinal);
+        Assert.Contains("redistributionError", script, StringComparison.Ordinal);
+        var scriptReadme = Read("scripts/README.md");
+        Assert.Contains("CertificateAuthorityCertificateName", scriptReadme, StringComparison.Ordinal);
+        Assert.Contains("TicketRefreshCommand $ticketRefreshCommand", scriptReadme, StringComparison.Ordinal);
+        Assert.Contains("Reclaim expired edge failure-test lock", script, StringComparison.Ordinal);
+        Assert.Contains("Verify edge failure-test lock ownership", script, StringComparison.Ordinal);
+        Assert.Contains("--context", script, StringComparison.Ordinal);
+        Assert.Contains("deletionTimestamp", script, StringComparison.Ordinal);
+        Assert.Contains("DeletedPodUid", script, StringComparison.Ordinal);
+        Assert.Contains("metadata.annotations", script, StringComparison.Ordinal);
+        Assert.Contains("status.phase -eq 'Running'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("2>&1", script, StringComparison.Ordinal);
+        Assert.Contains("Restore route match", script, StringComparison.Ordinal);
+        Assert.Contains("Uncordon target node", script, StringComparison.Ordinal);
+        Assert.Contains("Invoke-EdgeValidation", script, StringComparison.Ordinal);
+        Assert.Contains("during-failure.log", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("tls.key", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("redis-password", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("passwordKey", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(".evidence/", Read(".gitignore"), StringComparison.Ordinal);
     }
 
     [Fact]

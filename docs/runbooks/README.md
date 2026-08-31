@@ -11,6 +11,34 @@ All commands require explicit context, namespace, release, and endpoint paramete
 
 For rollback, run the same workflow with `operation=rollback` and the previously recorded digest. This changes only the selected digest. If automation is unavailable, use `scripts/Deploy-Realtime.ps1` with its explicit context guard and rollback action.
 
+### Edge rollback procedure
+
+Define every target from the release record; do not infer names or addresses from this example:
+
+```powershell
+$edgeContext = '<kubernetes-context>'
+$edgeNamespace = '<gateway-namespace>'
+$gatewayRelease = '<gateway-release>'
+$traefikNamespace = '<traefik-namespace>'
+$traefikRelease = '<traefik-release>'
+$certificateName = '<certificate-name>'
+$previousTlsSecret = '<last-known-good-tls-secret-name>'
+$poolName = '<metallb-pool-name>'
+$advertisementName = '<metallb-advertisement-name>'
+```
+
+Before a change, capture `helm history` for both releases and export the IngressRoute, Certificate metadata, IPAddressPool, advertisement, and LoadBalancer Service. Do not export Kubernetes Secret data. Record the current VIP, DNS answers, image digest, certificate serial/expiry, and external validation output.
+
+Rollback one layer at a time in this order, stopping when service is healthy:
+
+1. For an application regression, run the protected promotion workflow with `operation=rollback` and the recorded prior digest. With the CLI, use the repository lifecycle script against `$edgeContext`, `$edgeNamespace`, and `$gatewayRelease`; wait for rollout and readiness before external validation.
+2. For a route regression, restore the prior gateway Helm revision with `helm rollback $gatewayRelease <revision> --kube-context $edgeContext --namespace $edgeNamespace --wait`. Confirm the IngressRoute has only the approved host/path and references `$previousTlsSecret`.
+3. For a certificate-reference regression, restore only the prior Secret name with a JSON patch; never copy certificate or private-key bytes through the command line. If issuance itself failed, restore the prior Certificate/Issuer manifest and wait for `Certificate` Ready before switching the route reference.
+4. For a Traefik regression, restore the prior Traefik Helm revision with `helm rollback $traefikRelease <revision> --kube-context $edgeContext --namespace $traefikNamespace --wait`. Confirm three available replicas, the disruption budget, distinct-node placement, configured timeout arguments, and redacted access-log fields.
+5. For a VIP regression, first withdraw the bad advertisement, then restore the prior IPAddressPool and L2/BGP advertisement as a unit. Never advertise the same pool through L2 and BGP concurrently. Confirm the LoadBalancer receives the recorded VIP, speakers are ready on eligible endpoint nodes, and DNS converges before removing the replacement pool.
+
+After each rollback, run `Test-RealtimeEdge.ps1` with explicit context, namespaces, release/service names, host, path, external address/port, certificate trust source/key, MetalLB advertisement mode/name, metrics port when it cannot be derived, and expected client IP. Before a nonproduction failure test, label every namespace the selected scenario can mutate with matching `cormier.io/environment=<environment>`, `cormier.io/environment-class=nonproduction`, and `cormier.io/failure-testing=approved`; node drain requires the same three labels on the selected node and every namespace containing an evictable pod on that node. Remove approval labels when the test window closes. Run the matching `Invoke-RealtimeEdgeFailureTest.ps1` scenario to prove route, certificate, deployment, Traefik, speaker, and node recovery. Preserve its redacted evidence directory with the release record.
+
 ## Alert triage
 
 | Alert | Immediate checks | Recovery |
@@ -56,5 +84,7 @@ Perform only in an approved nonproduction environment with rollback evidence pre
 4. Apply CPU pressure and verify alert/HPA scale-up, then controlled scale-down.
 5. Use a short-lived test rule to validate certificate notification routing.
 6. Promote a tested digest, then roll back to the recorded prior digest and compare evidence.
+7. Remove all gateway backends and verify a bounded 502/503/504, restore replicas, and confirm routing recovers. Verify configured Traefik read/write/idle timeouts all exceed the gateway heartbeat, then keep an authenticated WSS connection active across multiple heartbeats.
+8. Restart Traefik and one MetalLB speaker separately; verify distinct-node placement, VIP advertisement, observed source IP, and external route recovery after each event.
 
 Record timestamps, immutable digests, configured targets, expected/observed signals, recovery time, data-loss semantics, and follow-ups. Stop immediately if a test escapes the approved namespace or threatens shared dependencies.

@@ -25,6 +25,7 @@ bld/
 .logs/
 .backups/
 .bootstrap/
+.evidence/
 
 # .NET Core
 project.lock.json

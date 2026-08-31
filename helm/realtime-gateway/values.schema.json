@@ -9,8 +9,8 @@
       "type": "object",
       "required": ["maxUnavailable", "maxSurge"],
       "properties": {
-        "maxUnavailable": { "type": "integer", "minimum": 0, "maximum": 1 },
-        "maxSurge": { "type": "integer", "minimum": 0 }
+        "maxUnavailable": { "type": "integer", "minimum": 0, "maximum": 0 },
+        "maxSurge": { "type": "integer", "minimum": 1 }
       },
       "not": {
         "properties": {

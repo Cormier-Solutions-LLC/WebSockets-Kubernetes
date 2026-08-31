@@ -464,6 +464,18 @@ if ($Scenario -eq 'NodeDrain' -and (-not $AllowNodeDrain -or [string]::IsNullOrW
 if ($Scenario -eq 'NodeDrain') {
     $approvedNode = Get-KubeJson @('get', 'node', $NodeName) 'Read node safety labels'
     Assert-ApprovedMetadata $approvedNode.metadata "node $NodeName"
+    $nodePods = Get-KubeJson @('get', 'pods', '--all-namespaces', '--field-selector', "spec.nodeName=$NodeName") 'Inventory pods affected by node drain'
+    $evictableNamespaces = @($nodePods.items | Where-Object {
+        $ownersProperty = $_.metadata.PSObject.Properties['ownerReferences']
+        $annotationsProperty = $_.metadata.PSObject.Properties['annotations']
+        $isDaemonSet = $null -ne $ownersProperty -and @($ownersProperty.Value | Where-Object { $_.kind -eq 'DaemonSet' }).Count -gt 0
+        $isMirrorPod = $null -ne $annotationsProperty -and $null -ne $annotationsProperty.Value.PSObject.Properties['kubernetes.io/config.mirror']
+        -not $isDaemonSet -and -not $isMirrorPod
+    } | ForEach-Object { $_.metadata.namespace } | Where-Object { $_ } | Sort-Object -Unique)
+    foreach ($affectedNamespace in $evictableNamespaces) {
+        $affectedNamespaceMetadata = Get-KubeJson @('get', 'namespace', $affectedNamespace) "Read safety labels for node-drain namespace $affectedNamespace"
+        Assert-ApprovedMetadata $affectedNamespaceMetadata.metadata "node-drain namespace $affectedNamespace"
+    }
     $gatewayPods = Get-KubeJson @('get', 'pods', '-n', $GatewayNamespace, '-l', $effectiveGatewayPodSelector) 'Read selected gateway nodes'
     $traefikPods = Get-KubeJson @('get', 'pods', '-n', $TraefikNamespace, '-l', $TraefikPodSelector) 'Read selected Traefik nodes'
     $selectedNodes = @(@($gatewayPods.items) + @($traefikPods.items) | Where-Object {

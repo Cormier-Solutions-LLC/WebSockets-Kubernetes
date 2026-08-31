@@ -12,8 +12,8 @@ revisionHistoryLimit: 3
 terminationGracePeriodSeconds: 35
 
 deploymentStrategy:
-  maxUnavailable: 1
-  maxSurge: 0
+  maxUnavailable: 0
+  maxSurge: 1
 
 serviceAccount:
   create: true

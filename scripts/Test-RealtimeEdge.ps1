@@ -297,6 +297,15 @@ try {
             throw 'The active MetalLB L2 announcer is not an intended node with both a ready speaker and local Traefik endpoint.'
         }
     }
+    else {
+        $bgpStatuses = Get-Json @('get', 'servicebgpstatus', '-n', $MetalLbNamespace) 'Read active MetalLB BGP announcer status'
+        $activeAnnouncers = @($bgpStatuses.items | Where-Object {
+            $_.status.serviceName -eq $TraefikService -and $_.status.serviceNamespace -eq $TraefikNamespace
+        } | ForEach-Object { $_.status.node } | Where-Object { $_ } | Sort-Object -Unique)
+        if ($activeAnnouncers.Count -lt 1 -or @($activeAnnouncers | Where-Object { $traefikNodes -notcontains $_ -or $speakerNodes -notcontains $_ }).Count -gt 0) {
+            throw 'No active MetalLB BGP announcer is an intended node with both a ready speaker and local Traefik endpoint.'
+        }
+    }
     Write-Result PASS "MetalLB pool, $MetalLbAdvertisementMode advertisement, and intended Traefik/speaker node placement are consistent."
 
     $traefikDeployment = Get-Json @('get', 'deployment', $TraefikRelease, '-n', $TraefikNamespace) 'Read Traefik timeout configuration'
@@ -461,9 +470,8 @@ public static class ServedCertificate
             $trustedRoots.ImportFromPemFile($CertificateAuthorityPath)
             if ($trustedRoots.Count -eq 0) { throw 'The configured CA bundle contains no certificates.' }
         }
-        if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -or -not [string]::IsNullOrWhiteSpace($ExternalAddress)) {
-            if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
-                Add-Type -TypeDefinition @'
+        if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) {
+            Add-Type -TypeDefinition @'
 using System.Net.Security;
 using System.Net;
 using System.Net.Http;
@@ -523,7 +531,6 @@ public static class CustomRootValidator
     }
 }
 '@
-            }
         }
         try {
             function Connect-AuthenticatedSocket([string]$EphemeralTicket) {
@@ -533,16 +540,10 @@ public static class CustomRootValidator
                 try {
                     $candidateSocket.Options.AddSubProtocol('cormier.realtime.v1')
                     $candidateSocket.Options.SetRequestHeader('Origin', $effectiveOrigin)
-                    if (-not [string]::IsNullOrWhiteSpace($CertificateAuthorityPath) -and [string]::IsNullOrWhiteSpace($ExternalAddress)) {
-                        $candidateSocket.Options.RemoteCertificateValidationCallback = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::Create($trustedRoots)
-                    }
                     $uri = [Uri]::new("wss://${externalAuthority}${Path}?ticket=$([Uri]::EscapeDataString($EphemeralTicket))")
-                    if ([string]::IsNullOrWhiteSpace($ExternalAddress)) { $null = $candidateSocket.ConnectAsync($uri, $connectTimeout.Token).GetAwaiter().GetResult() }
-                    else {
-                        if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) { throw 'The pinned WSS transport helper could not be loaded.' }
-                        $candidateInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($ExternalAddress, $ExternalPort, $trustedRoots)
-                        $null = $candidateSocket.ConnectAsync($uri, $candidateInvoker, $connectTimeout.Token).GetAwaiter().GetResult()
-                    }
+                    if ($null -eq ('Cormier.Realtime.EdgeValidation.CustomRootValidator' -as [type])) { throw 'The pinned WSS transport helper could not be loaded.' }
+                    $candidateInvoker = [Cormier.Realtime.EdgeValidation.CustomRootValidator]::CreateInvoker($connectionAddress, $ExternalPort, $trustedRoots)
+                    $null = $candidateSocket.ConnectAsync($uri, $candidateInvoker, $connectTimeout.Token).GetAwaiter().GetResult()
                     return [pscustomobject]@{ Socket = $candidateSocket; Invoker = $candidateInvoker }
                 }
                 catch { $candidateSocket.Dispose(); if ($null -ne $candidateInvoker) { $candidateInvoker.Dispose() }; throw }

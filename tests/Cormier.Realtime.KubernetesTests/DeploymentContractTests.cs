@@ -33,7 +33,8 @@ public sealed class DeploymentContractTests
         Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("minReplicas").GetProperty("minimum").GetInt32());
         Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("maxReplicas").GetProperty("minimum").GetInt32());
         Assert.Contains("autoscaling.maxReplicas must be greater than or equal to autoscaling.minReplicas", Read("helm/realtime-gateway/templates/hpa.yaml"), StringComparison.Ordinal);
-        Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
+        Assert.Equal(0, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
+        Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxSurge").GetProperty("minimum").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
     }
@@ -192,6 +193,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("accesslog.fields.names", script, StringComparison.Ordinal);
         Assert.Contains("Test-LabelSelector", script, StringComparison.Ordinal);
         Assert.Contains("active MetalLB L2 announcer", script, StringComparison.Ordinal);
+        Assert.Contains("active MetalLB BGP announcer", script, StringComparison.Ordinal);
+        Assert.Contains("CreateInvoker($connectionAddress", script, StringComparison.Ordinal);
         Assert.Contains("remainingMilliseconds", script, StringComparison.Ordinal);
         Assert.Contains("$effectiveOrigin", script, StringComparison.Ordinal);
         Assert.Contains("REALTIME_EDGE_TICKET", script, StringComparison.Ordinal);
@@ -239,6 +242,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("cormier.io/environment-class", script, StringComparison.Ordinal);
         Assert.Contains("Get-GatewayActiveConnectionsByPod", script, StringComparison.Ordinal);
         Assert.Contains("Delete the gateway pod serving the continuity socket", script, StringComparison.Ordinal);
+        Assert.Contains("Inventory pods affected by node drain", script, StringComparison.Ordinal);
+        Assert.Contains("node-drain namespace", script, StringComparison.Ordinal);
         Assert.Contains("ReconnectOnTransportFailure", script, StringComparison.Ordinal);
         Assert.Contains("Get-CertificateRequestCaPem", script, StringComparison.Ordinal);
         Assert.Contains("GatewayPodSelector", script, StringComparison.Ordinal);

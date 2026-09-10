@@ -480,6 +480,7 @@ public sealed class DeploymentContractTests
 
         Assert.Contains("--locked-mode", build, StringComparison.Ordinal);
         Assert.Contains("Assert-Reproducible", build, StringComparison.Ordinal);
+        Assert.DoesNotContain("createdUtc =", build, StringComparison.Ordinal);
         Assert.Contains("Test-AspNetCorePackage.ps1", build, StringComparison.Ordinal);
         Assert.Contains("Test-DotNetClientPackage.ps1", build, StringComparison.Ordinal);
         Assert.Contains("Test-BrowserPackage.ps1", build, StringComparison.Ordinal);
@@ -490,6 +491,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("<ProjectVersion>[$(RedisAdapterVersion),$(RedisAdapterCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
 
         Assert.Contains("environment: package-production", workflow, StringComparison.Ordinal);
+        Assert.Contains("group: package-promotion-${{ github.repository }}-${{ github.sha }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("cancel-in-progress: false", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/attest-build-provenance@", workflow, StringComparison.Ordinal);
         Assert.Contains("Generate package SBOM", workflow, StringComparison.Ordinal);
         Assert.Contains("Scan package candidate", workflow, StringComparison.Ordinal);
@@ -518,6 +521,8 @@ public sealed class DeploymentContractTests
         Assert.True(clientOrder < aspNetCoreOrder && redisOrder < aspNetCoreOrder);
         Assert.Contains("$symbolPackage.FullName", publish, StringComparison.Ordinal);
         Assert.Contains("'--no-symbols'", publish, StringComparison.Ordinal);
+        Assert.Contains("{ 'next' } else { 'latest' }", publish, StringComparison.Ordinal);
+        Assert.Contains("'--tag', $npmTag", publish, StringComparison.Ordinal);
         Assert.Contains("SetUnixFileMode", publish, StringComparison.Ordinal);
         Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);

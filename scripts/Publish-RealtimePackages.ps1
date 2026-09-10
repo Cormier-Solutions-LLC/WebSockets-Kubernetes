@@ -220,6 +220,7 @@ try {
     if ($npmPackages.Count -ne 1) {
         throw "INVALID candidate: expected one npm tarball, found $($npmPackages.Count)."
     }
+    $npmTag = if ([string]$manifest.versions.browser -match '-') { 'next' } else { 'latest' }
 
     $phase = 'Promotion plan'
     if (-not $PSCmdlet.ShouldProcess($NuGetSource, "Publish $($nugetPackages.Count) immutable NuGet packages")) {
@@ -228,7 +229,7 @@ try {
             Write-PromotionLog INFO "WHATIF: would publish $($symbolPackagesByNuGetPackage[$package.Name].Name) to the configured NuGet source."
         }
         if ($PublishNpm) {
-            Write-PromotionLog INFO "WHATIF: would publish $($npmPackages[0].Name) to the configured npm registry."
+            Write-PromotionLog INFO "WHATIF: would publish $($npmPackages[0].Name) to the configured npm registry with the $npmTag tag."
         }
         Write-PromotionLog PASS 'WHATIF: candidate verified and publication commands rehearsed without credentials or registry mutation.'
         return
@@ -323,7 +324,7 @@ try {
                 $temporaryNpmConfig,
                 [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
         }
-        Invoke-PromotionTool $npm @('publish', $npmPackages[0].FullName, '--registry', $NpmRegistry) `
+        Invoke-PromotionTool $npm @('publish', $npmPackages[0].FullName, '--registry', $NpmRegistry, '--tag', $npmTag) `
             -Environment @{ NPM_CONFIG_USERCONFIG = $temporaryNpmConfig }
         [void]$completed.Add($npmPackages[0].Name)
         [ordered]@{

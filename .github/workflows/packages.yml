@@ -141,6 +141,9 @@ jobs:
     needs: [package-candidate, attest-candidate]
     runs-on: ubuntu-latest
     environment: package-production
+    concurrency:
+      group: package-promotion-${{ github.repository }}-${{ github.sha }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: read

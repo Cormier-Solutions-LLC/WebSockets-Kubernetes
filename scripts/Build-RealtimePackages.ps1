@@ -440,7 +440,6 @@ try {
     $manifest = [ordered]@{
         schemaVersion = 1
         sourceCommit = $commit
-        createdUtc = [DateTimeOffset]::UtcNow.ToString('o')
         publishable = -not $SkipIntegrationTests -and -not $sourceDirty
         sourceTree = if ($sourceDirty) { 'dirty' } else { 'clean' }
         protocolVersion = '1.0'

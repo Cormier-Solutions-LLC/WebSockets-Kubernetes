@@ -56,9 +56,10 @@ async function command(file, args, options = {}) {
       stdio: "inherit",
       shell: process.platform === "win32" && file.endsWith(".cmd"),
     });
-    const timer = options.timeout === false
+    const timeout = options.timeout === false ? undefined : options.timeout ?? commandTimeout;
+    const timer = timeout === undefined
       ? undefined
-      : setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`Command exceeded ${plan.timeouts.commandSeconds} seconds.`)); }, commandTimeout);
+      : setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`Command exceeded ${timeout / 1000} seconds.`)); }, timeout);
     child.on("error", reject);
     child.on("exit", code => { if (timer !== undefined) clearTimeout(timer); code === 0 ? accept() : reject(new Error(`${file} exited with code ${code}.`)); });
   });
@@ -86,6 +87,7 @@ async function cleanRedisFixtures() {
   await command("node", [resolve(repositoryRoot, "sdk/typescript/scripts/redis-fixtures.mjs"), "cleanup"], {
     cwd: resolve(repositoryRoot, "sdk/typescript"),
     env: { Redis__Endpoint: redisEndpoint, FULL_CIRCLE_PATTERN: `${escapeRedisGlob(plan.redis.instancePrefix)}:*` },
+    timeout: plan.timeouts.cleanupSeconds * 1000,
   });
 }
 

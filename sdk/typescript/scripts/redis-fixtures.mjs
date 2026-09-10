@@ -26,31 +26,52 @@ const username = process.env.Redis__User || undefined;
 const password = process.env.Redis__Password || undefined;
 const sentinelPassword = process.env.Redis__SentinelPassword || undefined;
 const tls = process.env.Redis__Ssl?.toLowerCase() === "true";
-const socket = { ...endpoints[0], tls };
 const sentinelName = process.env.Redis__SentinelServiceName;
-const client = sentinelName
-  ? createSentinel({
+const clients = [];
+
+if (sentinelName) {
+  const client = createSentinel({
       name: sentinelName,
       sentinelRootNodes: endpoints,
       nodeClientOptions: { username, password, socket: { tls } },
       sentinelClientOptions: { password: sentinelPassword, socket: { tls } },
-    })
-  : createClient({ username, password, socket });
+    });
+  client.on("error", () => undefined);
+  await client.connect();
+  clients.push(client);
+} else {
+  for (const endpoint of endpoints) {
+    const client = createClient({
+      username,
+      password,
+      socket: { ...endpoint, tls, connectTimeout: 5_000, reconnectStrategy: false },
+    });
+    client.on("error", () => undefined);
+    try {
+      await client.connect();
+      clients.push(client);
+    } catch { /* Try the next configured direct endpoint. */ }
+  }
+  if (clients.length === 0) throw new Error("No configured Redis endpoint was reachable.");
+}
 
-client.on("error", () => undefined);
-await client.connect();
 try {
   if (action === "ping") {
-    if (await client.ping() !== "PONG") throw new Error("Redis ping did not return PONG.");
+    const results = await Promise.allSettled(clients.map(client => client.ping()));
+    if (!results.some(result => result.status === "fulfilled" && result.value === "PONG")) {
+      throw new Error("Redis ping did not return PONG.");
+    }
   } else {
     const pattern = required("FULL_CIRCLE_PATTERN");
-    let cursor = "0";
-    do {
-      const batch = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
-      cursor = batch.cursor;
-      if (batch.keys.length > 0) await client.unlink(batch.keys);
-    } while (cursor !== "0");
+    for (const client of clients) {
+      let cursor = "0";
+      do {
+        const batch = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
+        cursor = batch.cursor;
+        if (batch.keys.length > 0) await client.unlink(batch.keys);
+      } while (cursor !== "0");
+    }
   }
 } finally {
-  await client.close();
+  await Promise.all(clients.map(client => client.close()));
 }

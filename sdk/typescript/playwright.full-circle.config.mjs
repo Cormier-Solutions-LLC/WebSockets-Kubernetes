@@ -12,6 +12,8 @@ if (plan.schemaVersion !== 1 || selectedPlan === undefined) throw new Error("The
 const redis = process.env.REDIS_TEST_ENDPOINT ?? "127.0.0.1:6379";
 const instances = selectedPlan.instances;
 const entryPort = selectedPlan.entryPort;
+const packagedApplicationDirectory = resolve(repositoryRoot, "artifacts/full-circle/consumer-bin/Release/net10.0");
+const packagedApplication = "Cormier.Realtime.Example.FullCircle.dll";
 const forwardedRedisConfiguration = Object.fromEntries([
   "Redis__User",
   "Redis__Password",
@@ -20,7 +22,8 @@ const forwardedRedisConfiguration = Object.fromEntries([
   "Redis__SentinelPassword",
 ].flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]]]));
 const appServers = instances.map(instance => ({
-  command: "dotnet run --project ../../examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore",
+  command: `dotnet ${packagedApplication}`,
+  cwd: packagedApplicationDirectory,
   url: `http://127.0.0.1:${instance.port}/health`,
   timeout: 60_000,
   reuseExistingServer: false,

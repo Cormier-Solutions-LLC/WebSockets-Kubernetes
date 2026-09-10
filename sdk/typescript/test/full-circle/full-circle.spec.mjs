@@ -57,25 +57,37 @@ test("invalid routes and invalid payloads produce structured visible errors", as
   await expect(page.locator("#events")).toContainText("SyntaxError");
 });
 
-test("Redis fan-out preserves tenant boundaries", async ({ browser }) => {
+test("Redis fan-out crosses instances and preserves tenant boundaries", async ({ browser, request }) => {
+  test.skip(process.env.FULL_CIRCLE_PROFILE !== "ha", "Requires the explicit HA topology.");
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
+  const isolatedContext = await browser.newContext();
   try {
     const first = await firstContext.newPage();
     const second = await secondContext.newPage();
+    const isolated = await isolatedContext.newPage();
     await login(first, "tenant-a", "user-a");
-    await login(second, "tenant-b", "user-b");
+    await login(second, "tenant-a", "user-a");
+    await login(isolated, "tenant-b", "user-b");
+    const before = await request.get("/test/stats").then(response => response.json());
     await connectAndSubscribe(first);
     await connectAndSubscribe(second);
+    const connected = await request.get("/test/stats").then(response => response.json());
+    const newBackends = connected.websocketBackends.slice(before.websocketBackends.length);
+    expect(newBackends).toHaveLength(2);
+    expect(newBackends[0]).not.toBe(newBackends[1]);
+    await connectAndSubscribe(isolated);
     const marker = crypto.randomUUID();
     await first.fill("#payload", JSON.stringify({ marker }));
     await first.click("#publish");
     await expect(first.locator("#events")).toContainText(marker);
+    await expect(second.locator("#events")).toContainText(marker);
     await pageDelay(500);
-    await expect(second.locator("#events")).not.toContainText(marker);
+    await expect(isolated.locator("#events")).not.toContainText(marker);
   } finally {
     await firstContext.close();
     await secondContext.close();
+    await isolatedContext.close();
   }
 });
 

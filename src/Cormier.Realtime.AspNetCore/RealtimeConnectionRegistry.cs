@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
+using System.Text;
 using Cormier.Realtime.Contracts;
 using StackExchange.Redis;
 
@@ -16,6 +18,28 @@ public sealed class RealtimeConnectionRegistry(
     public int Count => _connections.Count;
 
     public bool IsDraining => Volatile.Read(ref _draining) == 1;
+
+    public (int Connections, int AuthenticatedSessions, int Subscriptions, int QueuedMessages) GetAggregateSnapshot()
+    {
+        var connections = _connections.Values.ToArray();
+        return (
+            connections.Length,
+            connections.Select(connection => connection.SessionId ?? connection.Id).Distinct(StringComparer.Ordinal).Count(),
+            connections.Sum(connection => connection.SubscriptionCount),
+            connections.Sum(connection => connection.QueuedMessageCount));
+    }
+
+    public ConnectionDiagnostic[] GetDiagnostics(int offset, int limit) => _connections.Values
+        .OrderBy(connection => connection.CreatedAt)
+        .Skip(offset)
+        .Take(limit)
+        .Select(connection => new ConnectionDiagnostic(
+            OpaqueReference(connection.Id),
+            connection.CreatedAt,
+            connection.LastActivity,
+            connection.SubscriptionCount,
+            connection.QueuedMessageCount))
+        .ToArray();
 
     public void BeginDrain() => Interlocked.Exchange(ref _draining, 1);
 
@@ -215,4 +239,7 @@ public sealed class RealtimeConnectionRegistry(
                 cancellationToken);
         }
     }
+
+    private static string OpaqueReference(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..16].ToLowerInvariant();
 }

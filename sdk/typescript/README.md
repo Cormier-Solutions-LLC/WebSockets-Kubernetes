@@ -2,6 +2,12 @@
 
 `@cormier/realtime` is the typed browser client for wire protocol `1.0`. It supports same-origin HttpOnly session cookies and short-lived, single-use connection tickets without exposing authentication material through callbacks, errors, or library logging.
 
+## Operator diagnostics client
+
+`DiagnosticsClient` is an explicit administrative client for the versioned diagnostics API. It is separate from `RealtimeClient`, so ordinary application roles do not invoke operator controls accidentally. Configure an operator-protected base URL and authentication headers, then call `snapshot()`, `activeLogLevels()`, `applyLogLevel()`, or `revertLogLevel()`. `streamEvents()` and `tailLogs()` use same-origin credentialed `EventSource`; call the returned function to disconnect. Cross-origin bearer-authenticated streaming should use a bounded `fetch` reader as demonstrated by the full-circle operator page.
+
+Never persist an operator token in browser storage. Server authorization, Origin/network policy, redaction, duration, buffer, and rate limits remain authoritative.
+
 ## ESM
 
 ```html

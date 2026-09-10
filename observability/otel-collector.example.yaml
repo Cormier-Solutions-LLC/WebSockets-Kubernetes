@@ -1,0 +1,38 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: {}
+      http: {}
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: cormier-realtime
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["gateway.example:443"]
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  filter/drop-private-attributes:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'attributes["tenant_id"] != nil'
+        - 'attributes["user_id"] != nil'
+        - 'attributes["session_id"] != nil'
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+exporters:
+  otlphttp:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      authorization: ${env:OTEL_EXPORTER_OTLP_HEADERS_AUTHORIZATION}
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, filter/drop-private-attributes, batch]
+      exporters: [otlphttp]

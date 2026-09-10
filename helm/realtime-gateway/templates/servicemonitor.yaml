@@ -16,7 +16,7 @@ spec:
     matchNames: [{{ .Release.Namespace | quote }}]
   endpoints:
     - port: http
-      path: /metrics
+      path: {{ .Values.observability.serviceMonitor.path }}
       interval: {{ .Values.observability.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
       relabelings:

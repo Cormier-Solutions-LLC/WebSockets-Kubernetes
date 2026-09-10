@@ -62,7 +62,7 @@ public sealed class AspNetCoreHostingIntegrationTests
         services.AddRealtimeGateway(configuration);
         services.AddRealtimeGateway(configuration);
 
-        Assert.Equal(3, services.Count(descriptor => descriptor.ServiceType == typeof(IHostedService)));
+        Assert.Equal(6, services.Count(descriptor => descriptor.ServiceType == typeof(IHostedService)));
     }
 
     [Fact]

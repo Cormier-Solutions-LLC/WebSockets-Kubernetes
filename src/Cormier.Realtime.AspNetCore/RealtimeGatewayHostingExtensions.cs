@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.ResponseCompression;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 
 namespace Cormier.Realtime.AspNetCore;
 
@@ -27,6 +30,8 @@ public static class RealtimeGatewayHostingExtensions
                 "Gateway:ServiceName is required and must not exceed 128 characters.")
             .Validate(options => options.ShutdownDrainSeconds is >= 1 and <= 300,
                 "Gateway:ShutdownDrainSeconds must be between 1 and 300.")
+            .Validate(options => options.Topology is "ha" or "non-ha" or "unspecified",
+                "Gateway:Topology must be 'ha', 'non-ha', or 'unspecified'.")
             .ValidateOnStart();
 
         services.AddOptions<RedisOptions>()
@@ -51,6 +56,52 @@ public static class RealtimeGatewayHostingExtensions
             .Bind(configuration.GetSection(ProxyOptions.SectionName))
             .Validate(options => options.TrustedNetworks.All(network => System.Net.IPNetwork.TryParse(network, out _)),
                 "Proxy:TrustedNetworks must contain valid CIDR ranges.")
+            .ValidateOnStart();
+
+        services.AddOptions<DiagnosticsOptions>()
+            .Bind(configuration.GetSection(DiagnosticsOptions.SectionName))
+            .Validate(options => !options.Enabled || IsValidRoute(options.BasePath),
+                "Diagnostics:BasePath must be an absolute route without query or fragment.")
+            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.AuthorizationPolicy),
+                "Diagnostics:AuthorizationPolicy is required when diagnostics are enabled.")
+            .Validate(options => options.AllowedOrigins.All(IsAbsoluteOrigin),
+                "Diagnostics:AllowedOrigins must contain HTTP or HTTPS origins without paths, queries, or fragments.")
+            .Validate(options => options.AllowedNetworks.All(network => System.Net.IPNetwork.TryParse(network, out _)),
+                "Diagnostics:AllowedNetworks must contain valid CIDR ranges.")
+            .Validate(options => options.LogCategoryAllowlist.Length > 0 && options.LogCategoryAllowlist.All(category =>
+                    !string.IsNullOrWhiteSpace(category) && category.Length <= 128),
+                "Diagnostics:LogCategoryAllowlist must contain bounded category prefixes.")
+            .Validate(options => options.MaximumDetailItems is >= 1 and <= 1000,
+                "Diagnostics:MaximumDetailItems must be between 1 and 1000.")
+            .Validate(options => options.MaximumConcurrentRequests is >= 1 and <= 100,
+                "Diagnostics:MaximumConcurrentRequests must be between 1 and 100.")
+            .Validate(options => options.MaximumTailSessions is >= 1 and <= 100,
+                "Diagnostics:MaximumTailSessions must be between 1 and 100.")
+            .Validate(options => options.TailBufferCapacity is >= 1 and <= 10_000,
+                "Diagnostics:TailBufferCapacity must be between 1 and 10000.")
+            .Validate(options => options.TailEventsPerSecond is >= 1 and <= 10_000,
+                "Diagnostics:TailEventsPerSecond must be between 1 and 10000.")
+            .Validate(options => options.TailBytesPerSecond is >= 1024 and <= 10_485_760,
+                "Diagnostics:TailBytesPerSecond must be between 1024 and 10485760.")
+            .Validate(options => options.MaximumTailDurationSeconds is >= 30 and <= 3600,
+                "Diagnostics:MaximumTailDurationSeconds must be between 30 and 3600.")
+            .Validate(options => options.MinimumLogOverrideSeconds is >= 10 and <= 300,
+                "Diagnostics:MinimumLogOverrideSeconds must be between 10 and 300.")
+            .Validate(options => options.MaximumLogOverrideSeconds >= options.MinimumLogOverrideSeconds &&
+                    options.MaximumLogOverrideSeconds <= 86400,
+                "Diagnostics:MaximumLogOverrideSeconds must be at least the minimum and no more than 86400.")
+            .Validate(options => options.AuditCapacity is >= 10 and <= 10_000,
+                "Diagnostics:AuditCapacity must be between 10 and 10000.")
+            .Validate(options => options.AuditRetentionDays is >= 1 and <= 365,
+                "Diagnostics:AuditRetentionDays must be between 1 and 365.")
+            .ValidateOnStart();
+
+        services.AddOptions<MetricsOptions>()
+            .Bind(configuration.GetSection(MetricsOptions.SectionName))
+            .Validate(options => !options.Enabled || IsValidRoute(options.Path),
+                "Metrics:Path must be an absolute route without query or fragment.")
+            .Validate(options => options.AllowedNetworks.All(network => System.Net.IPNetwork.TryParse(network, out _)),
+                "Metrics:AllowedNetworks must contain valid CIDR ranges.")
             .ValidateOnStart();
 
         var realtime = services.AddOptions<RealtimeOptions>()
@@ -82,6 +133,7 @@ public static class RealtimeGatewayHostingExtensions
             .ValidateOnStart();
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RealtimeOptions>, RealtimeOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<DiagnosticsOptions>, DiagnosticsEnvironmentValidator>());
         services.AddOptions<ForwardedHeadersOptions>().Configure<IOptions<ProxyOptions>>((headers, proxy) =>
         {
             headers.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
@@ -95,11 +147,52 @@ public static class RealtimeGatewayHostingExtensions
         services.AddOptions<HostOptions>().Configure<IOptions<GatewayOptions>>((host, gateway) =>
             host.ShutdownTimeout = TimeSpan.FromSeconds(gateway.Value.ShutdownDrainSeconds + 5));
         services.ConfigureHttpJsonOptions(options =>
-            options.SerializerOptions.TypeInfoResolverChain.Insert(0, RealtimeJsonSerializerContext.Default));
+        {
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, DiagnosticsJsonSerializerContext.Default);
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, RealtimeJsonSerializerContext.Default);
+        });
+
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<GzipCompressionProvider>();
+            options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+                ["application/openmetrics-text", "text/event-stream"]);
+        });
+
+        if (configuration.GetValue<bool>($"{MetricsOptions.SectionName}:OtlpEnabled"))
+        {
+            var serviceName = configuration[$"{GatewayOptions.SectionName}:ServiceName"] ?? "cormier-realtime-gateway";
+            services.AddOpenTelemetry()
+                .ConfigureResource(resource => resource.AddService(serviceName))
+                .WithMetrics(metrics => metrics
+                    .AddMeter("Cormier.Realtime.Gateway")
+                    .AddView(
+                        "cormier_realtime_connection_duration_seconds",
+                        new ExplicitBucketHistogramConfiguration
+                        {
+                            Boundaries = GatewayMetrics.ConnectionDurationBucketBoundaries,
+                        })
+                    .AddView(
+                        "cormier_realtime_handler_duration_seconds",
+                        new ExplicitBucketHistogramConfiguration
+                        {
+                            Boundaries = GatewayMetrics.DurationBucketBoundaries,
+                        })
+                    .AddView(
+                        "cormier_realtime_redis_operation_duration_seconds",
+                        new ExplicitBucketHistogramConfiguration
+                        {
+                            Boundaries = GatewayMetrics.DurationBucketBoundaries,
+                        })
+                    .AddOtlpExporter());
+        }
 
         services.TryAddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<GatewayOptions>>().Value);
         services.TryAddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RedisOptions>>().Value);
         services.TryAddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RealtimeOptions>>().Value);
+        services.TryAddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<DiagnosticsOptions>>().Value);
+        services.TryAddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<MetricsOptions>>().Value);
         services.TryAddSingleton<RedisConnectionProvider>();
         services.TryAddSingleton<IRedisReadinessProbe>(serviceProvider => serviceProvider.GetRequiredService<RedisConnectionProvider>());
         services.TryAddSingleton<IRealtimeSessionStore, RedisSessionStore>();
@@ -114,9 +207,28 @@ public static class RealtimeGatewayHostingExtensions
         services.TryAddSingleton<RealtimeAuthenticator>();
         services.TryAddSingleton<RealtimeDispatcher>();
         services.TryAddSingleton<RealtimeWebSocketHandler>();
+        services.TryAddSingleton<DiagnosticsIdentity>();
+        services.TryAddSingleton<DiagnosticsStreamHub>();
+        services.TryAddSingleton<RuntimeLogLevelController>();
+        services.TryAddSingleton<DiagnosticsRequestLimiter>();
+        services.TryAddSingleton<DiagnosticsControlService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, DiagnosticsLoggerProvider>());
+        if (configuration.GetValue<bool>($"{DiagnosticsOptions.SectionName}:Enabled"))
+        {
+            services.AddOptions<LoggerFilterOptions>()
+                .PostConfigure<RuntimeLogLevelController>((logging, controller) =>
+                    logging.Rules.Add(new LoggerFilterRule(
+                        providerName: null,
+                        categoryName: null,
+                        logLevel: LogLevel.Trace,
+                        filter: (_, category, level) => level >= controller.EffectiveLevel(category ?? string.Empty))));
+        }
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, RedisSubscriberService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, GatewayDrainService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, RealtimeGatewayStartupService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DiagnosticsSamplerService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DiagnosticsCoordinationService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DiagnosticsAuditPersistenceService>());
         return services;
     }
 
@@ -125,6 +237,7 @@ public static class RealtimeGatewayHostingExtensions
         ArgumentNullException.ThrowIfNull(app);
         var options = app.ApplicationServices.GetRequiredService<RealtimeOptions>();
         app.UseForwardedHeaders();
+        app.UseResponseCompression();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(options.HeartbeatSeconds) });
         return app;
     }

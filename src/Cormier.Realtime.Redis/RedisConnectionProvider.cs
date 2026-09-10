@@ -7,6 +7,8 @@ public sealed class RedisConnectionProvider(RedisOptions options) : IRedisReadin
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private ConnectionMultiplexer? _connection;
 
+    public IConnectionMultiplexer? CurrentConnection => Volatile.Read(ref _connection);
+
     public async ValueTask<IConnectionMultiplexer> GetConnectionAsync(CancellationToken cancellationToken)
     {
         var existing = Volatile.Read(ref _connection);

@@ -56,7 +56,7 @@ spec:
             summary: Abnormal WebSocket disconnect rate is elevated
             runbook_url: {{ printf "%s/disconnects" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayReconnectStorm
-          expr: sum(increase(cormier_realtime_connections_opened_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) / clamp_min(sum(cormier_realtime_active_connections{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}), 1) > {{ .Values.observability.alertThresholds.reconnectRatio }}
+          expr: sum(increase(cormier_realtime_reconnect_authentications_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) / clamp_min(sum(increase(cormier_realtime_connections_opened_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])), 1) > {{ .Values.observability.alertThresholds.reconnectRatio }}
           for: 10m
           labels:
             severity: warning

@@ -24,6 +24,23 @@ test("packaged browser assets expose both direct-script and ESM consumers", asyn
   expect(await page.evaluate(() => typeof window.RealtimeClient)).toBe("function");
 });
 
+test("operator view exposes diagnostics controls separately from ordinary roles", async ({ page }) => {
+  const anonymous = await page.request.get("/diagnostics/v1/snapshot");
+  expect(anonymous.status()).toBe(401);
+
+  await page.goto("/operator.html");
+  await expect(page.locator("h1")).toHaveText("Operator diagnostics");
+  await expect(page.locator("#token")).toHaveAttribute("type", "password");
+  await expect(page.locator("#countdown")).toHaveText("not active");
+  await expect(page.locator("#revert")).toBeDisabled();
+  expect(await page.evaluate(() => typeof window.CormierRealtime?.DiagnosticsClient)).toBe("function");
+
+  await page.fill("#token", process.env.FULL_CIRCLE_DIAGNOSTICS_TOKEN);
+  await page.click("#snapshot");
+  await expect(page.locator("#output")).toContainText("snapshot");
+  await expect(page.locator("#output")).toContainText("instanceId");
+});
+
 test("anonymous and invalid identities fail visibly without exposing credentials", async ({ page }) => {
   await page.goto("/");
   await page.click("#connect");

@@ -16,6 +16,18 @@ builder.Logging.AddJsonConsole(options =>
 });
 
 builder.Services.AddRealtimeGateway(builder.Configuration);
+var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
+if (diagnosticsEnabled)
+{
+    var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
+    var diagnosticsToken = builder.Configuration["Diagnostics:OperatorToken"];
+    if (string.IsNullOrWhiteSpace(diagnosticsPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
+    {
+        throw new InvalidOperationException(
+            "Enabled standalone diagnostics require Diagnostics:AuthorizationPolicy and a Secret-backed Diagnostics:OperatorToken.");
+    }
+    builder.Services.AddRealtimeDiagnosticsBearer(diagnosticsPolicy, diagnosticsToken);
+}
 
 builder.Configuration.AddCommandLine(args);
 builder.Configuration.AddEnvironmentVariables();
@@ -45,7 +57,13 @@ app.Lifetime.ApplicationStopping.Register(() =>
 });
 
 app.UseRealtimeGateway();
+if (diagnosticsEnabled)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 app.MapRealtimeGateway();
+app.MapRealtimeDiagnostics();
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>
 {
@@ -77,11 +95,6 @@ app.MapGet("/health/ready", async Task<Results<Ok<HealthStatusResponse>, JsonHtt
             response,
             RealtimeJsonSerializerContext.Default.HealthStatusResponse,
             statusCode: StatusCodes.Status503ServiceUnavailable);
-});
-
-app.MapGet("/metrics", ContentHttpResult () =>
-{
-    return TypedResults.Text(metrics.RenderPrometheus(), "text/plain; version=0.0.4; charset=utf-8");
 });
 
 app.Run();

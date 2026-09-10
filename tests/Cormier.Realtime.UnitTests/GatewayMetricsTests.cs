@@ -44,7 +44,7 @@ public sealed class GatewayMetricsTests
 
         listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
         {
-            if (instrument.Name == "gateway.health.requests")
+            if (instrument.Name == "cormier_realtime_health_requests_total")
             {
                 foreach (var tag in tags)
                 {

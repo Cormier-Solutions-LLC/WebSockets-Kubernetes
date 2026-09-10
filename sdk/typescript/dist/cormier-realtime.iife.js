@@ -21,6 +21,7 @@ var CormierRealtime = (() => {
   // src/index.ts
   var index_exports = {};
   __export(index_exports, {
+    DiagnosticsClient: () => DiagnosticsClient,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
     RealtimeClient: () => RealtimeClient,
     RealtimeConnectionError: () => RealtimeConnectionError,
@@ -883,6 +884,69 @@ var CormierRealtime = (() => {
       if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) {
         throw new RangeError(`${name} must be a nonnegative timer-safe integer.`);
       }
+    }
+  };
+
+  // src/diagnostics.ts
+  var DiagnosticsClient = class {
+    #baseUrl;
+    #headers;
+    #fetch;
+    #eventSourceFactory;
+    constructor(options = {}) {
+      this.#baseUrl = (options.baseUrl ?? "/diagnostics/v1").replace(/\/$/, "");
+      this.#headers = { ...options.headers ?? {} };
+      this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+      this.#eventSourceFactory = options.eventSourceFactory ?? ((url) => new EventSource(url, { withCredentials: true }));
+    }
+    snapshot(signal) {
+      return this.#request("/snapshot", signal ? { signal } : {});
+    }
+    activeLogLevels(signal) {
+      return this.#request("/logging/overrides", signal ? { signal } : {});
+    }
+    audit(offset = 0, limit = 25, signal) {
+      const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+      return this.#request(`/logging/audit?${query}`, signal ? { signal } : {});
+    }
+    applyLogLevel(change, signal) {
+      return this.#request("/logging/overrides", {
+        method: "POST",
+        ...signal ? { signal } : {},
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...change, scope: change.scope ?? "all" })
+      });
+    }
+    async revertLogLevel(id, signal) {
+      await this.#request(`/logging/overrides/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        ...signal ? { signal } : {}
+      });
+    }
+    streamEvents(onEvent) {
+      return this.#stream("/events", {}, onEvent);
+    }
+    tailLogs(filter, onEvent) {
+      return this.#stream("/logs/tail", filter, onEvent);
+    }
+    #stream(path, query, onEvent) {
+      const parameters = new URLSearchParams();
+      for (const [name, value] of Object.entries(query)) if (value !== void 0) parameters.set(name, String(value));
+      const suffix = parameters.size === 0 ? "" : `?${parameters}`;
+      const source = this.#eventSourceFactory(`${this.#baseUrl}${path}${suffix}`);
+      source.onmessage = (event) => onEvent(JSON.parse(event.data));
+      return () => source.close();
+    }
+    async #request(path, init = {}) {
+      const response = await this.#fetch(`${this.#baseUrl}${path}`, {
+        ...init,
+        credentials: "same-origin",
+        headers: { ...this.#headers, ...init.headers ?? {} }
+      });
+      if (!response.ok) {
+        throw new Error(`Diagnostics request failed with HTTP ${response.status}.`);
+      }
+      return response.status === 204 ? void 0 : await response.json();
     }
   };
   return __toCommonJS(index_exports);

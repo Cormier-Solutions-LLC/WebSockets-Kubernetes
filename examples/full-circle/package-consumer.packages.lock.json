@@ -6,26 +6,69 @@
         "type": "Direct",
         "requested": "[0.1.0, )",
         "resolved": "0.1.0",
+        "contentHash": "F0WLdZnkJjQIn2EZQRfWQ4RVCT9N8thx6lVnYq6xqgBw2yFW7Gp07yhf45A5xFR01ZDZWMbn1526aLqsMvkJuA==",
         "dependencies": {
           "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
-          "Cormier.Realtime.Redis": "[0.1.0, 0.2.0)"
+          "Cormier.Realtime.Redis": "[0.1.0, 0.2.0)",
+          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "1.18.0",
+          "OpenTelemetry.Extensions.Hosting": "1.18.0"
         }
       },
       "Cormier.Realtime.Browser": {
         "type": "Direct",
         "requested": "[0.1.0, )",
-        "resolved": "0.1.0"
+        "resolved": "0.1.0",
+        "contentHash": "ljisOeHC9M8jK0KH5W09v2+yHtSIwnJHMYK+2bv3gDqPMZIfbqqc1eC+U8qEkImct/zEphHVUj/ViaFJYIYs2Q=="
       },
       "Cormier.Realtime.Contracts": {
         "type": "Transitive",
-        "resolved": "0.1.0"
+        "resolved": "0.1.0",
+        "contentHash": "o6iiQRkjqb1aA/jpihZewXvyu35RyeyLqEQJgeUiy4s/XiEJtqlu+bQ/RFXyTFjBdkxGAEckhV/fIe6164TdUg=="
       },
       "Cormier.Realtime.Redis": {
         "type": "Transitive",
         "resolved": "0.1.0",
+        "contentHash": "4yCQVWTnaVaAHdJKxYP0cnWCgdE2x7wo5zRXxWBSaBzJBGuycA+GKp46HC1pZt2HZ42f/G6D9AvF6nocE9OfUw==",
         "dependencies": {
           "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
           "StackExchange.Redis": "3.1.31"
+        }
+      },
+      "OpenTelemetry": {
+        "type": "Transitive",
+        "resolved": "1.18.0",
+        "contentHash": "13AKxycK+olOLe061MjliPTNBR/DUkjyRr0b9zwUhKyMjFS8lXS7G31R85rkbM55up2YFmdykWdAw2giBDJpiQ==",
+        "dependencies": {
+          "OpenTelemetry.Api.ProviderBuilderExtensions": "1.18.0"
+        }
+      },
+      "OpenTelemetry.Api": {
+        "type": "Transitive",
+        "resolved": "1.18.0",
+        "contentHash": "Dhzm5oughIY9EWckt2J1yXcEbXpki5WCL2q7prJoYxzH6C7jdkfGtPMTkUVZZ4AhjJKzQnlC+kLSIlmIVwC4Vw=="
+      },
+      "OpenTelemetry.Api.ProviderBuilderExtensions": {
+        "type": "Transitive",
+        "resolved": "1.18.0",
+        "contentHash": "io6A6PJFp3vIObRGf6oPjdHsdglkinXt/0SpTDJHrVnsLxUtOzwh/QwTsnhBJ43wJ6QcGMkyNzsSSY8XEB1Q5Q==",
+        "dependencies": {
+          "OpenTelemetry.Api": "1.18.0"
+        }
+      },
+      "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
+        "type": "Transitive",
+        "resolved": "1.18.0",
+        "contentHash": "Et3WAviooKGObZjUZN8d6eTsdJs1YM3ZoN+KlWSAHksTmHG1nyGi9XGo2wb0fkFMWK0g80FOPdR1njg52Dm+aw==",
+        "dependencies": {
+          "OpenTelemetry": "1.18.0"
+        }
+      },
+      "OpenTelemetry.Extensions.Hosting": {
+        "type": "Transitive",
+        "resolved": "1.18.0",
+        "contentHash": "u+JMA82H65MKwMvd2qUpL8C2qE4Jux2nvX9hmy036UK/Apv2YyIRYCttF/vlX6nMPcAKI8BXkscmL4QG3C69fw==",
+        "dependencies": {
+          "OpenTelemetry": "1.18.0"
         }
       },
       "RESPite": {

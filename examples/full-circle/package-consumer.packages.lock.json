@@ -6,7 +6,6 @@
         "type": "Direct",
         "requested": "[0.1.0, )",
         "resolved": "0.1.0",
-        "contentHash": "5lEJ/JD6bTXhk5kuwrhaLzn4scteLx24vxIEweF8PmMn3E9c6R6IpoDtZt3Do0ZKJU9HKCePja/glNkvmSzxEw==",
         "dependencies": {
           "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
           "Cormier.Realtime.Redis": "[0.1.0, 0.2.0)"
@@ -15,18 +14,15 @@
       "Cormier.Realtime.Browser": {
         "type": "Direct",
         "requested": "[0.1.0, )",
-        "resolved": "0.1.0",
-        "contentHash": "TI4wdhWd8CHSiCubBXWyA/ESfRQS7xJDWzvUX4wopNV0fILpv14M+rPqfURnnibPjkqKCDHnNmBnie/2rcWN4Q=="
+        "resolved": "0.1.0"
       },
       "Cormier.Realtime.Contracts": {
         "type": "Transitive",
-        "resolved": "0.1.0",
-        "contentHash": "pdtTHSfNgoNo3XJlxPq7tmkirHvS1XFevRj+zh89/CJRzANlIRuHAx28rxsGxbTdHyHTLlmkkMN6DxsIk/G7Xg=="
+        "resolved": "0.1.0"
       },
       "Cormier.Realtime.Redis": {
         "type": "Transitive",
         "resolved": "0.1.0",
-        "contentHash": "qXQUFyuCm10zj1qj9E+mHXxuD8iw4tH1mI69PXw0uNiDabNfL9ugKhHy3bLPWif1X+Fp6VzTpmZSJd3381XlSA==",
         "dependencies": {
           "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
           "StackExchange.Redis": "3.1.31"

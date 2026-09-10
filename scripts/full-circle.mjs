@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,10 +32,6 @@ if (plan.schemaVersion !== 1 || !plan.profiles?.[profileName]) fail("The shared 
 const profile = plan.profiles[profileName];
 const redisEndpoint = process.env[plan.redis.endpointEnvironment] ?? plan.redis.defaultEndpoint;
 const upstreamPackageSource = process.env.NUGET_UPSTREAM_SOURCE ?? "https://api.nuget.org/v3/index.json";
-const candidateRevisionProperties = [
-  "-p:SourceRevisionId=0000000000000000000000000000000000000000",
-  "-p:RepositoryCommit=0000000000000000000000000000000000000000",
-];
 const normalized = {
   schemaVersion: plan.schemaVersion,
   action,
@@ -98,14 +95,8 @@ async function buildPackageConsumer() {
   const feed = resolve(evidenceRoot, "feed");
   const consumerOutputRoot = resolve(evidenceRoot, "consumer-bin");
   const consumerOutput = consumerOutputRoot + "/";
-  const consumerLockName = {
-    linux: "package-consumer.linux.packages.lock.json",
-    win32: "package-consumer.win32.packages.lock.json",
-  }[process.platform];
-  if (consumerLockName === undefined) {
-    throw new Error(`Package-consumer validation is not configured for ${process.platform}.`);
-  }
-  const consumerLock = resolve(repositoryRoot, "examples/full-circle", consumerLockName);
+  const consumerLockTemplate = resolve(repositoryRoot, "examples/full-circle/package-consumer.packages.lock.json");
+  const consumerLock = resolve(evidenceRoot, "consumer-packages.lock.json");
   const packages = resolve(evidenceRoot, "packages");
   const config = resolve(evidenceRoot, "NuGet.Config");
   await rm(feed, { recursive: true, force: true });
@@ -118,9 +109,23 @@ async function buildPackageConsumer() {
     "src/Cormier.Realtime.AspNetCore/Cormier.Realtime.AspNetCore.csproj",
     "src/Cormier.Realtime.Browser/Cormier.Realtime.Browser.csproj",
   ]) {
-    await command("dotnet", ["pack", project, "--configuration", "Release", "--no-build", "--output", feed, ...candidateRevisionProperties]);
+    await command("dotnet", ["pack", project, "--configuration", "Release", "--no-build", "--output", feed]);
   }
   await command("pwsh", ["-NoLogo", "-NoProfile", "-File", "scripts/Normalize-NuGetPackages.ps1", "-PackageDirectory", feed]);
+  const consumerLockGraph = JSON.parse(await readFile(consumerLockTemplate, "utf8"));
+  const targetGraph = consumerLockGraph.dependencies?.["net10.0"];
+  for (const [packageId, packageFile] of [
+    ["Cormier.Realtime.AspNetCore", "Cormier.Realtime.AspNetCore.0.1.0.nupkg"],
+    ["Cormier.Realtime.Browser", "Cormier.Realtime.Browser.0.1.0.nupkg"],
+    ["Cormier.Realtime.Contracts", "Cormier.Realtime.Contracts.0.1.0.nupkg"],
+    ["Cormier.Realtime.Redis", "Cormier.Realtime.Redis.0.1.0.nupkg"],
+  ]) {
+    if (targetGraph?.[packageId] === undefined) {
+      throw new Error(`The committed consumer lock is missing ${packageId}.`);
+    }
+    targetGraph[packageId].contentHash = createHash("sha512").update(await readFile(resolve(feed, packageFile))).digest("base64");
+  }
+  await writeFile(consumerLock, `${JSON.stringify(consumerLockGraph, null, 2)}\n`);
   await writeFile(config, `<configuration><config><add key="globalPackagesFolder" value="${xml(packages)}" /></config><packageSources><clear /><add key="local" value="${xml(feed)}" /><add key="upstream" value="${xml(upstreamPackageSource)}" /></packageSources><packageSourceMapping><packageSource key="local"><package pattern="Cormier.Realtime.*" /></packageSource><packageSource key="upstream"><package pattern="Microsoft.*" /><package pattern="StackExchange.Redis" /><package pattern="RESPite" /><package pattern="System.*" /></packageSource></packageSourceMapping></configuration>\n`);
   const project = "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj";
   const properties = [
@@ -146,8 +151,8 @@ try {
     await command("dotnet", ["restore", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj"]);
     // The application selects net10.0 from the multi-targeted contracts project. Build that package
     // explicitly so its netstandard2.0 asset also exists before the clean local-feed pack.
-    await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore", "--no-incremental", ...candidateRevisionProperties]);
-    await command("dotnet", ["build", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-restore", "--no-incremental", ...candidateRevisionProperties]);
+    await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore", "--no-incremental"]);
+    await command("dotnet", ["build", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-restore", "--no-incremental"]);
     await buildPackageConsumer();
     await verifyRedis();
   } else if (action === "validate") {

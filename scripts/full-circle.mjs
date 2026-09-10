@@ -118,6 +118,9 @@ try {
     await command(executable("npm"), ["ci", "--ignore-scripts"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     await command(executable("npm"), ["run", "build", "--silent"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     await command("dotnet", ["restore", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj"]);
+    // The application selects net10.0 from the multi-targeted contracts project. Build that package
+    // explicitly so its netstandard2.0 asset also exists before the clean local-feed pack.
+    await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore"]);
     await command("dotnet", ["build", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-restore"]);
     await buildPackageConsumer();
     await verifyRedis();

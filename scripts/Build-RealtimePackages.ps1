@@ -98,13 +98,16 @@ function Invoke-ReleaseTool {
         }
         $stdout = $stdoutTask.GetAwaiter().GetResult()
         $stderr = $stderrTask.GetAwaiter().GetResult()
+        $safeCommandOutput = @()
         foreach ($text in @($stdout, $stderr)) {
             if (-not [string]::IsNullOrWhiteSpace($text)) {
                 $safeText = $text -replace '(?i)(authorization|password|token|secret|cookie|apikey)\s*[=:]\s*\S+', '$1=[REDACTED]'
+                $safeCommandOutput += $safeText
                 Add-Content -LiteralPath $logPath -Value $safeText -Encoding utf8NoBOM
             }
         }
         if ($process.ExitCode -ne 0) {
+            $safeCommandOutput | ForEach-Object { Write-Output $_.TrimEnd() }
             throw "Command failed with exit code $($process.ExitCode). See $logPath."
         }
     }

@@ -248,8 +248,13 @@ public sealed class DiagnosticsEndpointTests
 
     private static WebApplicationFactory<Program> CreateFactory(
         IReadOnlyDictionary<string, string?>? overrides = null,
-        bool clearAllowedNetworks = true) => new WebApplicationFactory<Program>()
-        .WithWebHostBuilder(builder =>
+        bool clearAllowedNetworks = true) => new DiagnosticsWebApplicationFactory(overrides, clearAllowedNetworks);
+
+    private sealed class DiagnosticsWebApplicationFactory(
+        IReadOnlyDictionary<string, string?>? overrides,
+        bool clearAllowedNetworks) : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Development");
             builder.ConfigureAppConfiguration((_, configuration) =>
@@ -296,7 +301,8 @@ public sealed class DiagnosticsEndpointTests
                     "diagnostics-operator",
                     policy => policy.RequireAuthenticatedUser()));
             });
-        });
+        }
+    }
 
     private static HttpRequestMessage OperatorRequest(HttpMethod method, string path)
     {

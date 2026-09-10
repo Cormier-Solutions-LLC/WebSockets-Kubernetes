@@ -291,9 +291,9 @@ public sealed class RuntimeLogLevelController(
 
     private void RemoveExpired(DateTimeOffset now)
     {
-        foreach (var active in _overrides.Values)
+        foreach (var active in _overrides.Values.Where(active => active.ExpiresAt <= now))
         {
-            if (active.ExpiresAt <= now && _overrides.TryRemove(active.Id, out _))
+            if (_overrides.TryRemove(active.Id, out _))
             {
                 AddAudit(new LogLevelAuditEntry(
                     active.Id,

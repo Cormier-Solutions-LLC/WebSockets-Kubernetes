@@ -346,18 +346,18 @@ public sealed class DiagnosticsCoordinationService(
             {
                 controller.Revert(message.Id, message.Actor, "coordinated rollback");
             }
-            else if (message.Action == "apply" && message.Request is not null && !controller.Contains(message.Id))
+            else if (message.Action == "apply" &&
+                message.Request is not null &&
+                !controller.Contains(message.Id) &&
+                message.Timestamp.AddSeconds(message.Request.DurationSeconds) > DateTimeOffset.UtcNow)
             {
-                if (message.Timestamp.AddSeconds(message.Request.DurationSeconds) > DateTimeOffset.UtcNow)
-                {
-                    controller.TryApply(
-                        message.Request,
-                        message.Actor,
-                        out _,
-                        out _,
-                        message.Id,
-                        message.Timestamp);
-                }
+                controller.TryApply(
+                    message.Request,
+                    message.Actor,
+                    out _,
+                    out _,
+                    message.Id,
+                    message.Timestamp);
             }
         }
         catch (JsonException exception)

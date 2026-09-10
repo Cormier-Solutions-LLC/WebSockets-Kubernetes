@@ -405,6 +405,8 @@ public static class DiagnosticsEndpointExtensions
         }
         catch (OperationCanceledException) when (duration.IsCancellationRequested)
         {
+            // The configured timeout or client disconnect ended the bounded stream.
+            return;
         }
     }
 

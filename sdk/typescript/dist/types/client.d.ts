@@ -73,7 +73,7 @@ export declare class RealtimeClient {
     get desiredSubscriptions(): readonly string[];
     on<TKey extends keyof RealtimeClientEvents>(type: TKey, listener: Listener<TKey>): () => void;
     connect(signal?: AbortSignal): Promise<void>;
-    disconnect(code?: 1000, reason?: string): Promise<void>;
+    disconnect(code?: number, reason?: string): Promise<void>;
     publish<TPayload extends JsonValue>(route: string, payload: TPayload, signal?: AbortSignal): Promise<ServerMessageEnvelope>;
     subscribe(route: string, listener: (event: ServerMessageEnvelope) => void, signal?: AbortSignal): Promise<() => Promise<void>>;
     ping(signal?: AbortSignal): Promise<ServerMessageEnvelope>;
@@ -86,6 +86,9 @@ export declare class RealtimeClient {
     private scheduleReconnect;
     private restoreSubscriptionsAndFlush;
     private establishSubscription;
+    private transmitQueuedCommand;
+    private transmitEnvelope;
+    private waitForSubscription;
     private startHeartbeat;
     private stopHeartbeat;
     private clearReconnectTimer;
@@ -95,10 +98,12 @@ export declare class RealtimeClient {
     private addPendingAbortListener;
     private abortError;
     private emit;
+    private invokeListener;
     private setState;
     private normalizeError;
     private isTicketResponse;
     private assertPositiveInteger;
+    private assertNonNegativeInteger;
 }
 export {};
 //# sourceMappingURL=client.d.ts.map

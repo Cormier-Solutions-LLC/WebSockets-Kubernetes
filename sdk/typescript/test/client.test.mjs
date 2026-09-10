@@ -171,6 +171,31 @@ test("duplicate subscribers share a failed in-flight subscription", async () => 
   await client.disconnect();
 });
 
+test("duplicate subscriber cancellation is scoped to each caller", async () => {
+  let socket;
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    webSocketFactory: (url, protocol) => (socket = new FakeSocket(url, protocol)),
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+  await client.connect();
+  const firstCancellation = new AbortController();
+  const secondCancellation = new AbortController();
+  const first = client.subscribe("topics/orders", () => undefined, firstCancellation.signal);
+  const second = client.subscribe("topics/orders", () => undefined, secondCancellation.signal);
+  secondCancellation.abort();
+  await assert.rejects(second, { name: "AbortError" });
+  await waitUntil(() => socket.sent.length === 1, "shared subscribe command was not sent");
+  socket.serverMessage(acknowledgement(JSON.parse(socket.sent[0])));
+  const unsubscribe = await first;
+  assert.deepEqual(client.desiredSubscriptions, ["topics/orders"]);
+  const finalUnsubscribe = unsubscribe();
+  await waitUntil(() => socket.sent.length === 2, "unsubscribe command was not sent");
+  socket.serverMessage(acknowledgement(JSON.parse(socket.sent[1])));
+  await finalUnsubscribe;
+  await client.disconnect();
+});
+
 test("reconnect uses a fresh ticket and restores each intended subscription once", async () => {
   const sockets = [];
   let ticketRequests = 0;
@@ -257,7 +282,7 @@ test("temporary ticket-service interruption retries without corrupting subscript
   await client.disconnect();
 });
 
-test("a failed subscription restoration does not strand queued commands", async () => {
+test("a failed subscription restoration reconciles every route and rejects queued commands", async () => {
   const sockets = [];
   const client = new RealtimeClient({
     url: "ws://gateway.example/realtime/ws",
@@ -274,9 +299,17 @@ test("a failed subscription restoration does not strand queued commands", async 
   await waitUntil(() => sockets[0].sent.length === 1, "initial subscription was not sent");
   sockets[0].serverMessage(acknowledgement(JSON.parse(sockets[0].sent[0])));
   await subscription;
+  const secondSubscription = client.subscribe("topics/customers", () => undefined);
+  await waitUntil(() => sockets[0].sent.length === 2, "second subscription was not sent");
+  sockets[0].serverMessage(acknowledgement(JSON.parse(sockets[0].sent[1])));
+  await secondSubscription;
 
   sockets[0].serverClose();
   const publish = client.publish("topics/orders", { value: 42 });
+  const publishRejection = assert.rejects(
+    publish,
+    (error) => error instanceof RealtimeError && error.code === "subscription_restore_failed",
+  );
   await waitUntil(() => sockets.length === 2 && sockets[1].sent.length === 1, "subscription restoration was not sent");
   const restoration = JSON.parse(sockets[1].sent[0]);
   sockets[1].serverMessage({
@@ -284,10 +317,46 @@ test("a failed subscription restoration does not strand queued commands", async 
     type: "error",
     error: { code: "service_draining", message: "Try again later." },
   });
-  await waitUntil(() => sockets[1].sent.length === 2, "queued publish was not flushed");
-  const publishCommand = JSON.parse(sockets[1].sent[1]);
-  sockets[1].serverMessage(acknowledgement(publishCommand));
-  await publish;
+  await waitUntil(() => sockets[1].sent.length === 2, "later subscription restoration was not attempted");
+  const laterRestoration = JSON.parse(sockets[1].sent[1]);
+  assert.equal(laterRestoration.route, "topics/customers");
+  sockets[1].serverMessage(acknowledgement(laterRestoration));
+  await publishRejection;
+  await client.disconnect();
+});
+
+test("open is emitted only after subscriptions are restored", async () => {
+  const sockets = [];
+  let publishAfterOpen;
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 1, jitterRatio: 0, maximumAttempts: 2 },
+    heartbeatIntervalMilliseconds: 60_000,
+    webSocketFactory: (url, protocol) => {
+      const socket = new FakeSocket(url, protocol);
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  await client.connect();
+  const subscription = client.subscribe("topics/orders", () => undefined);
+  await waitUntil(() => sockets[0].sent.length === 1, "initial subscription was not sent");
+  sockets[0].serverMessage(acknowledgement(JSON.parse(sockets[0].sent[0])));
+  await subscription;
+  client.on("state", (state) => {
+    if (state === "open" && sockets.length === 2) {
+      publishAfterOpen = client.publish("topics/orders", { value: 42 });
+    }
+  });
+  sockets[0].serverClose();
+  await waitUntil(() => sockets.length === 2 && sockets[1].sent.length === 1, "restoration was not sent");
+  assert.equal(client.state, "reconnecting");
+  assert.equal(JSON.parse(sockets[1].sent[0]).type, "subscribe");
+  sockets[1].serverMessage(acknowledgement(JSON.parse(sockets[1].sent[0])));
+  await waitUntil(() => sockets[1].sent.length === 2, "open listener did not publish");
+  assert.equal(JSON.parse(sockets[1].sent[1]).type, "publish");
+  sockets[1].serverMessage(acknowledgement(JSON.parse(sockets[1].sent[1])));
+  await publishAfterOpen;
   await client.disconnect();
 });
 
@@ -400,7 +469,7 @@ test("a manual connection supersedes an in-flight automatic reconnect", async ()
     reconnect: { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 1, jitterRatio: 0, maximumAttempts: 2 },
     heartbeatIntervalMilliseconds: 60_000,
     webSocketFactory: (url, protocol) => {
-      const socket = new FakeSocket(url, protocol);
+      const socket = new FakeSocket(url, protocol, sockets.length === 0);
       sockets.push(socket);
       return socket;
     },
@@ -408,11 +477,14 @@ test("a manual connection supersedes an in-flight automatic reconnect", async ()
   await client.connect();
   sockets[0].serverClose();
   await waitUntil(() => ticketRequest === 2, "automatic reconnect did not request a ticket");
-  await client.connect();
-  assert.equal(client.state, "open");
-  assert.equal(sockets.length, 2);
+  const manualConnection = client.connect();
+  await waitUntil(() => sockets.length === 2, "manual connection did not create a socket");
+  assert.equal(client.state, "connecting");
   resolveReconnectTicket(ticketResponse("stale-reconnect"));
   await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(sockets.length, 2);
+  sockets[1].serverOpen();
+  await manualConnection;
   assert.equal(client.state, "open");
   assert.equal(sockets.length, 2, "superseded reconnect opened another socket");
   await client.disconnect();
@@ -532,4 +604,34 @@ test("malformed server traffic is isolated as a structured client error", async 
   assert.equal(errors[0].code, "invalid_envelope");
   assert.equal(client.state, "open");
   await client.disconnect();
+});
+
+test("consumer listener failures cannot interrupt client lifecycle or event dispatch", async () => {
+  let socket;
+  let delivered = 0;
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { enabled: false },
+    webSocketFactory: (url, protocol) => (socket = new FakeSocket(url, protocol)),
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+  client.on("state", () => { throw new Error("state listener failed"); });
+  client.on("close", () => { throw new Error("close listener failed"); });
+  await client.connect();
+  const first = client.subscribe("topics/orders", () => { throw new Error("event listener failed"); });
+  await waitUntil(() => socket.sent.length === 1, "subscription was not sent");
+  socket.serverMessage(acknowledgement(JSON.parse(socket.sent[0])));
+  await first;
+  await client.subscribe("topics/orders", () => { delivered += 1; });
+  socket.serverMessage({
+    version: PROTOCOL_VERSION,
+    type: "event",
+    correlationId: "event-listener-isolation",
+    timestamp: new Date().toISOString(),
+    route: "topics/orders",
+    payload: { value: 42 },
+  });
+  assert.equal(delivered, 1);
+  socket.serverClose();
+  assert.equal(client.state, "closed");
 });

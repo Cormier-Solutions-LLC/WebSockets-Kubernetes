@@ -137,7 +137,14 @@ export class RealtimeClient {
     this.assertPositiveInteger(this.options.heartbeatIntervalMilliseconds, "heartbeatIntervalMilliseconds");
     this.assertPositiveInteger(this.options.maximumMessageBytes, "maximumMessageBytes");
     this.assertPositiveInteger(this.reconnectOptions.maximumAttempts, "reconnect.maximumAttempts");
-    if (this.reconnectOptions.jitterRatio < 0 || this.reconnectOptions.jitterRatio > 1) {
+    this.assertNonNegativeInteger(this.reconnectOptions.initialDelayMilliseconds, "reconnect.initialDelayMilliseconds");
+    this.assertNonNegativeInteger(this.reconnectOptions.maximumDelayMilliseconds, "reconnect.maximumDelayMilliseconds");
+    if (this.reconnectOptions.maximumDelayMilliseconds < this.reconnectOptions.initialDelayMilliseconds) {
+      throw new RangeError("reconnect.maximumDelayMilliseconds must not be less than reconnect.initialDelayMilliseconds.");
+    }
+    if (!Number.isFinite(this.reconnectOptions.jitterRatio)
+      || this.reconnectOptions.jitterRatio < 0
+      || this.reconnectOptions.jitterRatio > 1) {
       throw new RangeError("reconnect.jitterRatio must be between 0 and 1.");
     }
   }
@@ -181,7 +188,7 @@ export class RealtimeClient {
     return this.connectPromise;
   }
 
-  public async disconnect(code = closeCodes.normal, reason = "client_disconnect"): Promise<void> {
+  public async disconnect(code: number = closeCodes.normal, reason = "client_disconnect"): Promise<void> {
     if (!Number.isInteger(code) || (code !== closeCodes.normal && (code < 3000 || code > 4999))) {
       throw new RangeError("The WebSocket close code must be 1000 or between 3000 and 4999.");
     }
@@ -222,9 +229,9 @@ export class RealtimeClient {
     try {
       let subscriptionCommand = this.subscriptionCommands.get(route);
       if (isNewRoute) {
-        subscriptionCommand = this.establishSubscription(route, signal);
+        subscriptionCommand = this.establishSubscription(route);
       }
-      await subscriptionCommand;
+      await this.waitForSubscription(subscriptionCommand, signal);
     } catch (error: unknown) {
       routeListeners.delete(listener);
       if (routeListeners.size === 0) {
@@ -282,14 +289,28 @@ export class RealtimeClient {
           socket.close(closeCodes.normal, "stale_connection");
           return;
         }
-        settled = true;
         signal?.removeEventListener("abort", abort);
-        this.reconnectAttempt = 0;
-        this.serverReconnectAdvice = undefined;
-        this.setState("open");
-        this.startHeartbeat();
-        resolve();
-        void this.restoreSubscriptionsAndFlush();
+        void this.restoreSubscriptionsAndFlush().then(() => {
+          if (generation !== this.generation || this.intentionalClose) {
+            throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
+          }
+          settled = true;
+          this.reconnectAttempt = 0;
+          this.serverReconnectAdvice = undefined;
+          this.setState("open");
+          this.startHeartbeat();
+          resolve();
+        }).catch((error: unknown) => {
+          if (!settled) {
+            settled = true;
+            const normalized = this.normalizeError(error);
+            this.rejectQueued(normalized);
+            reject(normalized);
+            if (socket.readyState === OPEN) {
+              socket.close(4000, "subscription_restore_failed");
+            }
+          }
+        });
       };
       socket.onmessage = (event) => this.handleMessage(event);
       socket.onerror = () => {
@@ -456,7 +477,7 @@ export class RealtimeClient {
     if (envelope.type === messageTypes.event) {
       this.emit("event", envelope);
       for (const listener of this.subscriptions.get(envelope.route) ?? []) {
-        listener(envelope);
+        this.invokeListener(listener, envelope);
       }
       return;
     }
@@ -515,48 +536,110 @@ export class RealtimeClient {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.openSocket(undefined, true).catch((error: unknown) => {
-        this.emit("error", this.normalizeError(error));
-        this.scheduleReconnect();
+        const normalized = this.normalizeError(error);
+        if (normalized.code !== "connection_superseded") {
+          this.emit("error", normalized);
+          this.scheduleReconnect();
+        }
       });
     }, delay);
   }
 
   private async restoreSubscriptionsAndFlush(): Promise<void> {
-    try {
-      const queuedSubscriptions = new Set(this.queued
-        .filter((command) => command.envelope.type === messageTypes.subscribe)
-        .map((command) => command.envelope.route));
-      for (const route of this.subscriptions.keys()) {
-        if (!queuedSubscriptions.has(route)) {
-          await this.establishSubscription(route);
-        }
+    const queuedSubscriptions = new Map<string, QueuedCommand>();
+    for (let index = this.queued.length - 1; index >= 0; index -= 1) {
+      const command = this.queued[index];
+      if (command?.envelope.type === messageTypes.subscribe) {
+        this.queued.splice(index, 1);
+        queuedSubscriptions.set(command.envelope.route, command);
       }
-    } catch (error: unknown) {
-      this.emit("error", this.normalizeError(error));
-    } finally {
-      while (this.queued.length > 0 && this.stateValue === "open") {
-        const command = this.queued.shift();
-        if (command !== undefined) {
-          this.transmit(command);
+    }
+
+    const routes = new Set([...this.subscriptions.keys(), ...queuedSubscriptions.keys()]);
+    const failures: RealtimeError[] = [];
+    for (const route of routes) {
+      try {
+        const queued = queuedSubscriptions.get(route);
+        if (queued === undefined) {
+          await this.transmitEnvelope(createEnvelope(messageTypes.subscribe, route));
+        } else {
+          await this.transmitQueuedCommand(queued);
         }
+        if (!this.subscriptions.has(route)) {
+          await this.transmitEnvelope(createEnvelope(messageTypes.unsubscribe, route));
+        }
+      } catch (error: unknown) {
+        const normalized = this.normalizeError(error);
+        failures.push(normalized);
+        this.emit("error", normalized);
+      }
+    }
+    if (failures.length > 0) {
+      throw new RealtimeConnectionError("One or more subscriptions could not be restored.", "subscription_restore_failed");
+    }
+
+    while (this.queued.length > 0) {
+      const command = this.queued.shift();
+      if (command !== undefined) {
+        this.transmit(command);
       }
     }
   }
 
-  private async establishSubscription(route: string, signal?: AbortSignal): Promise<void> {
+  private async establishSubscription(route: string): Promise<void> {
     const existing = this.subscriptionCommands.get(route);
     if (existing !== undefined) {
       return existing;
     }
-    const command = this.sendCommand(createEnvelope(messageTypes.subscribe, route), signal).then(() => undefined);
+    const command = this.sendCommand(createEnvelope(messageTypes.subscribe, route)).then(() => undefined);
     this.subscriptionCommands.set(route, command);
     try {
       await command;
+      if (!this.subscriptions.has(route) && this.stateValue === "open") {
+        await this.sendCommand(createEnvelope(messageTypes.unsubscribe, route));
+      }
     } finally {
       if (this.subscriptionCommands.get(route) === command) {
         this.subscriptionCommands.delete(route);
       }
     }
+  }
+
+  private transmitQueuedCommand(command: QueuedCommand): Promise<ServerMessageEnvelope> {
+    return new Promise<ServerMessageEnvelope>((resolve, reject) => {
+      this.transmit({
+        ...command,
+        resolve: (envelope) => {
+          command.resolve(envelope);
+          resolve(envelope);
+        },
+        reject: (error) => {
+          command.reject(error);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  private transmitEnvelope(envelope: MessageEnvelope): Promise<ServerMessageEnvelope> {
+    return new Promise<ServerMessageEnvelope>((resolve, reject) => {
+      this.transmit({ envelope, resolve, reject });
+    });
+  }
+
+  private async waitForSubscription(command: Promise<void> | undefined, signal?: AbortSignal): Promise<void> {
+    if (command === undefined) {
+      return;
+    }
+    signal?.throwIfAborted();
+    if (signal === undefined) {
+      return command;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => reject(this.abortError(signal));
+      signal.addEventListener("abort", abort, { once: true });
+      void command.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
   }
 
   private startHeartbeat(): void {
@@ -633,7 +716,15 @@ export class RealtimeClient {
 
   private emit<TKey extends keyof RealtimeClientEvents>(type: TKey, event: RealtimeClientEvents[TKey]): void {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener(event as never);
+      this.invokeListener(listener, event as never);
+    }
+  }
+
+  private invokeListener<TEvent>(listener: (event: TEvent) => void, event: TEvent): void {
+    try {
+      listener(event);
+    } catch {
+      // Consumer callbacks must not interrupt transport cleanup or other listeners.
     }
   }
 
@@ -664,6 +755,12 @@ export class RealtimeClient {
   private assertPositiveInteger(value: number, name: string): void {
     if (!Number.isSafeInteger(value) || value <= 0) {
       throw new RangeError(`${name} must be a positive integer.`);
+    }
+  }
+
+  private assertNonNegativeInteger(value: number, name: string): void {
+    if (!Number.isSafeInteger(value) || value < 0 || value > 2_147_483_647) {
+      throw new RangeError(`${name} must be a nonnegative timer-safe integer.`);
     }
   }
 }

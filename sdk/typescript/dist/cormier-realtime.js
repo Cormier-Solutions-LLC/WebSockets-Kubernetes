@@ -44,6 +44,7 @@ var serverTypes = /* @__PURE__ */ new Set([
   messageTypes.ping,
   messageTypes.serviceRestart
 ]);
+var maximumTimerDelayMilliseconds = 2147483647;
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -81,6 +82,11 @@ function validateServerEnvelope(value) {
   }
   if (value.type === messageTypes.error && (!isRecord(value.error) || typeof value.error.code !== "string" || typeof value.error.message !== "string")) {
     return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "The error payload is invalid." };
+  }
+  if (value.type === messageTypes.serviceRestart && value.reconnect !== null && value.reconnect !== void 0) {
+    if (!isRecord(value.reconnect) || typeof value.reconnect.initialDelayMilliseconds !== "number" || !Number.isSafeInteger(value.reconnect.initialDelayMilliseconds) || value.reconnect.initialDelayMilliseconds < 0 || value.reconnect.initialDelayMilliseconds > maximumTimerDelayMilliseconds || typeof value.reconnect.maximumDelayMilliseconds !== "number" || !Number.isSafeInteger(value.reconnect.maximumDelayMilliseconds) || value.reconnect.maximumDelayMilliseconds < value.reconnect.initialDelayMilliseconds || value.reconnect.maximumDelayMilliseconds > maximumTimerDelayMilliseconds || typeof value.reconnect.jitterRatio !== "number" || !Number.isFinite(value.reconnect.jitterRatio) || value.reconnect.jitterRatio < 0 || value.reconnect.jitterRatio > 1 || typeof value.reconnect.reauthenticate !== "boolean") {
+      return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "The reconnect advice is invalid." };
+    }
   }
   return { valid: true, value };
 }
@@ -179,7 +185,12 @@ var RealtimeClient = class {
     this.assertPositiveInteger(this.options.heartbeatIntervalMilliseconds, "heartbeatIntervalMilliseconds");
     this.assertPositiveInteger(this.options.maximumMessageBytes, "maximumMessageBytes");
     this.assertPositiveInteger(this.reconnectOptions.maximumAttempts, "reconnect.maximumAttempts");
-    if (this.reconnectOptions.jitterRatio < 0 || this.reconnectOptions.jitterRatio > 1) {
+    this.assertNonNegativeInteger(this.reconnectOptions.initialDelayMilliseconds, "reconnect.initialDelayMilliseconds");
+    this.assertNonNegativeInteger(this.reconnectOptions.maximumDelayMilliseconds, "reconnect.maximumDelayMilliseconds");
+    if (this.reconnectOptions.maximumDelayMilliseconds < this.reconnectOptions.initialDelayMilliseconds) {
+      throw new RangeError("reconnect.maximumDelayMilliseconds must not be less than reconnect.initialDelayMilliseconds.");
+    }
+    if (!Number.isFinite(this.reconnectOptions.jitterRatio) || this.reconnectOptions.jitterRatio < 0 || this.reconnectOptions.jitterRatio > 1) {
       throw new RangeError("reconnect.jitterRatio must be between 0 and 1.");
     }
   }
@@ -251,9 +262,9 @@ var RealtimeClient = class {
     try {
       let subscriptionCommand = this.subscriptionCommands.get(route);
       if (isNewRoute) {
-        subscriptionCommand = this.establishSubscription(route, signal);
+        subscriptionCommand = this.establishSubscription(route);
       }
-      await subscriptionCommand;
+      await this.waitForSubscription(subscriptionCommand, signal);
     } catch (error) {
       routeListeners.delete(listener);
       if (routeListeners.size === 0) {
@@ -308,14 +319,28 @@ var RealtimeClient = class {
           socket.close(closeCodes.normal, "stale_connection");
           return;
         }
-        settled = true;
         signal?.removeEventListener("abort", abort);
-        this.reconnectAttempt = 0;
-        this.serverReconnectAdvice = void 0;
-        this.setState("open");
-        this.startHeartbeat();
-        resolve();
-        void this.restoreSubscriptionsAndFlush();
+        void this.restoreSubscriptionsAndFlush().then(() => {
+          if (generation !== this.generation || this.intentionalClose) {
+            throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
+          }
+          settled = true;
+          this.reconnectAttempt = 0;
+          this.serverReconnectAdvice = void 0;
+          this.setState("open");
+          this.startHeartbeat();
+          resolve();
+        }).catch((error) => {
+          if (!settled) {
+            settled = true;
+            const normalized = this.normalizeError(error);
+            this.rejectQueued(normalized);
+            reject(normalized);
+            if (socket.readyState === OPEN) {
+              socket.close(4e3, "subscription_restore_failed");
+            }
+          }
+        });
       };
       socket.onmessage = (event) => this.handleMessage(event);
       socket.onerror = () => {
@@ -476,7 +501,7 @@ var RealtimeClient = class {
     if (envelope.type === messageTypes.event) {
       this.emit("event", envelope);
       for (const listener of this.subscriptions.get(envelope.route) ?? []) {
-        listener(envelope);
+        this.invokeListener(listener, envelope);
       }
       return;
     }
@@ -533,44 +558,103 @@ var RealtimeClient = class {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = void 0;
       void this.openSocket(void 0, true).catch((error) => {
-        this.emit("error", this.normalizeError(error));
-        this.scheduleReconnect();
+        const normalized = this.normalizeError(error);
+        if (normalized.code !== "connection_superseded") {
+          this.emit("error", normalized);
+          this.scheduleReconnect();
+        }
       });
     }, delay);
   }
   async restoreSubscriptionsAndFlush() {
-    try {
-      const queuedSubscriptions = new Set(this.queued.filter((command) => command.envelope.type === messageTypes.subscribe).map((command) => command.envelope.route));
-      for (const route of this.subscriptions.keys()) {
-        if (!queuedSubscriptions.has(route)) {
-          await this.establishSubscription(route);
-        }
+    const queuedSubscriptions = /* @__PURE__ */ new Map();
+    for (let index = this.queued.length - 1; index >= 0; index -= 1) {
+      const command = this.queued[index];
+      if (command?.envelope.type === messageTypes.subscribe) {
+        this.queued.splice(index, 1);
+        queuedSubscriptions.set(command.envelope.route, command);
       }
-    } catch (error) {
-      this.emit("error", this.normalizeError(error));
-    } finally {
-      while (this.queued.length > 0 && this.stateValue === "open") {
-        const command = this.queued.shift();
-        if (command !== void 0) {
-          this.transmit(command);
+    }
+    const routes = /* @__PURE__ */ new Set([...this.subscriptions.keys(), ...queuedSubscriptions.keys()]);
+    const failures = [];
+    for (const route of routes) {
+      try {
+        const queued = queuedSubscriptions.get(route);
+        if (queued === void 0) {
+          await this.transmitEnvelope(createEnvelope(messageTypes.subscribe, route));
+        } else {
+          await this.transmitQueuedCommand(queued);
         }
+        if (!this.subscriptions.has(route)) {
+          await this.transmitEnvelope(createEnvelope(messageTypes.unsubscribe, route));
+        }
+      } catch (error) {
+        const normalized = this.normalizeError(error);
+        failures.push(normalized);
+        this.emit("error", normalized);
+      }
+    }
+    if (failures.length > 0) {
+      throw new RealtimeConnectionError("One or more subscriptions could not be restored.", "subscription_restore_failed");
+    }
+    while (this.queued.length > 0) {
+      const command = this.queued.shift();
+      if (command !== void 0) {
+        this.transmit(command);
       }
     }
   }
-  async establishSubscription(route, signal) {
+  async establishSubscription(route) {
     const existing = this.subscriptionCommands.get(route);
     if (existing !== void 0) {
       return existing;
     }
-    const command = this.sendCommand(createEnvelope(messageTypes.subscribe, route), signal).then(() => void 0);
+    const command = this.sendCommand(createEnvelope(messageTypes.subscribe, route)).then(() => void 0);
     this.subscriptionCommands.set(route, command);
     try {
       await command;
+      if (!this.subscriptions.has(route) && this.stateValue === "open") {
+        await this.sendCommand(createEnvelope(messageTypes.unsubscribe, route));
+      }
     } finally {
       if (this.subscriptionCommands.get(route) === command) {
         this.subscriptionCommands.delete(route);
       }
     }
+  }
+  transmitQueuedCommand(command) {
+    return new Promise((resolve, reject) => {
+      this.transmit({
+        ...command,
+        resolve: (envelope) => {
+          command.resolve(envelope);
+          resolve(envelope);
+        },
+        reject: (error) => {
+          command.reject(error);
+          reject(error);
+        }
+      });
+    });
+  }
+  transmitEnvelope(envelope) {
+    return new Promise((resolve, reject) => {
+      this.transmit({ envelope, resolve, reject });
+    });
+  }
+  async waitForSubscription(command, signal) {
+    if (command === void 0) {
+      return;
+    }
+    signal?.throwIfAborted();
+    if (signal === void 0) {
+      return command;
+    }
+    await new Promise((resolve, reject) => {
+      const abort = () => reject(this.abortError(signal));
+      signal.addEventListener("abort", abort, { once: true });
+      void command.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
   }
   startHeartbeat() {
     this.stopHeartbeat();
@@ -636,7 +720,13 @@ var RealtimeClient = class {
   }
   emit(type, event) {
     for (const listener of this.listeners.get(type) ?? []) {
+      this.invokeListener(listener, event);
+    }
+  }
+  invokeListener(listener, event) {
+    try {
       listener(event);
+    } catch {
     }
   }
   setState(state) {
@@ -654,6 +744,11 @@ var RealtimeClient = class {
   assertPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) {
       throw new RangeError(`${name} must be a positive integer.`);
+    }
+  }
+  assertNonNegativeInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) {
+      throw new RangeError(`${name} must be a nonnegative timer-safe integer.`);
     }
   }
 };

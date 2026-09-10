@@ -99,6 +99,7 @@ const serverTypes: ReadonlySet<string> = new Set([
   messageTypes.ping,
   messageTypes.serviceRestart,
 ]);
+const maximumTimerDelayMilliseconds = 2_147_483_647;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -149,6 +150,24 @@ export function validateServerEnvelope(value: unknown): ValidationResult<ServerM
     || typeof value.error.code !== "string"
     || typeof value.error.message !== "string")) {
     return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "The error payload is invalid." };
+  }
+  if (value.type === messageTypes.serviceRestart && value.reconnect !== null && value.reconnect !== undefined) {
+    if (!isRecord(value.reconnect)
+      || typeof value.reconnect.initialDelayMilliseconds !== "number"
+      || !Number.isSafeInteger(value.reconnect.initialDelayMilliseconds)
+      || value.reconnect.initialDelayMilliseconds < 0
+      || value.reconnect.initialDelayMilliseconds > maximumTimerDelayMilliseconds
+      || typeof value.reconnect.maximumDelayMilliseconds !== "number"
+      || !Number.isSafeInteger(value.reconnect.maximumDelayMilliseconds)
+      || value.reconnect.maximumDelayMilliseconds < value.reconnect.initialDelayMilliseconds
+      || value.reconnect.maximumDelayMilliseconds > maximumTimerDelayMilliseconds
+      || typeof value.reconnect.jitterRatio !== "number"
+      || !Number.isFinite(value.reconnect.jitterRatio)
+      || value.reconnect.jitterRatio < 0
+      || value.reconnect.jitterRatio > 1
+      || typeof value.reconnect.reauthenticate !== "boolean") {
+      return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "The reconnect advice is invalid." };
+    }
   }
   return { valid: true, value: value as unknown as ServerMessageEnvelope };
 }

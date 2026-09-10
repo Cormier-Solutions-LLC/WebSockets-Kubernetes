@@ -44,3 +44,18 @@ test("unknown optional server fields are accepted", () => {
   };
   assert.equal(validateServerEnvelope(envelope).valid, true);
 });
+
+test("malformed reconnect advice is rejected", () => {
+  const base = fixtures.validServerEnvelopes.find((envelope) => envelope.type === "service.restart");
+  for (const reconnect of [
+    { initialDelayMilliseconds: -1, maximumDelayMilliseconds: 10, jitterRatio: 0, reauthenticate: true },
+    { initialDelayMilliseconds: 20, maximumDelayMilliseconds: 10, jitterRatio: 0, reauthenticate: true },
+    { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 10, jitterRatio: 2, reauthenticate: true },
+    { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 2_147_483_648, jitterRatio: 0, reauthenticate: true },
+    { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 10, jitterRatio: 0, reauthenticate: "yes" },
+  ]) {
+    const result = validateServerEnvelope({ ...base, reconnect });
+    assert.equal(result.valid, false);
+    assert.equal(result.errorCode, "invalid_envelope");
+  }
+});

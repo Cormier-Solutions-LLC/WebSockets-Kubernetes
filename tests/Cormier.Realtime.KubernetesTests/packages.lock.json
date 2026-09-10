@@ -149,6 +149,7 @@
           "StackExchange.Redis": "[3.1.31, )"
         }
       }
-    }
+    },
+    "net10.0/linux-x64": {}
   }
 }

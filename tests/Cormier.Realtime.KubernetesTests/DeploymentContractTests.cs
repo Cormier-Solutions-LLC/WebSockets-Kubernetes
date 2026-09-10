@@ -497,6 +497,10 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
         Assert.Contains("resume_run_id:", workflow, StringComparison.Ordinal);
         Assert.Contains("github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
+        Assert.Contains("PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("inputs.nuget_source", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("inputs.npm_registry", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);

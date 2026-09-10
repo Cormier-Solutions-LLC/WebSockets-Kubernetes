@@ -12,6 +12,7 @@ if (plan.schemaVersion !== 1 || selectedPlan === undefined) throw new Error("The
 const redis = process.env.REDIS_TEST_ENDPOINT ?? "127.0.0.1:6379";
 const instances = selectedPlan.instances;
 const entryPort = selectedPlan.entryPort;
+const readinessTimeout = plan.timeouts.readinessSeconds * 1000;
 const packagedApplicationDirectory = resolve(repositoryRoot, "artifacts/full-circle/consumer-bin/Release/net10.0");
 const packagedApplication = "Cormier.Realtime.Example.FullCircle.dll";
 const forwardedRedisConfiguration = Object.fromEntries([
@@ -25,7 +26,7 @@ const appServers = instances.map(instance => ({
   command: `dotnet ${packagedApplication}`,
   cwd: packagedApplicationDirectory,
   url: `http://127.0.0.1:${instance.port}/health`,
-  timeout: 60_000,
+  timeout: readinessTimeout,
   reuseExistingServer: false,
   env: {
     ...forwardedRedisConfiguration,
@@ -41,7 +42,7 @@ if (profile === "ha") {
   appServers.push({
     command: "node ./test/round-robin-proxy.mjs",
     url: `http://127.0.0.1:${entryPort}/health`,
-    timeout: 30_000,
+    timeout: readinessTimeout,
     reuseExistingServer: false,
     env: {
       REALTIME_BROWSER_PROXY_PORT: String(entryPort),

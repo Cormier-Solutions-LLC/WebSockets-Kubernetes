@@ -32,6 +32,7 @@ if (plan.schemaVersion !== 1 || !plan.profiles?.[profileName]) fail("The shared 
 const profile = plan.profiles[profileName];
 const redisEndpoint = process.env[plan.redis.endpointEnvironment] ?? plan.redis.defaultEndpoint;
 const upstreamPackageSource = process.env.NUGET_UPSTREAM_SOURCE ?? "https://api.nuget.org/v3/index.json";
+const upstreamPackageEnvironment = { NUGET_UPSTREAM_SOURCE: upstreamPackageSource };
 const normalized = {
   schemaVersion: plan.schemaVersion,
   action,
@@ -95,6 +96,12 @@ function xml(value) {
   return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+async function writeProjectReferenceConfig() {
+  const config = resolve(evidenceRoot, "NuGet.ProjectReferences.Config");
+  await writeFile(config, `<configuration><packageSources><clear /><add key="upstream" value="%NUGET_UPSTREAM_SOURCE%" /></packageSources></configuration>\n`);
+  return config;
+}
+
 async function buildPackageConsumer() {
   const feed = resolve(evidenceRoot, "feed");
   const consumerOutputRoot = resolve(evidenceRoot, "consumer-bin");
@@ -129,21 +136,22 @@ async function buildPackageConsumer() {
     targetGraph[packageId].contentHash = createHash("sha512").update(await readFile(resolve(feed, packageFile))).digest("base64");
   }
   await writeFile(consumerLock, `${JSON.stringify(consumerLockGraph, null, 2)}\n`);
-  await writeFile(config, `<configuration><config><add key="globalPackagesFolder" value="${xml(packages)}" /></config><packageSources><clear /><add key="local" value="${xml(feed)}" /><add key="upstream" value="${xml(upstreamPackageSource)}" /></packageSources><packageSourceMapping><packageSource key="local"><package pattern="Cormier.Realtime.*" /></packageSource><packageSource key="upstream"><package pattern="Microsoft.*" /><package pattern="StackExchange.Redis" /><package pattern="RESPite" /><package pattern="System.*" /></packageSource></packageSourceMapping></configuration>\n`);
+  await writeFile(config, `<configuration><config><add key="globalPackagesFolder" value="${xml(packages)}" /></config><packageSources><clear /><add key="local" value="${xml(feed)}" /><add key="upstream" value="%NUGET_UPSTREAM_SOURCE%" /></packageSources><packageSourceMapping><packageSource key="local"><package pattern="Cormier.Realtime.*" /></packageSource><packageSource key="upstream"><package pattern="Microsoft.*" /><package pattern="StackExchange.Redis" /><package pattern="RESPite" /><package pattern="System.*" /></packageSource></packageSourceMapping></configuration>\n`);
   const project = "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj";
   const properties = [
     "-p:UseProjectReferences=false",
     `-p:NuGetLockFilePath=${consumerLock}`,
     `-p:BaseOutputPath=${consumerOutput}`,
   ];
-  await command("dotnet", ["restore", project, "--locked-mode", "--configfile", config, ...properties]);
+  await command("dotnet", ["restore", project, "--locked-mode", "--configfile", config, ...properties], { env: upstreamPackageEnvironment });
   await command("dotnet", ["build", project, "--configuration", "Release", "--no-restore", ...properties]);
   const endpointsPath = resolve(consumerOutput, "Release/net10.0/Cormier.Realtime.Example.FullCircle.staticwebassets.endpoints.json");
   const endpoints = await readFile(endpointsPath, "utf8");
   if (!endpoints.includes("_content/Cormier.Realtime.Browser/cormier-realtime.iife.js")) {
     throw new Error("The package consumer did not expose the generated browser static asset route.");
   }
-  await command("dotnet", ["restore", project]);
+  const projectConfig = await writeProjectReferenceConfig();
+  await command("dotnet", ["restore", project, "--locked-mode", "--configfile", projectConfig], { env: upstreamPackageEnvironment });
   log("pass", action, "Clean local-feed package consumer built.", { packageSource: "local", browserAssetRoute: "present" });
 }
 
@@ -151,7 +159,8 @@ try {
   if (["bootstrap", "update", "recover"].includes(action)) {
     await command(executable("npm"), ["ci", "--ignore-scripts"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     await command(executable("npm"), ["run", "build", "--silent"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
-    await command("dotnet", ["restore", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj"]);
+    const projectConfig = await writeProjectReferenceConfig();
+    await command("dotnet", ["restore", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--locked-mode", "--configfile", projectConfig], { env: upstreamPackageEnvironment });
     // The application selects net10.0 from the multi-targeted contracts project. Build that package
     // explicitly so its netstandard2.0 asset also exists before the clean local-feed pack.
     await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore", "--no-incremental"]);

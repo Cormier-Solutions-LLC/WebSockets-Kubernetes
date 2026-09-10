@@ -81,6 +81,9 @@ jobs:
         run: dotnet restore Cormier.Realtime.sln --runtime linux-x64 --locked-mode
       - name: Build
         run: dotnet build Cormier.Realtime.sln --configuration Release --no-restore
+      - name: Validate clean ASP.NET Core package consumer
+        shell: pwsh
+        run: ./scripts/Test-AspNetCorePackage.ps1
       - name: Test
         env:
           REDIS_TEST_ENDPOINT: localhost:6379

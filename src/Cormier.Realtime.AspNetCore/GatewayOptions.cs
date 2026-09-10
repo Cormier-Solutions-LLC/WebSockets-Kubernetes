@@ -19,6 +19,10 @@ public sealed class RealtimeOptions
 
     public string SessionCookieName { get; set; } = "cormier_session";
 
+    public RealtimeSessionSource SessionSource { get; set; } = RealtimeSessionSource.Cookie;
+
+    public string AspNetCoreSessionIdKey { get; set; } = "Cormier.Realtime.SessionId";
+
     public string[] AllowedOrigins { get; set; } = [];
 
     public int MaximumFrameBytes { get; set; } = 16 * 1024;
@@ -39,7 +43,17 @@ public sealed class RealtimeOptions
 
     public int TicketLifetimeSeconds { get; set; } = 30;
 
+    public string TicketEndpointPath { get; set; } = "/realtime/tickets";
+
+    public string? AuthorizationPolicy { get; set; }
+
     public string[] DurableEventClasses { get; set; } = [];
+}
+
+public enum RealtimeSessionSource
+{
+    Cookie,
+    AspNetCoreSession,
 }
 
 public sealed class ProxyOptions

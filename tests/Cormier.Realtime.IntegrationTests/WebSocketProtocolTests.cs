@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -102,6 +103,32 @@ public sealed class WebSocketProtocolTests
             CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConfiguredEndpointPathsReplaceStandaloneDefaults()
+    {
+        await using var factory = new RealtimeFactory(
+            endpointPath: "/custom/socket",
+            ticketEndpointPath: "/custom/tickets");
+        using var socket = await ConnectAsync(factory, endpointPath: "/custom/socket");
+        using var client = factory.CreateClient();
+        using var ticketRequest = new HttpRequestMessage(HttpMethod.Post, "/custom/tickets");
+        ticketRequest.Headers.Add("Origin", "http://localhost");
+        ticketRequest.Headers.Add("Cookie", "cormier_session=valid-session-123456");
+        using var ticketResponse = await client.SendAsync(ticketRequest, CancellationToken.None);
+        var ticket = await ticketResponse.Content.ReadFromJsonAsync(
+            RealtimeJsonSerializerContext.Default.ConnectionTicketResponse,
+            CancellationToken.None);
+
+        using var oldSocketEndpoint = await client.GetAsync("/realtime/ws", CancellationToken.None);
+        using var oldTicketEndpoint = await client.PostAsync("/realtime/tickets", null, CancellationToken.None);
+
+        Assert.Equal(WebSocketState.Open, socket.State);
+        Assert.Equal(HttpStatusCode.OK, ticketResponse.StatusCode);
+        Assert.Equal("unused-ticket", ticket?.Ticket);
+        Assert.Equal(HttpStatusCode.NotFound, oldSocketEndpoint.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, oldTicketEndpoint.StatusCode);
     }
 
     [Fact]
@@ -320,7 +347,8 @@ public sealed class WebSocketProtocolTests
         bool includeCookie = true,
         string origin = "http://localhost",
         bool useTicket = true,
-        string? forwardedHost = null)
+        string? forwardedHost = null,
+        string endpointPath = "/realtime/ws")
     {
         var client = factory.Server.CreateWebSocketClient();
         client.SubProtocols.Add(RealtimeWebSocketHandler.SubProtocol);
@@ -338,7 +366,7 @@ public sealed class WebSocketProtocolTests
                 request.Headers.Append("Cookie", "cormier_session=valid-session-123456");
             }
         };
-        var path = useTicket ? "/realtime/ws?ticket=valid-ticket" : "/realtime/ws";
+        var path = useTicket ? $"{endpointPath}?ticket=valid-ticket" : endpointPath;
         return await client.ConnectAsync(new Uri($"ws://localhost{path}"), CancellationToken.None);
     }
 
@@ -382,7 +410,9 @@ public sealed class WebSocketProtocolTests
 
     private sealed class RealtimeFactory(
         TimeSpan? identityLifetime = null,
-        TimeSpan? authenticationDelay = null) : WebApplicationFactory<Program>
+        TimeSpan? authenticationDelay = null,
+        string endpointPath = "/realtime/ws",
+        string ticketEndpointPath = "/realtime/tickets") : WebApplicationFactory<Program>
     {
         public FakeMessageBus Bus { get; } = new();
 
@@ -397,6 +427,8 @@ public sealed class WebSocketProtocolTests
                 {
                     ["Realtime:AllowedOrigins:0"] = "http://localhost",
                     ["Realtime:AllowedOrigins:1"] = "https://gateway.example",
+                    ["Realtime:EndpointPath"] = endpointPath,
+                    ["Realtime:TicketEndpointPath"] = ticketEndpointPath,
                     ["Realtime:MaximumFrameBytes"] = "1024",
                     ["Realtime:MaximumMessageBytes"] = "1024",
                     ["Proxy:TrustedNetworks:0"] = "127.0.0.0/8",
@@ -411,6 +443,8 @@ public sealed class WebSocketProtocolTests
                 services.AddSingleton<IOptions<RealtimeOptions>>(Options.Create(new RealtimeOptions
                 {
                     AllowedOrigins = ["http://localhost", "https://gateway.example"],
+                    EndpointPath = endpointPath,
+                    TicketEndpointPath = ticketEndpointPath,
                     MaximumFrameBytes = 1024,
                     MaximumMessageBytes = 1024,
                     HeartbeatSeconds = 1,

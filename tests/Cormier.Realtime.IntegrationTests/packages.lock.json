@@ -424,14 +424,20 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "cormier.realtime.aspnetcore": {
+        "type": "Project",
+        "dependencies": {
+          "Cormier.Realtime.Contracts": "[0.1.0, )",
+          "Cormier.Realtime.Redis": "[0.1.0, )"
+        }
+      },
       "cormier.realtime.contracts": {
         "type": "Project"
       },
       "cormier.realtime.gateway": {
         "type": "Project",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[0.1.0, )",
-          "Cormier.Realtime.Redis": "[0.1.0, )"
+          "Cormier.Realtime.AspNetCore": "[0.1.0, )"
         }
       },
       "cormier.realtime.redis": {

@@ -7,12 +7,14 @@ An independently deployable .NET 10 Native AOT foundation for the Cormier realti
 - `src/Cormier.Realtime.Gateway` — Native AOT ASP.NET Core gateway host.
 - `src/Cormier.Realtime.Contracts` — source-generated JSON protocol contracts.
 - `src/Cormier.Realtime.Redis` — Redis configuration and integration boundary.
+- `src/Cormier.Realtime.AspNetCore` — reusable ASP.NET Core hosting integration package.
 - `tests` — unit, integration, Kubernetes, and load-test projects.
 - `helm` and `cluster` — deployment assets developed by PBV7-487/PBV7-488.
 - `observability` — dashboard and alert assets developed by PBV7-489.
 - `sdk/typescript` — typed client and deterministic ESM/IIFE browser artifacts.
 - `protocol/fixtures` — language-neutral wire-compatibility fixtures.
 - `examples/browser` — plain HTML/direct-script consumer example.
+- `examples/aspnet-core` — minimal package consumer using standard ASP.NET Core sessions.
 - `scripts` — PowerShell 7 bootstrap and lifecycle automation.
 - `docs` — architecture and developer guidance.
 - `refs` — source Jira exports and governing scripting standard.
@@ -49,6 +51,8 @@ The gateway listens on the ASP.NET Core configured address and exposes:
 - `/realtime/tickets` — issues a short-lived, single-use connection ticket from a same-origin session.
 
 See [wire protocol](docs/protocol.md), [developer guide](docs/developer-guide.md), and [architecture](docs/architecture.md) for the complete behavior and design boundaries.
+
+Applications that host the gateway inside an existing ASP.NET Core process can use `Cormier.Realtime.AspNetCore`. See the [package guide](src/Cormier.Realtime.AspNetCore/README.md) and [minimal host](examples/aspnet-core/README.md).
 
 ## Build and verify
 

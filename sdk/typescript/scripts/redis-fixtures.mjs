@@ -1,4 +1,4 @@
-import { createClient, createSentinel } from "redis";
+import { createClient, createCluster, createSentinel } from "redis";
 
 const action = process.argv[2];
 if (action !== "ping" && action !== "cleanup") {
@@ -40,11 +40,24 @@ if (sentinelName) {
   await client.connect();
   clients.push(client);
 } else {
-  for (const endpoint of endpoints) {
+  const commonSocket = { tls, connectTimeout: 5_000, reconnectStrategy: false };
+  const cluster = createCluster({
+    rootNodes: endpoints.map(endpoint => ({ username, password, socket: { ...endpoint, ...commonSocket } })),
+    defaults: { username, password, socket: commonSocket },
+  });
+  cluster.on("error", () => undefined);
+  try {
+    await cluster.connect();
+    clients.push(cluster);
+  } catch {
+    if (cluster.isOpen) cluster.destroy();
+  }
+
+  for (const endpoint of clients.length === 0 ? endpoints : []) {
     const client = createClient({
       username,
       password,
-      socket: { ...endpoint, tls, connectTimeout: 5_000, reconnectStrategy: false },
+      socket: { ...endpoint, ...commonSocket },
     });
     client.on("error", () => undefined);
     try {

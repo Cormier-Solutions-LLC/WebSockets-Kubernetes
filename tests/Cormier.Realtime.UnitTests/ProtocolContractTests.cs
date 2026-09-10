@@ -1,10 +1,15 @@
 using System.Text.Json;
 using Cormier.Realtime.Contracts;
+using Cormier.Realtime.Gateway;
 
 namespace Cormier.Realtime.UnitTests;
 
 public sealed class ProtocolContractTests
 {
+    private static readonly DateTimeOffset FixtureNow = DateTimeOffset.Parse(
+        "2026-08-30T17:00:30.000Z",
+        System.Globalization.CultureInfo.InvariantCulture);
+
     [Fact]
     public void MessageEnvelopeUsesSourceGeneratedMetadata()
     {
@@ -23,5 +28,38 @@ public sealed class ProtocolContractTests
         Assert.NotNull(roundTrip);
         Assert.Equal(ProtocolVersions.Current, roundTrip.Version);
         Assert.Equal("correlation-1", roundTrip.CorrelationId);
+    }
+
+    [Fact]
+    public void LanguageNeutralFixturesMatchDotNetProtocolContract()
+    {
+        using var fixtures = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "protocol", "fixtures", "v1", "envelopes.json")));
+        var root = fixtures.RootElement;
+
+        Assert.Equal(ProtocolVersions.Current, root.GetProperty("protocolVersion").GetString());
+        Assert.Equal(RealtimeWebSocketHandler.SubProtocol, root.GetProperty("subprotocol").GetString());
+
+        foreach (var element in root.GetProperty("validClientEnvelopes").EnumerateArray())
+        {
+            var envelope = element.Deserialize(RealtimeJsonSerializerContext.Default.MessageEnvelope);
+            Assert.True(ProtocolValidator.Validate(envelope, FixtureNow).IsValid);
+        }
+
+        foreach (var element in root.GetProperty("validServerEnvelopes").EnumerateArray())
+        {
+            var envelope = element.Deserialize(RealtimeJsonSerializerContext.Default.ServerMessageEnvelope);
+            Assert.NotNull(envelope);
+            Assert.Equal(ProtocolVersions.Current, envelope.Version);
+        }
+
+        foreach (var fixture in root.GetProperty("invalidEnvelopes").EnumerateArray())
+        {
+            var envelope = fixture.GetProperty("value")
+                .Deserialize(RealtimeJsonSerializerContext.Default.MessageEnvelope);
+            var result = ProtocolValidator.Validate(envelope, FixtureNow);
+            Assert.False(result.IsValid);
+            Assert.Equal(fixture.GetProperty("errorCode").GetString(), result.ErrorCode);
+        }
     }
 }

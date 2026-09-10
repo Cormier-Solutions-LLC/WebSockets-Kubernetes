@@ -67,6 +67,14 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Restore TypeScript SDK dependencies
+        working-directory: sdk/typescript
+        run: npm ci
       - name: Install Native AOT prerequisites
         run: sudo apt-get update && sudo apt-get install --yes clang zlib1g-dev
       - name: Restore locked dependencies
@@ -77,6 +85,20 @@ jobs:
         env:
           REDIS_TEST_ENDPOINT: localhost:6379
         run: dotnet test Cormier.Realtime.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
+      - name: Validate TypeScript SDK and reproducible browser artifacts
+        working-directory: sdk/typescript
+        run: |
+          npm run check
+          git diff --exit-code -- dist
+          npm pack --dry-run
+      - name: Install browser test engines
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Cross-browser SDK and live gateway tests
+        working-directory: sdk/typescript
+        env:
+          REDIS_TEST_ENDPOINT: localhost:6379
+        run: npm run test:browser
       - name: Native AOT publish
         run: dotnet publish src/Cormier.Realtime.Gateway --configuration Release --runtime linux-x64 --self-contained --no-restore --output artifacts/native
       - name: Smoke-test Native AOT executable

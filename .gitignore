@@ -32,6 +32,12 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Node.js and browser-test outputs
+node_modules/
+playwright-report/
+test-results/
+.browser-cache/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

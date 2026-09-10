@@ -518,6 +518,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("steps.resume.outputs.has_state", workflow, StringComparison.Ordinal);
         Assert.Contains("steps.resume.outputs.candidate_attempt", workflow, StringComparison.Ordinal);
         Assert.Contains("Download original resumable candidate", workflow, StringComparison.Ordinal);
+        Assert.Contains("@parameters", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("@arguments", workflow, StringComparison.Ordinal);
         Assert.Contains("PACKAGE_REPOSITORY_URL", workflow, StringComparison.Ordinal);
         Assert.Contains("'--source', $UpstreamPackageSource", build, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);

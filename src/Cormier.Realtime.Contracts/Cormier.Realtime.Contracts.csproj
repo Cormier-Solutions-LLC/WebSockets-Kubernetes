@@ -12,7 +12,6 @@
     <Description>Runtime-neutral protocol contracts for Cormier.Realtime clients and gateways.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>websocket;realtime;contracts;netstandard</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

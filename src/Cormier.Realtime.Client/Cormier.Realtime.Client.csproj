@@ -12,7 +12,6 @@
     <Description>Runtime-neutral .NET Standard WebSocket client for Cormier.Realtime.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>websocket;realtime;client;netstandard</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

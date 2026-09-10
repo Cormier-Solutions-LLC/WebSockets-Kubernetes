@@ -294,15 +294,16 @@ jobs:
         run: |
           $candidate = Get-ChildItem artifacts/packages -Directory | Select-Object -First 1
           if ($null -eq $candidate) { throw 'Downloaded candidate directory was not found.' }
-          $arguments = @(
-            '-CandidatePath', $candidate.FullName,
-            '-NuGetSource', $env:PROTECTED_NUGET_SOURCE,
-            '-Confirm:$false'
-          )
-          if ($env:INPUT_PUBLISH_NPM -eq 'true') {
-            $arguments += @('-PublishNpm', '-NpmRegistry', $env:PROTECTED_NPM_REGISTRY)
+          $parameters = @{
+            CandidatePath = $candidate.FullName
+            NuGetSource = $env:PROTECTED_NUGET_SOURCE
+            Confirm = $false
           }
-          & ./scripts/Publish-RealtimePackages.ps1 @arguments
+          if ($env:INPUT_PUBLISH_NPM -eq 'true') {
+            $parameters.PublishNpm = $true
+            $parameters.NpmRegistry = $env:PROTECTED_NPM_REGISTRY
+          }
+          & ./scripts/Publish-RealtimePackages.ps1 @parameters
       - name: Upload promotion state
         if: always()
         uses: actions/upload-artifact@v4

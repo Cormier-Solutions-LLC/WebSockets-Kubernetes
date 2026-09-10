@@ -1,10 +1,14 @@
 [CmdletBinding()]
 param(
     [string]$DotNetClientVersion = '0.1.0',
-    [string]$ContractsVersion = '0.1.0'
+    [string]$ContractsVersion = '0.1.0',
+    [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($UpstreamPackageSource)) {
+    throw 'UpstreamPackageSource or NUGET_UPSTREAM_SOURCE must identify the configured upstream NuGet feed.'
+}
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cormier-realtime-client-" + [guid]::NewGuid().ToString('N'))
 $feedPath = Join-Path $scratchRoot 'feed'
@@ -25,7 +29,7 @@ try {
   <packageSources>
     <clear />
     <add key="local" value="$escapedFeedPath" />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="upstream" value="$([System.Security.SecurityElement]::Escape($UpstreamPackageSource))" />
   </packageSources>
 </configuration>
 "@ | Set-Content -LiteralPath $nugetConfigPath -Encoding utf8NoBOM

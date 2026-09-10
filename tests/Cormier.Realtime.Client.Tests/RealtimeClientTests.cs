@@ -46,6 +46,19 @@ public sealed class RealtimeClientTests
         Assert.Throws<ArgumentException>(() => new RealtimeClient(options));
     }
 
+    [Theory]
+    [InlineData("invalid protocol")]
+    [InlineData("invalid,protocol")]
+    [InlineData("invalid/protocol")]
+    [InlineData("π")]
+    public void OptionsRejectInvalidWebSocketSubprotocolTokens(string subProtocol)
+    {
+        var options = Options();
+        options.SubProtocol = subProtocol;
+
+        Assert.Throws<ArgumentException>(() => new RealtimeClient(options));
+    }
+
     [Fact]
     public async Task PublishAndReceiveUseSharedProtocolContracts()
     {
@@ -803,6 +816,20 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task TicketQueryOnNonLoopbackPlaintextEndpointIsRejected()
+    {
+        var options = Options();
+        options.Endpoint = new Uri("ws://gateway.example/realtime/ws?ticket=sensitive-ticket");
+        var factory = new FakeTransportFactory(new FakeTransport());
+        using var client = new RealtimeClient(options, transportFactory: factory);
+
+        await Assert.ThrowsAsync<RealtimeClientException>(() =>
+            client.ConnectAsync(CancellationToken.None));
+
+        Assert.Equal(0, factory.ConnectionCount);
+    }
+
+    [Fact]
     public async Task PlaintextCredentialTransportRequiresExplicitOptIn()
     {
         var options = Options();
@@ -1084,6 +1111,36 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task SubscriptionWaitingForResponseCapacityRechecksAfterReconnectStarts()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second);
+        using var client = new RealtimeClient(
+            Options(sendQueueCapacity: 1),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.SubscribeAsync("topics/orders", "pending-subscribe");
+        _ = await first.WaitForSentAsync();
+        var unsubscribe = client.UnsubscribeAsync("topics/orders", "waiting-unsubscribe");
+        await Task.Delay(25);
+
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => unsubscribe);
+        await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
+        var replayed = JsonSerializer.Deserialize(
+            await second.WaitForSentAsync(),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        Assert.Equal(ProtocolMessageTypes.Subscribe, replayed?.Type);
+    }
+
+    [Fact]
     public async Task NoOpSubscriptionChangeDoesNotWaitForSendCapacity()
     {
         var transport = new FakeTransport();
@@ -1117,7 +1174,7 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
-    public async Task MissingHeartbeatAcknowledgementsRetainOnlyOneCorrelation()
+    public async Task MissingHeartbeatAcknowledgementDoesNotStopLaterHeartbeats()
     {
         var transport = new FakeTransport();
         var clock = new TwoHeartbeatClock();
@@ -1130,7 +1187,7 @@ public sealed class RealtimeClientTests
         _ = await transport.WaitForSentAsync();
         await clock.ThirdDelayStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Equal(1, transport.SentCount);
+        Assert.Equal(2, transport.SentCount);
     }
 
     [Fact]

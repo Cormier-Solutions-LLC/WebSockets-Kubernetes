@@ -33,7 +33,7 @@ public sealed class RealtimeClient : IDisposable
     private readonly HashSet<string> _confirmedSubscriptions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SubscriptionMutation> _pendingSubscriptionMutations =
         new(StringComparer.Ordinal);
-    private readonly HashSet<string> _heartbeatCorrelations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _heartbeatCorrelations = new(StringComparer.Ordinal);
     private readonly Queue<MessageEnvelope> _replayBacklog = new();
     private Task _stateNotificationTask = Task.CompletedTask;
     private Task? _runTask;
@@ -308,6 +308,8 @@ public sealed class RealtimeClient : IDisposable
                 {
                     await _subscriptionResponseSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
                     responseSlotAcquired = true;
+                    ThrowIfDisposed();
+                    EnsureConnectedForSubscriptionChange();
                     var message = PrepareOwnedMessage(CreateMessage(
                         subscribe ? ProtocolMessageTypes.Subscribe : ProtocolMessageTypes.Unsubscribe,
                         route,
@@ -747,11 +749,23 @@ public sealed class RealtimeClient : IDisposable
             var heartbeat = CreateMessage(ProtocolMessageTypes.Ping, "system/heartbeat", NullPayload, null);
             lock (_heartbeatCorrelations)
             {
-                if (_heartbeatCorrelations.Count > 0)
+                var expiredBefore = _clock.UtcNow.AddSeconds(-2 * _options.HeartbeatSeconds);
+                foreach (var expired in _heartbeatCorrelations
+                    .Where(item => item.Value <= expiredBefore)
+                    .Select(item => item.Key)
+                    .ToArray())
                 {
-                    continue;
+                    _heartbeatCorrelations.Remove(expired);
                 }
-                _heartbeatCorrelations.Add(heartbeat.CorrelationId);
+                while (_heartbeatCorrelations.Count >= 2)
+                {
+                    var oldest = _heartbeatCorrelations
+                        .OrderBy(item => item.Value)
+                        .ThenBy(item => item.Key, StringComparer.Ordinal)
+                        .First().Key;
+                    _heartbeatCorrelations.Remove(oldest);
+                }
+                _heartbeatCorrelations[heartbeat.CorrelationId] = _clock.UtcNow;
             }
             try
             {
@@ -1074,7 +1088,8 @@ public sealed class RealtimeClient : IDisposable
     {
         var hasCredentials = !string.IsNullOrWhiteSpace(authentication.ConnectionTicket) ||
             !string.IsNullOrWhiteSpace(authentication.CookieHeader) ||
-            authentication.Headers.Any(header => !string.IsNullOrWhiteSpace(header.Value));
+            authentication.Headers.Any(header => !string.IsNullOrWhiteSpace(header.Value)) ||
+            EndpointContainsTicket(_options.Endpoint!);
         if (hasCredentials &&
             _options.Endpoint!.Scheme == "ws" &&
             !_options.Endpoint.IsLoopback &&
@@ -1084,6 +1099,15 @@ public sealed class RealtimeClient : IDisposable
                 "Credentialed realtime connections require wss unless insecure transport is explicitly enabled.");
         }
     }
+
+    private static bool EndpointContainsTicket(Uri endpoint) =>
+        endpoint.Query.TrimStart('?')
+            .Split('&')
+            .Select(parameter => parameter.Split('=')[0])
+            .Any(name => string.Equals(
+                Uri.UnescapeDataString(name),
+                "ticket",
+                StringComparison.OrdinalIgnoreCase));
 
     private void SetState(RealtimeClientState state)
     {

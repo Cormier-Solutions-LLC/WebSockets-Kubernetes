@@ -88,6 +88,8 @@ jobs:
         run: ./scripts/Test-AspNetCorePackage.ps1
       - name: Validate clean .NET client package consumers
         shell: pwsh
+        env:
+          NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
         run: ./scripts/Test-DotNetClientPackage.ps1
       - name: Test
         env:

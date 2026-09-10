@@ -55,7 +55,9 @@ public sealed class RealtimeClientOptions
         {
             throw new ArgumentException("Endpoint must be an absolute ws or wss URI.", nameof(Endpoint));
         }
-        if (string.IsNullOrWhiteSpace(SubProtocol) || SubProtocol.Length > 128)
+        if (string.IsNullOrWhiteSpace(SubProtocol) ||
+            SubProtocol.Length > 128 ||
+            !SubProtocol.All(IsWebSocketTokenCharacter))
         {
             throw new ArgumentException("SubProtocol is required and must not exceed 128 characters.", nameof(SubProtocol));
         }
@@ -104,6 +106,13 @@ public sealed class RealtimeClientOptions
             throw new ArgumentOutOfRangeException(nameof(CloseTimeoutSeconds));
         }
     }
+
+    private static bool IsWebSocketTokenCharacter(char character) =>
+        character is >= '0' and <= '9' or
+            >= 'A' and <= 'Z' or
+            >= 'a' and <= 'z' or
+            '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.' or
+            '^' or '_' or '`' or '|' or '~';
 }
 
 public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy

@@ -242,6 +242,7 @@ public static class RealtimeGatewayHostingExtensions
             {
                 var baselineMinimum = logging.MinLevel;
                 var baselineRules = logging.Rules.ToArray();
+                logging.Rules.Clear();
                 foreach (var rule in baselineRules)
                 {
                     logging.Rules.Add(new LoggerFilterRule(
@@ -253,13 +254,16 @@ public static class RealtimeGatewayHostingExtensions
                             : level >= (rule.LogLevel ?? LogLevel.Trace) &&
                                 (rule.Filter?.Invoke(provider, category, level) ?? true)));
                 }
-                logging.Rules.Add(new LoggerFilterRule(
-                    providerName: null,
-                    categoryName: null,
-                    logLevel: LogLevel.Trace,
-                    filter: (_, category, level) => controller.HasOverride(category ?? string.Empty)
-                        ? level >= controller.EffectiveLevel(category ?? string.Empty)
-                        : level >= baselineMinimum));
+                if (!baselineRules.Any(rule => rule.ProviderName is null && rule.CategoryName is null))
+                {
+                    logging.Rules.Add(new LoggerFilterRule(
+                        providerName: null,
+                        categoryName: null,
+                        logLevel: LogLevel.Trace,
+                        filter: (_, category, level) => controller.HasOverride(category ?? string.Empty)
+                            ? level >= controller.EffectiveLevel(category ?? string.Empty)
+                            : level >= baselineMinimum));
+                }
             });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, RedisSubscriberService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, GatewayDrainService>());

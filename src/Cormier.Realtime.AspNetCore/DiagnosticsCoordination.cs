@@ -35,15 +35,23 @@ public sealed class DiagnosticsControlService(
             Scope = request.Scope?.Trim() ?? string.Empty,
         };
         var id = Guid.NewGuid().ToString("N");
-        var startedAt = DateTimeOffset.UtcNow;
         if (request.Scope != "all")
         {
+            var startedAt = DateTimeOffset.UtcNow;
             if (!controller.TryApply(request, actor, out var localResult, out var localError, id, startedAt))
             {
                 return (false, null, localError);
             }
-            await FlushLocalAuditAsync(cancellationToken);
-            return (true, localResult, string.Empty);
+            try
+            {
+                await FlushLocalAuditAsync(cancellationToken);
+                return (true, localResult, string.Empty);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                controller.Revert(id, "system", "cancelled request rollback");
+                throw;
+            }
         }
         if (!controller.TryValidate(request, out var validationError))
         {
@@ -60,6 +68,7 @@ public sealed class DiagnosticsControlService(
                 return (false, null, "Replica-wide changes require an available Redis coordination service.");
             }
             database = connection.GetDatabase();
+            var startedAt = DateTimeOffset.UtcNow;
             var message = new DiagnosticsCoordinationMessage("apply", id, request, actor, startedAt);
             var payload = JsonSerializer.Serialize(
                 message,

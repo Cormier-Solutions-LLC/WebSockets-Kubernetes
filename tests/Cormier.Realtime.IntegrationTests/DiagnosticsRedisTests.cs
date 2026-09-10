@@ -143,6 +143,36 @@ public sealed class DiagnosticsRedisTests
     }
 
     [Fact]
+    public async Task CancelledInstanceApplyRollsBackTheLocalOverride()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = "redis.invalid:6379",
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 100,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        var controller = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("cancelled-instance"));
+        using var control = new DiagnosticsControlService(controller, redis, redisOptions, diagnostics);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => control.ApplyAsync(
+            new LogLevelChangeRequest("Cormier.Realtime.Redis", "Debug", 30, "cancel rollback verification", "instance"),
+            "operator",
+            cancellation.Token).AsTask());
+
+        Assert.Empty(controller.GetActive());
+    }
+
+    [Fact]
     public async Task LogLevelChangesCoordinateAuditAndRollbackAcrossInstances()
     {
         var redisOptions = new RedisOptions

@@ -960,6 +960,9 @@ var CormierRealtime = (() => {
             return;
           }
           this.#onStreamError(error instanceof Error ? error : new Error("The diagnostics stream failed."));
+          if (error instanceof DiagnosticsStreamHttpError && error.isPermanent) {
+            return;
+          }
         }
         await this.#waitForStreamRetry(cancellation.signal);
       }
@@ -971,7 +974,7 @@ var CormierRealtime = (() => {
         signal: cancellation.signal
       });
       if (!response.ok || response.body === null) {
-        throw new Error(`Diagnostics stream failed with HTTP ${response.status}.`);
+        throw new DiagnosticsStreamHttpError(response.status);
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -1036,6 +1039,14 @@ var CormierRealtime = (() => {
         throw new Error(`Diagnostics request failed with HTTP ${response.status}.`);
       }
       return response.status === 204 ? void 0 : await response.json();
+    }
+  };
+  var DiagnosticsStreamHttpError = class extends Error {
+    isPermanent;
+    constructor(status) {
+      super(`Diagnostics stream failed with HTTP ${status}.`);
+      this.name = "DiagnosticsStreamHttpError";
+      this.isPermanent = status >= 400 && status < 500 && status !== 408 && status !== 429;
     }
   };
   return __toCommonJS(index_exports);

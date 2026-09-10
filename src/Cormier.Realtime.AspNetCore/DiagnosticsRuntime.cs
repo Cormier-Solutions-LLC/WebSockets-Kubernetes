@@ -98,7 +98,7 @@ public static partial class DiagnosticRedactor
     [GeneratedRegex("(?im)\\b(authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*", RegexOptions.CultureInvariant)]
     private static partial Regex HeaderPattern();
 
-    [GeneratedRegex("(?i)\\b(password|secret|token|ticket)[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?i)\\b((?:[a-z0-9]+[-_.])*(?:password|secret|token|ticket))[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
     private static partial Regex SecretPattern();
 
     [GeneratedRegex("(?i)\\b(tenant|user|session)(?:[-_.]?id)?[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
@@ -324,7 +324,7 @@ public sealed class RuntimeLogLevelController(
         }
 
         RemoveExpired(DateTimeOffset.UtcNow);
-        if (_overrides.Count >= _options.MaximumDetailItems)
+        if (_overrides.Values.Count(active => active.Scope == request.Scope) >= _options.MaximumDetailItems)
         {
             error = "The active diagnostics override limit has been reached.";
             return false;

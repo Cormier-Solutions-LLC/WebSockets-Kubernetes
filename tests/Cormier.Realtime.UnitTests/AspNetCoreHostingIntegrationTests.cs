@@ -10,12 +10,28 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Cormier.Realtime.UnitTests;
 
 public sealed class AspNetCoreHostingIntegrationTests
 {
+    [Fact]
+    public async Task AddRealtimeGatewayPreservesAGlobalProgrammaticLoggingFilter()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration.AddInMemoryCollection(ValidConfiguration());
+        builder.Logging.SetMinimumLevel(LogLevel.Trace);
+        builder.Logging.AddFilter(static (_, level) => level >= LogLevel.Warning);
+        builder.Services.AddRealtimeGateway(builder.Configuration);
+        await using var app = builder.Build();
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Cormier.Realtime.Filtered");
+
+        Assert.False(logger.IsEnabled(LogLevel.Information));
+        Assert.True(logger.IsEnabled(LogLevel.Warning));
+    }
+
     [Fact]
     public async Task AddRealtimeGatewayBindsConfigurationAndRegistersPublicIntegrationServices()
     {

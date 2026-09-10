@@ -198,6 +198,9 @@ export class DiagnosticsClient {
           return;
         }
         this.#onStreamError(error instanceof Error ? error : new Error("The diagnostics stream failed."));
+        if (error instanceof DiagnosticsStreamHttpError && error.isPermanent) {
+          return;
+        }
       }
       await this.#waitForStreamRetry(cancellation.signal);
     }
@@ -210,7 +213,7 @@ export class DiagnosticsClient {
       signal: cancellation.signal,
     });
     if (!response.ok || response.body === null) {
-      throw new Error(`Diagnostics stream failed with HTTP ${response.status}.`);
+      throw new DiagnosticsStreamHttpError(response.status);
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -278,5 +281,15 @@ export class DiagnosticsClient {
       throw new Error(`Diagnostics request failed with HTTP ${response.status}.`);
     }
     return response.status === 204 ? undefined as T : await response.json() as T;
+  }
+}
+
+class DiagnosticsStreamHttpError extends Error {
+  readonly isPermanent: boolean;
+
+  constructor(status: number) {
+    super(`Diagnostics stream failed with HTTP ${status}.`);
+    this.name = "DiagnosticsStreamHttpError";
+    this.isPermanent = status >= 400 && status < 500 && status !== 408 && status !== 429;
   }
 }

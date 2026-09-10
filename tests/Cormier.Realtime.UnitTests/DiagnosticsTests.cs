@@ -11,7 +11,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void RedactorRemovesCredentialsAndPrivateIdentityValues()
     {
-        const string input = "Authorization: Bearer abc.def\nCookie: theme=dark; sid=victim-secret\ncookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b tenant structured-tenant password=hunter2 secret structured-secret {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
+        const string input = "Authorization: Bearer abc.def\nCookie: theme=dark; sid=victim-secret\ncookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b tenant structured-tenant password=hunter2 secret structured-secret access_token=oauth-secret client_secret=client-credential {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
 
         var output = DiagnosticRedactor.Redact(input);
 
@@ -30,6 +30,8 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain("multi word credential", output, StringComparison.Ordinal);
         Assert.DoesNotContain("victim-secret", output, StringComparison.Ordinal);
         Assert.DoesNotContain("structured-tenant", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("oauth-secret", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("client-credential", output, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", output, StringComparison.Ordinal);
     }
 
@@ -315,6 +317,13 @@ public sealed class DiagnosticsTests
                 out _))));
         Assert.Equal(2, capacityOutcomes.Count(succeeded => succeeded));
         Assert.Equal(2, capacityController.GetActive().Length);
+
+        Assert.True(capacityController.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.ReplicaWide", "Debug", 30, "replica capacity verification", "all"),
+            "operator",
+            out _,
+            out _));
+        Assert.Equal(3, capacityController.GetActive().Length);
     }
 
     [Fact]

@@ -84,12 +84,12 @@ spec:
               valueFrom:
                 secretKeyRef: { name: {{ .Values.diagnostics.operatorTokenSecret.name }}, key: {{ .Values.diagnostics.operatorTokenSecret.key }} }
             {{- end }}
-            {{- if and .Values.metrics.authorizationPolicy .Values.metrics.scrapeTokenSecret.name }}
+            {{- if and .Values.metrics.enabled .Values.metrics.authorizationPolicy .Values.metrics.scrapeTokenSecret.name }}
             - name: Metrics__ScrapeToken
               valueFrom:
                 secretKeyRef: { name: {{ .Values.metrics.scrapeTokenSecret.name }}, key: {{ .Values.metrics.scrapeTokenSecret.key }} }
             {{- end }}
-            {{- if .Values.observability.otlp.headersSecret.name }}
+            {{- if and .Values.observability.otlp.enabled .Values.observability.otlp.headersSecret.name }}
             - name: OTEL_EXPORTER_OTLP_HEADERS
               valueFrom:
                 secretKeyRef: { name: {{ .Values.observability.otlp.headersSecret.name }}, key: {{ .Values.observability.otlp.headersSecret.key }} }

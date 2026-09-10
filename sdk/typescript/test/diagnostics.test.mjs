@@ -94,3 +94,50 @@ test("diagnostics streams retry ordinary interruptions with authentication", asy
   assert.equal(requests[1].init.signal.aborted, true);
   disconnect();
 });
+
+test("diagnostics streams stop after permanent client responses", async () => {
+  let requests = 0;
+  const errors = [];
+  const client = new DiagnosticsClient({
+    fetch: async () => {
+      requests += 1;
+      return new Response("unauthorized", { status: 401 });
+    },
+    onStreamError: (error) => errors.push(error),
+    streamRetryMilliseconds: 100,
+  });
+
+  const disconnect = client.streamEvents(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  assert.equal(requests, 1);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /HTTP 401/);
+  disconnect();
+});
+
+test("diagnostics streams retry transient server responses", async () => {
+  let requests = 0;
+  const client = new DiagnosticsClient({
+    fetch: async () => {
+      requests += 1;
+      if (requests === 1) return new Response("unavailable", { status: 503 });
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('event: disconnect\ndata: {"reason":"complete"}\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    },
+    streamRetryMilliseconds: 100,
+  });
+
+  const disconnect = client.streamEvents(() => undefined);
+  for (let attempt = 0; attempt < 50 && requests < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  assert.equal(requests, 2);
+  disconnect();
+});

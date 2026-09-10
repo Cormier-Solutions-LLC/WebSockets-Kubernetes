@@ -469,6 +469,86 @@ public sealed class DeploymentContractTests
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PackagePromotionUsesOneVerifiedImmutableCandidate()
+    {
+        var workflow = Read(".github/workflows/packages.yml");
+        var ciWorkflow = Read(".github/workflows/ci.yml");
+        var build = Read("scripts/Build-RealtimePackages.ps1");
+        var publish = Read("scripts/Publish-RealtimePackages.ps1");
+        var props = Read("Directory.Build.props");
+        var targets = Read("Directory.Build.targets");
+
+        Assert.Contains("--locked-mode", build, StringComparison.Ordinal);
+        Assert.Contains("Assert-Reproducible", build, StringComparison.Ordinal);
+        Assert.DoesNotContain("createdUtc =", build, StringComparison.Ordinal);
+        Assert.Contains("Test-AspNetCorePackage.ps1", build, StringComparison.Ordinal);
+        Assert.Contains("Test-DotNetClientPackage.ps1", build, StringComparison.Ordinal);
+        Assert.Contains("Test-BrowserPackage.ps1", build, StringComparison.Ordinal);
+        Assert.Contains("sourceTree = if ($sourceDirty) { 'dirty' } else { 'clean' }", build, StringComparison.Ordinal);
+        Assert.Contains("Directory.Build.props", build, StringComparison.Ordinal);
+        Assert.DoesNotContain("[string]$ContractsVersion = '0.1.0'", build, StringComparison.Ordinal);
+        Assert.Contains("<ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
+        Assert.Contains("<ProjectVersion>[$(RedisAdapterVersion),$(RedisAdapterCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
+        Assert.Contains("$(PackageRepositoryUrl)", props, StringComparison.Ordinal);
+        Assert.Contains("$(PackageReleaseNotesUrl)", props, StringComparison.Ordinal);
+        Assert.DoesNotContain("github.com", props, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("environment: package-production", workflow, StringComparison.Ordinal);
+        Assert.Contains("group: package-promotion-${{ github.repository }}-${{ github.sha }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("cancel-in-progress: false", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/attest-build-provenance@", workflow, StringComparison.Ordinal);
+        Assert.Contains("Attest exact immutable package candidate", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("attest-candidate:", workflow, StringComparison.Ordinal);
+        Assert.Contains("Generate package SBOM", workflow, StringComparison.Ordinal);
+        Assert.Contains("Scan package candidate", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions: read", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
+        Assert.Contains("resume_run_id:", workflow, StringComparison.Ordinal);
+        Assert.Contains("github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
+        Assert.Contains("PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("inputs.nuget_source", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("inputs.npm_registry", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
+        Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
+        Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
+        Assert.Contains("${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("candidate_artifact_name", workflow, StringComparison.Ordinal);
+        Assert.Contains("steps.resume.outputs.has_state", workflow, StringComparison.Ordinal);
+        Assert.Contains("steps.resume.outputs.candidate_attempt", workflow, StringComparison.Ordinal);
+        Assert.Contains("Download original resumable candidate", workflow, StringComparison.Ordinal);
+        Assert.Contains("@parameters", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("@arguments", workflow, StringComparison.Ordinal);
+        Assert.Contains("PACKAGE_REPOSITORY_URL", workflow, StringComparison.Ordinal);
+        Assert.Contains("'--source', $UpstreamPackageSource", build, StringComparison.Ordinal);
+        Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
+
+        Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);
+        Assert.Contains("manifestSha256", publish, StringComparison.Ordinal);
+        Assert.Contains("Existing npm promotion state belongs to a different registry", publish, StringComparison.Ordinal);
+        Assert.Contains("nugetPackageIdsInDependencyOrder", publish, StringComparison.Ordinal);
+        var contractsOrder = publish.IndexOf("'Cormier.Realtime.Contracts'", StringComparison.Ordinal);
+        var clientOrder = publish.IndexOf("'Cormier.Realtime.Client'", StringComparison.Ordinal);
+        var redisOrder = publish.IndexOf("'Cormier.Realtime.Redis'", StringComparison.Ordinal);
+        var aspNetCoreOrder = publish.IndexOf("'Cormier.Realtime.AspNetCore'", StringComparison.Ordinal);
+        Assert.True(contractsOrder >= 0 && contractsOrder < clientOrder && contractsOrder < redisOrder);
+        Assert.True(clientOrder < aspNetCoreOrder && redisOrder < aspNetCoreOrder);
+        Assert.Contains("$symbolPackage.FullName", publish, StringComparison.Ordinal);
+        Assert.Contains("'--no-symbols'", publish, StringComparison.Ordinal);
+        Assert.Contains("{ 'next' } else { 'latest' }", publish, StringComparison.Ordinal);
+        Assert.Contains("-split '\\+', 2", publish, StringComparison.Ordinal);
+        Assert.Contains("'--tag', $npmTag", publish, StringComparison.Ordinal);
+        Assert.Contains("Get-RegistryIdentity", publish, StringComparison.Ordinal);
+        Assert.Contains("[StringComparer]::Ordinal.Equals", publish, StringComparison.Ordinal);
+        Assert.True(
+            publish.IndexOf("$npmToken = [Environment]::GetEnvironmentVariable", StringComparison.Ordinal) <
+            publish.IndexOf("$phase = 'Publish NuGet'", StringComparison.Ordinal));
+        Assert.Contains("SetUnixFileMode", publish, StringComparison.Ordinal);
+        Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string Read(string relative)
     {
         var normalizedRelative = relative.Replace('/', Path.DirectorySeparatorChar);

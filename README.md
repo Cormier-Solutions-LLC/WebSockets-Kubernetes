@@ -70,6 +70,8 @@ dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r $runtimeIdentifier -
 
 Linux CI publishes a `linux-x64` Native AOT executable and an OCI archive from the .NET SDK. Versions begin at `0.1.0` and are controlled centrally by `Directory.Build.props`.
 
+Package identities, compatibility, local-feed verification, guarded promotion, and rollback are documented in the [package release policy](docs/package-release.md).
+
 ## Browser SDK
 
 The strict TypeScript client under `sdk/typescript` produces readable and minified ESM and direct-browser IIFE artifacts. It supports same-origin sessions, single-use tickets, bounded command handling, heartbeats, reconnect with fresh authentication, and duplicate-free subscription restoration. See [the TypeScript SDK guide](docs/typescript-sdk.md) for the API, browser matrix, CSP and edge requirements, compatibility policy, and verification commands.

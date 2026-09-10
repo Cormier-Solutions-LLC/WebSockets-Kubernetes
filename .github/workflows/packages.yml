@@ -1,0 +1,323 @@
+name: Package candidate and promotion
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/packages.yml'
+      - 'Directory.Build.*'
+      - 'Cormier.Realtime.sln'
+      - 'src/**'
+      - 'sdk/typescript/**'
+      - 'scripts/*Package*.ps1'
+      - 'docs/package-release.md'
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified candidate after environment approval
+        required: true
+        type: boolean
+        default: false
+      publish_npm:
+        description: Publish the optional npm artifact after registry ownership approval
+        required: true
+        type: boolean
+        default: false
+      resume_run_id:
+        description: Prior failed package workflow run containing partial-promotion evidence
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package-candidate:
+    runs-on: ubuntu-latest
+    outputs:
+      candidate_artifact_name: ${{ steps.artifact_names.outputs.candidate_artifact }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select attempt-specific artifact names
+        id: artifact_names
+        shell: pwsh
+        run: '"candidate_artifact=cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}" | Add-Content -LiteralPath $env:GITHUB_OUTPUT'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build and verify immutable package candidate
+        shell: pwsh
+        env:
+          NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
+          REDIS_TEST_ENDPOINT: localhost:6379
+          PACKAGE_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          PACKAGE_PROJECT_URL: ${{ github.server_url }}/${{ github.repository }}
+          PACKAGE_RELEASE_NOTES_URL: ${{ github.server_url }}/${{ github.repository }}/releases
+        run: ./scripts/Build-RealtimePackages.ps1
+      - name: Upload package build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cormier-realtime-package-build-${{ github.sha }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 30
+          include-hidden-files: true
+          path: |
+            artifacts/package-test-results
+            .logs/package-build-*.log
+      - name: Scan package candidate
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: artifacts/packages
+          format: sarif
+          output: artifacts/package-scan.sarif
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          exit-code: '1'
+      - name: Generate package SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: artifacts/packages
+          artifact-name: cormier-realtime-packages-sbom-${{ github.sha }}-${{ github.run_attempt }}.spdx.json
+          output-file: artifacts/packages.spdx.json
+          format: spdx-json
+      - name: Upload package scan
+        if: ${{ always() && hashFiles('artifacts/package-scan.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: artifacts/package-scan.sarif
+          category: package-candidate
+      - name: Upload immutable candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact_names.outputs.candidate_artifact }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            artifacts/packages
+            artifacts/package-test-results
+            artifacts/package-scan.sarif
+            artifacts/packages.spdx.json
+
+  publish-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: package-candidate
+    runs-on: ubuntu-latest
+    environment: package-production
+    concurrency:
+      group: package-promotion-${{ github.repository }}-${{ github.sha }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Validate trusted release commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA&status=completed" | ConvertFrom-Json
+          $trusted = @($runs.workflow_runs | Where-Object {
+            $_.event -eq 'push' -and
+            $_.head_branch -eq 'main' -and
+            $_.head_sha -eq $env:EXPECTED_SHA -and
+            $_.conclusion -eq 'success'
+          })
+          if ($LASTEXITCODE -ne 0 -or $trusted.Count -eq 0) {
+            throw 'Publication requires successful main-branch CI for the exact candidate commit.'
+          }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        if: inputs.publish_npm
+        with:
+          node-version: 24
+          registry-url: ${{ vars.NPM_REGISTRY }}
+      - name: Select resumable promotion evidence
+        id: resume
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+          REQUESTED_RUN_ID: ${{ inputs.resume_run_id }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CURRENT_CANDIDATE_ARTIFACT: ${{ needs['package-candidate'].outputs.candidate_artifact_name }}
+        run: |
+          $candidatePrefix = "cormier-realtime-packages-$env:EXPECTED_SHA-"
+          if ($env:CURRENT_CANDIDATE_ARTIFACT -notmatch ('^' + [regex]::Escape($candidatePrefix) + '([1-9][0-9]*)$')) {
+            throw 'The package-candidate job did not expose a valid attempt-specific artifact name.'
+          }
+          $currentCandidateAttempt = [int]$Matches[1]
+          $evidenceRunId = $null
+          if (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_RUN_ID)) {
+            if ($env:REQUESTED_RUN_ID -notmatch '^[1-9][0-9]*$') {
+              throw 'resume_run_id must be a GitHub Actions run ID.'
+            }
+            $prior = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:REQUESTED_RUN_ID" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or
+                $prior.path -ne '.github/workflows/packages.yml' -or
+                $prior.event -ne 'workflow_dispatch' -or
+                $prior.status -ne 'completed' -or
+                $prior.head_sha -ne $env:EXPECTED_SHA) {
+              throw 'The selected resume run is not a completed package workflow for this exact commit.'
+            }
+            $evidenceRunId = $env:REQUESTED_RUN_ID
+          }
+          elseif ([int]$env:CURRENT_RUN_ATTEMPT -gt 1) {
+            $evidenceRunId = $env:CURRENT_RUN_ID
+          }
+          if ($null -eq $evidenceRunId) {
+            'has_state=false' | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+            "candidate_attempt=$currentCandidateAttempt" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $artifacts = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$evidenceRunId/artifacts?per_page=100" | ConvertFrom-Json
+          $prefix = "cormier-realtime-package-promotion-$env:EXPECTED_SHA-"
+          $pattern = '^' + [regex]::Escape($prefix) + 'c([1-9][0-9]*)-r([1-9][0-9]*)$'
+          $matches = @($artifacts.artifacts | ForEach-Object {
+            if (-not $_.expired -and $_.name -match $pattern) {
+              [pscustomobject]@{
+                artifact = $_
+                candidateAttempt = [int]$Matches[1]
+                evidenceAttempt = [int]$Matches[2]
+              }
+            }
+          } | Sort-Object evidenceAttempt -Descending)
+          if ($matches.Count -eq 0) {
+            if (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_RUN_ID)) {
+              throw 'The selected resume run has no retained promotion state for this commit.'
+            }
+            'has_state=false' | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+            "candidate_attempt=$currentCandidateAttempt" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $selected = $matches[0]
+          'has_state=true' | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "run_id=$evidenceRunId" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "evidence_artifact=$($selected.artifact.name)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "candidate_attempt=$($selected.candidateAttempt)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "candidate_artifact=cormier-realtime-packages-$env:EXPECTED_SHA-$($selected.candidateAttempt)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+      - name: Download current immutable candidate
+        if: steps.resume.outputs.has_state != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs['package-candidate'].outputs.candidate_artifact_name }}
+          path: artifacts
+      - name: Download original resumable candidate
+        if: steps.resume.outputs.has_state == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.resume.outputs.candidate_artifact }}
+          path: artifacts
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.resume.outputs.run_id }}
+      - name: Attest exact immutable package candidate
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            artifacts/packages/**/*.nupkg
+            artifacts/packages/**/*.snupkg
+            artifacts/packages/**/*.tgz
+      - name: Validate publication inputs
+        shell: pwsh
+        env:
+          PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
+          INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
+        run: |
+          if ($env:PROTECTED_NUGET_SOURCE -notmatch '^https://') {
+            throw 'The package-production environment must define an HTTPS NUGET_SOURCE variable.'
+          }
+          if ($env:INPUT_PUBLISH_NPM -eq 'true' -and $env:PROTECTED_NPM_REGISTRY -notmatch '^https://') {
+            throw 'The package-production environment must define an HTTPS NPM_REGISTRY variable when npm publication is enabled.'
+          }
+      - name: Download prior promotion evidence
+        if: steps.resume.outputs.has_state == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.resume.outputs.evidence_artifact }}
+          path: resume-evidence
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.resume.outputs.run_id }}
+      - name: Restore prior promotion state
+        if: steps.resume.outputs.has_state == 'true'
+        shell: pwsh
+        run: |
+          $states = @(Get-ChildItem resume-evidence -Filter 'promotion-*.json' -File -Recurse)
+          if ($states.Count -ne 1) {
+            throw 'The selected resume artifact must contain exactly one promotion state file.'
+          }
+          New-Item -ItemType Directory -Path artifacts/package-promotion -Force | Out-Null
+          Copy-Item -LiteralPath $states[0].FullName -Destination artifacts/package-promotion
+      - name: Promote exact candidate
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
+          INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
+        run: |
+          $candidate = Get-ChildItem artifacts/packages -Directory | Select-Object -First 1
+          if ($null -eq $candidate) { throw 'Downloaded candidate directory was not found.' }
+          $parameters = @{
+            CandidatePath = $candidate.FullName
+            NuGetSource = $env:PROTECTED_NUGET_SOURCE
+            Confirm = $false
+          }
+          if ($env:INPUT_PUBLISH_NPM -eq 'true') {
+            $parameters.PublishNpm = $true
+            $parameters.NpmRegistry = $env:PROTECTED_NPM_REGISTRY
+          }
+          & ./scripts/Publish-RealtimePackages.ps1 @parameters
+      - name: Upload promotion state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cormier-realtime-package-promotion-${{ github.sha }}-c${{ steps.resume.outputs.candidate_attempt }}-r${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: artifacts/package-promotion
+      - name: Upload promotion diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cormier-realtime-package-promotion-logs-${{ github.sha }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 30
+          include-hidden-files: true
+          path: .logs/package-publish-*.log

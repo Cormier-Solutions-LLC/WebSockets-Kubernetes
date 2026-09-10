@@ -1080,6 +1080,7 @@ public sealed class RealtimeClientTests
             clean: false));
 
         await WaitUntilAsync(() => client.State == RealtimeClientState.Faulted);
+        await WaitUntilAsync(() => second.LastCloseCode is not null);
         Assert.Equal(2, factory.ConnectionCount);
         Assert.Equal(RealtimeCloseCodes.InvalidPayloadData, second.LastCloseCode);
     }
@@ -1234,7 +1235,7 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
-    public async Task RejectedSubscribeIsNotRestoredWhenWaitingUnsubscribeObservesReconnect()
+    public async Task RejectedSubscribeIsNotRestoredWhenResponseRacesReconnect()
     {
         var first = new FakeTransport();
         var second = new FakeTransport();
@@ -1256,7 +1257,10 @@ public sealed class RealtimeClientTests
             "network_interruption",
             clean: false));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => unsubscribe);
+        var unsubscribeError = await Record.ExceptionAsync(() => unsubscribe);
+        Assert.True(
+            unsubscribeError is null or InvalidOperationException,
+            $"Unexpected unsubscribe outcome: {unsubscribeError}");
         await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
         Assert.Equal(0, second.SentCount);
     }

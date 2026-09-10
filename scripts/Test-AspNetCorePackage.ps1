@@ -6,9 +6,20 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cormier-realtime-package-" + [guid]::NewGuid().ToString('N'))
 $feedPath = Join-Path $scratchRoot 'feed'
 $consumerPath = Join-Path $scratchRoot 'consumer'
+$nugetConfigPath = Join-Path $scratchRoot 'NuGet.Config'
 
 try {
     New-Item -ItemType Directory -Path $feedPath, $consumerPath -Force | Out-Null
+    $escapedFeedPath = [System.Security.SecurityElement]::Escape($feedPath)
+    @"
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="local" value="$escapedFeedPath" />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+</configuration>
+"@ | Set-Content -LiteralPath $nugetConfigPath -Encoding utf8NoBOM
 
     foreach ($project in @(
         'src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj',
@@ -43,7 +54,7 @@ app.MapRealtimeGateway();
 app.Run();
 '@ | Set-Content -LiteralPath (Join-Path $consumerPath 'Program.cs') -Encoding utf8NoBOM
 
-    dotnet restore (Join-Path $consumerPath 'Consumer.csproj') "--source=$feedPath" '--source=https://api.nuget.org/v3/index.json'
+    dotnet restore (Join-Path $consumerPath 'Consumer.csproj') --configfile $nugetConfigPath
     if ($LASTEXITCODE -ne 0) { throw 'Clean consumer restore failed.' }
     dotnet build (Join-Path $consumerPath 'Consumer.csproj') --configuration Release --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Clean consumer build failed.' }

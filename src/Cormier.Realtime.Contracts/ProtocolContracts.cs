@@ -34,6 +34,20 @@ public static class ProtocolErrorCodes
     public const string InternalError = "internal_error";
 }
 
+public static class RealtimeCloseCodes
+{
+    public const int Normal = 1000;
+    public const int GoingAway = 1001;
+    public const int ProtocolError = 1002;
+    public const int InvalidMessageType = 1003;
+    public const int MessageTooLarge = 1009;
+    public const int InternalError = 1011;
+    public const int ServiceRestart = 1012;
+    public const int AuthenticationExpired = 4003;
+    public const int SlowConsumer = 4008;
+    public const int HeartbeatTimeout = 4009;
+}
+
 public sealed record MessageEnvelope(
     string Version,
     string Type,

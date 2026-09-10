@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">linux-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+</Project>

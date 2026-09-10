@@ -8,6 +8,12 @@ For standard ASP.NET Core session integration, configure `Realtime:SessionSource
 
 The runnable example is under `examples/aspnet-core`. `scripts/Test-AspNetCorePackage.ps1` packs the package and its project dependencies into a temporary local feed, then restores and compiles a clean consumer outside the repository tree.
 
+## .NET Standard client
+
+`Cormier.Realtime.Client` targets .NET Standard 2.0 and depends on the multi-targeted `Cormier.Realtime.Contracts` package. It provides a bounded `ClientWebSocket` lifecycle plus replaceable authentication, transport, retry, clock, and logging abstractions without referencing ASP.NET Core hosting assemblies.
+
+The compatibility baseline is .NET Standard 2.0. CI restores, executes, and smoke-tests clean package consumers on .NET 8 and .NET 10; other .NET Standard 2.0 implementations must also support the package dependency versions listed in the NuGet artifact. See `src/Cormier.Realtime.Client/README.md` for authentication, subscription, publish, reconnect, cancellation, and extension examples.
+
 ## Supported development platforms
 
 The repository supports Windows, Linux, and macOS development with PowerShell 7, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, and Node.js 22 or newer for browser SDK work. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.

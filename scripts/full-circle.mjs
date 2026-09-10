@@ -146,8 +146,8 @@ try {
     await command("dotnet", ["restore", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj"]);
     // The application selects net10.0 from the multi-targeted contracts project. Build that package
     // explicitly so its netstandard2.0 asset also exists before the clean local-feed pack.
-    await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore", ...candidateRevisionProperties]);
-    await command("dotnet", ["build", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-restore", ...candidateRevisionProperties]);
+    await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore", "--no-incremental", ...candidateRevisionProperties]);
+    await command("dotnet", ["build", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-restore", "--no-incremental", ...candidateRevisionProperties]);
     await buildPackageConsumer();
     await verifyRedis();
   } else if (action === "validate") {

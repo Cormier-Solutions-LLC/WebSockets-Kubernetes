@@ -6,7 +6,7 @@
         "type": "Direct",
         "requested": "[0.1.0, )",
         "resolved": "0.1.0",
-        "contentHash": "A6ZHCQ44MAhdGxIkLBGbJRYOMkvMMM10gjpCOouKHRftzfjj9p4rAkJN0QO2WvWc+vRHNJCH2GAC8aJi7RsEXA==",
+        "contentHash": "5lEJ/JD6bTXhk5kuwrhaLzn4scteLx24vxIEweF8PmMn3E9c6R6IpoDtZt3Do0ZKJU9HKCePja/glNkvmSzxEw==",
         "dependencies": {
           "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
           "Cormier.Realtime.Redis": "[0.1.0, 0.2.0)"
@@ -16,17 +16,17 @@
         "type": "Direct",
         "requested": "[0.1.0, )",
         "resolved": "0.1.0",
-        "contentHash": "R4knSfKxnkT5qggWdbkKw7F62vt0HcipgFdQ63KrdJ9bYzMsKQsStDRWexHdl1V0uH4VRkHI2mvC/Vyo/MLQdw=="
+        "contentHash": "TI4wdhWd8CHSiCubBXWyA/ESfRQS7xJDWzvUX4wopNV0fILpv14M+rPqfURnnibPjkqKCDHnNmBnie/2rcWN4Q=="
       },
       "Cormier.Realtime.Contracts": {
         "type": "Transitive",
         "resolved": "0.1.0",
-        "contentHash": "85UTPpyHfGgMBny0aTujUzZTwtqIKO58vpq78NgXlHuZ9JYMeBTcBj3n8GSr1zuPxmHiIIcvy6GfzmEmyRV7bQ=="
+        "contentHash": "pdtTHSfNgoNo3XJlxPq7tmkirHvS1XFevRj+zh89/CJRzANlIRuHAx28rxsGxbTdHyHTLlmkkMN6DxsIk/G7Xg=="
       },
       "Cormier.Realtime.Redis": {
         "type": "Transitive",
         "resolved": "0.1.0",
-        "contentHash": "OqInsFcLe72wlyGSJG95lp5t4ZfIZ6uysseLK2ovTir8gjYtBid3t2buTrT5XeDnSO4b8LG9FGtpWE2LOaQ+kQ==",
+        "contentHash": "qXQUFyuCm10zj1qj9E+mHXxuD8iw4tH1mI69PXw0uNiDabNfL9ugKhHy3bLPWif1X+Fp6VzTpmZSJd3381XlSA==",
         "dependencies": {
           "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
           "StackExchange.Redis": "3.1.31"

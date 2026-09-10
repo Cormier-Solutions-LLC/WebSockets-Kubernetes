@@ -97,13 +97,9 @@ public sealed class RealtimeClient : IDisposable
                 _runTask = RunAsync(_lifetime.Token);
             }
         }
-        try
+        using (connectCancellation)
         {
             await AwaitWithCancellationAsync(_firstConnection.Task, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            connectCancellation.Dispose();
         }
     }
 

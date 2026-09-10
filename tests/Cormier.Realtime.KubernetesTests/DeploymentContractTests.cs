@@ -505,6 +505,15 @@ public sealed class DeploymentContractTests
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);
         Assert.Contains("manifestSha256", publish, StringComparison.Ordinal);
         Assert.Contains("Existing npm promotion state belongs to a different registry", publish, StringComparison.Ordinal);
+        Assert.Contains("nugetPackageIdsInDependencyOrder", publish, StringComparison.Ordinal);
+        var contractsOrder = publish.IndexOf("'Cormier.Realtime.Contracts'", StringComparison.Ordinal);
+        var clientOrder = publish.IndexOf("'Cormier.Realtime.Client'", StringComparison.Ordinal);
+        var redisOrder = publish.IndexOf("'Cormier.Realtime.Redis'", StringComparison.Ordinal);
+        var aspNetCoreOrder = publish.IndexOf("'Cormier.Realtime.AspNetCore'", StringComparison.Ordinal);
+        Assert.True(contractsOrder >= 0 && contractsOrder < clientOrder && contractsOrder < redisOrder);
+        Assert.True(clientOrder < aspNetCoreOrder && redisOrder < aspNetCoreOrder);
+        Assert.Contains("$symbolPackage.FullName", publish, StringComparison.Ordinal);
+        Assert.Contains("'--no-symbols'", publish, StringComparison.Ordinal);
         Assert.Contains("SetUnixFileMode", publish, StringComparison.Ordinal);
         Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);

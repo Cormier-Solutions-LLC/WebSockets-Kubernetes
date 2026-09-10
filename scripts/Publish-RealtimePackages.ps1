@@ -180,10 +180,41 @@ try {
         throw "INVALID input: EvidencePath cannot be a filesystem root: $resolvedEvidence"
     }
 
-    $nugetPackages = @(Get-ChildItem -LiteralPath $candidateRoot -Filter '*.nupkg' -File |
-        Where-Object { $_.Extension -eq '.nupkg' } | Sort-Object Name)
-    if ($nugetPackages.Count -ne 5) {
-        throw "INVALID candidate: expected five NuGet packages, found $($nugetPackages.Count)."
+    $discoveredNuGetPackages = @(Get-ChildItem -LiteralPath $candidateRoot -Filter '*.nupkg' -File |
+        Where-Object { $_.Extension -eq '.nupkg' })
+    $nugetPackageIdsInDependencyOrder = @(
+        'Cormier.Realtime.Contracts'
+        'Cormier.Realtime.Client'
+        'Cormier.Realtime.Redis'
+        'Cormier.Realtime.AspNetCore'
+        'Cormier.Realtime.Browser'
+    )
+    $nugetPackages = @(
+        foreach ($packageId in $nugetPackageIdsInDependencyOrder) {
+            $matches = @($discoveredNuGetPackages | Where-Object {
+                $_.Name.StartsWith("$packageId.", [StringComparison]::Ordinal)
+            })
+            if ($matches.Count -ne 1) {
+                throw "INVALID candidate: expected exactly one NuGet package for $packageId, found $($matches.Count)."
+            }
+            $matches[0]
+        }
+    )
+    if ($discoveredNuGetPackages.Count -ne $nugetPackages.Count) {
+        throw "INVALID candidate: expected five known NuGet packages, found $($discoveredNuGetPackages.Count)."
+    }
+    $symbolPackages = @(Get-ChildItem -LiteralPath $candidateRoot -Filter '*.snupkg' -File)
+    if ($symbolPackages.Count -ne $nugetPackages.Count) {
+        throw "INVALID candidate: expected five NuGet symbol packages, found $($symbolPackages.Count)."
+    }
+    $symbolPackagesByNuGetPackage = [Collections.Generic.Dictionary[string, IO.FileInfo]]::new([StringComparer]::Ordinal)
+    foreach ($package in $nugetPackages) {
+        $symbolName = "$([IO.Path]::GetFileNameWithoutExtension($package.Name)).snupkg"
+        $matches = @($symbolPackages | Where-Object { $_.Name -eq $symbolName })
+        if ($matches.Count -ne 1) {
+            throw "INVALID candidate: expected exactly one symbol package named $symbolName, found $($matches.Count)."
+        }
+        $symbolPackagesByNuGetPackage.Add($package.Name, $matches[0])
     }
     $npmPackages = @(Get-ChildItem -LiteralPath $candidateRoot -Filter '*.tgz' -File)
     if ($npmPackages.Count -ne 1) {
@@ -194,6 +225,7 @@ try {
     if (-not $PSCmdlet.ShouldProcess($NuGetSource, "Publish $($nugetPackages.Count) immutable NuGet packages")) {
         foreach ($package in $nugetPackages) {
             Write-PromotionLog INFO "WHATIF: would publish $($package.Name) to the configured NuGet source."
+            Write-PromotionLog INFO "WHATIF: would publish $($symbolPackagesByNuGetPackage[$package.Name].Name) to the configured NuGet source."
         }
         if ($PublishNpm) {
             Write-PromotionLog INFO "WHATIF: would publish $($npmPackages[0].Name) to the configured npm registry."
@@ -223,7 +255,7 @@ try {
         }
         $candidateArtifactNames = @($manifest.artifacts | ForEach-Object { [string]$_.name })
         foreach ($name in $priorCompleted) {
-            if ($name -notin $candidateArtifactNames -or $name -notmatch '\.(?:nupkg|tgz)$') {
+            if ($name -notin $candidateArtifactNames -or $name -notmatch '\.(?:nupkg|snupkg|tgz)$') {
                 throw "Existing promotion state contains an unknown artifact: $name"
             }
             [void]$completed.Add($name)
@@ -232,12 +264,32 @@ try {
 
     $phase = 'Publish NuGet'
     foreach ($package in $nugetPackages) {
-        if ($completed.Contains($package.Name)) {
+        if (-not $completed.Contains($package.Name)) {
+            Invoke-PromotionTool $dotnet @('nuget', 'push', $package.FullName, '--source', $NuGetSource, '--api-key', $nugetApiKey, '--timeout', [string]$CommandTimeoutSeconds, '--no-symbols')
+            [void]$completed.Add($package.Name)
+            [ordered]@{
+                schemaVersion = 1
+                sourceCommit = $manifest.sourceCommit
+                manifestSha256 = $manifestSha256
+                nugetSource = $NuGetSource
+                npmRegistry = if ($PublishNpm) { $NpmRegistry } else { $null }
+                completed = @($completed | Sort-Object)
+                updatedUtc = [DateTimeOffset]::UtcNow.ToString('o')
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding utf8NoBOM
+        }
+        else {
             Write-PromotionLog PASS "UNCHANGED: prior verified promotion state records $($package.Name)."
+        }
+
+        $symbolPackage = $symbolPackagesByNuGetPackage[$package.Name]
+        if (-not $completed.Contains($symbolPackage.Name)) {
+            Invoke-PromotionTool $dotnet @('nuget', 'push', $symbolPackage.FullName, '--source', $NuGetSource, '--api-key', $nugetApiKey, '--timeout', [string]$CommandTimeoutSeconds, '--no-symbols')
+            [void]$completed.Add($symbolPackage.Name)
+        }
+        else {
+            Write-PromotionLog PASS "UNCHANGED: prior verified promotion state records $($symbolPackage.Name)."
             continue
         }
-        Invoke-PromotionTool $dotnet @('nuget', 'push', $package.FullName, '--source', $NuGetSource, '--api-key', $nugetApiKey, '--timeout', [string]$CommandTimeoutSeconds)
-        [void]$completed.Add($package.Name)
         [ordered]@{
             schemaVersion = 1
             sourceCommit = $manifest.sourceCommit

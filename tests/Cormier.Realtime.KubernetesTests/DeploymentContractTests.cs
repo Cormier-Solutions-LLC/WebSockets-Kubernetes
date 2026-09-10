@@ -491,6 +491,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("actions/attest-build-provenance@", workflow, StringComparison.Ordinal);
         Assert.Contains("Generate package SBOM", workflow, StringComparison.Ordinal);
         Assert.Contains("Scan package candidate", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions: read", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
         Assert.Contains("resume_run_id:", workflow, StringComparison.Ordinal);
         Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);

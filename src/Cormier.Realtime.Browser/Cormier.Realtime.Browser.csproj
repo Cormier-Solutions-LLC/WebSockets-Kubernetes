@@ -14,10 +14,21 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Content Remove="wwwroot\**\*" />
     <Content Include="..\..\sdk\typescript\dist\**\*"
              Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
+
+  <Target Name="SyncGeneratedBrowserAssets" BeforeTargets="PrepareForBuild">
+    <ItemGroup>
+      <_GeneratedBrowserAsset Include="..\..\sdk\typescript\dist\**\*" />
+    </ItemGroup>
+    <MakeDir Directories="wwwroot" />
+    <Copy SourceFiles="@(_GeneratedBrowserAsset)"
+          DestinationFiles="@(_GeneratedBrowserAsset->'wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

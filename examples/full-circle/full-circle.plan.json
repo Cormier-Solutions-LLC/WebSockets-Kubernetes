@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "non-ha": {
+      "instances": [
+        { "name": "app-a", "port": 15080 }
+      ],
+      "entryPort": 15080,
+      "guarantee": "Single-process developer validation; no instance failover guarantee."
+    },
+    "ha": {
+      "instances": [
+        { "name": "app-a", "port": 15081 },
+        { "name": "app-b", "port": 15082 }
+      ],
+      "entryPort": 15083,
+      "guarantee": "Redis fan-out and reconnect across two application instances."
+    }
+  },
+  "redis": {
+    "endpointEnvironment": "REDIS_TEST_ENDPOINT",
+    "defaultEndpoint": "127.0.0.1:6379",
+    "instancePrefix": "cormier:full-circle-tests"
+  },
+  "timeouts": {
+    "commandSeconds": 300,
+    "readinessSeconds": 60,
+    "cleanupSeconds": 20
+  }
+}

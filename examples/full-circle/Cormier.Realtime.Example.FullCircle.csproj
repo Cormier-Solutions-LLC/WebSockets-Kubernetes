@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <UseProjectReferences Condition="'$(UseProjectReferences)' == ''">true</UseProjectReferences>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UseProjectReferences)' == 'true'">
+    <ProjectReference Include="..\..\src\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Cormier.Realtime.Browser\Cormier.Realtime.Browser.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseProjectReferences)' != 'true'">
+    <PackageReference Include="Cormier.Realtime.AspNetCore" Version="$(AspNetCoreIntegrationVersion)" />
+    <PackageReference Include="Cormier.Realtime.Browser" Version="$(BrowserPackageVersion)" />
+  </ItemGroup>
+
+</Project>

@@ -492,10 +492,14 @@ public sealed class DeploymentContractTests
         Assert.Contains("Generate package SBOM", workflow, StringComparison.Ordinal);
         Assert.Contains("Scan package candidate", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
+        Assert.Contains("resume_run_id:", workflow, StringComparison.Ordinal);
+        Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
+        Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
 
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);
         Assert.Contains("manifestSha256", publish, StringComparison.Ordinal);
+        Assert.Contains("Existing npm promotion state belongs to a different registry", publish, StringComparison.Ordinal);
         Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);
     }

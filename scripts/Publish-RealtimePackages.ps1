@@ -215,7 +215,18 @@ try {
             $prior.manifestSha256 -ne $manifestSha256) {
             throw 'Existing promotion state belongs to a different candidate or registry.'
         }
-        foreach ($name in $prior.completed) { [void]$completed.Add([string]$name) }
+        $priorCompleted = @($prior.completed | ForEach-Object { [string]$_ })
+        $priorNpmCompleted = @($priorCompleted | Where-Object { $_ -like '*.tgz' })
+        if ($PublishNpm -and $priorNpmCompleted.Count -gt 0 -and $prior.npmRegistry -ne $NpmRegistry) {
+            throw 'Existing npm promotion state belongs to a different registry.'
+        }
+        $candidateArtifactNames = @($manifest.artifacts | ForEach-Object { [string]$_.name })
+        foreach ($name in $priorCompleted) {
+            if ($name -notin $candidateArtifactNames -or $name -notmatch '\.(?:nupkg|tgz)$') {
+                throw "Existing promotion state contains an unknown artifact: $name"
+            }
+            [void]$completed.Add($name)
+        }
     }
 
     $phase = 'Publish NuGet'

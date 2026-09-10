@@ -32,6 +32,10 @@ on:
         description: Approved HTTPS npm registry
         required: false
         type: string
+      resume_run_id:
+        description: Prior failed package workflow run containing partial-promotion evidence
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -79,6 +83,7 @@ jobs:
           name: cormier-realtime-package-build-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 30
+          include-hidden-files: true
           path: |
             artifacts/package-test-results
             .logs/package-build-*.log
@@ -144,6 +149,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: package-production
     permissions:
+      actions: read
       contents: read
       packages: write
     steps:
@@ -173,6 +179,43 @@ jobs:
           if ($env:INPUT_PUBLISH_NPM -eq 'true' -and $env:INPUT_NPM_REGISTRY -notmatch '^https://') {
             throw 'An approved HTTPS npm_registry is required when npm publication is enabled.'
           }
+      - name: Validate prior promotion evidence
+        if: inputs.resume_run_id != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          if ($env:RESUME_RUN_ID -notmatch '^[1-9][0-9]*$') {
+            throw 'resume_run_id must be a GitHub Actions run ID.'
+          }
+          $prior = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:RESUME_RUN_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or
+              $prior.path -ne '.github/workflows/packages.yml' -or
+              $prior.event -ne 'workflow_dispatch' -or
+              $prior.status -ne 'completed' -or
+              $prior.head_sha -ne $env:EXPECTED_SHA) {
+            throw 'The selected resume run is not a completed package workflow for this exact commit.'
+          }
+      - name: Download prior promotion evidence
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: cormier-realtime-package-promotion-${{ github.sha }}
+          path: resume-evidence
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_run_id }}
+      - name: Restore prior promotion state
+        if: inputs.resume_run_id != ''
+        shell: pwsh
+        run: |
+          $states = @(Get-ChildItem resume-evidence -Filter 'promotion-*.json' -File -Recurse)
+          if ($states.Count -ne 1) {
+            throw 'The selected resume artifact must contain exactly one promotion state file.'
+          }
+          New-Item -ItemType Directory -Path artifacts/package-promotion -Force | Out-Null
+          Copy-Item -LiteralPath $states[0].FullName -Destination artifacts/package-promotion
       - name: Promote exact candidate
         shell: pwsh
         env:
@@ -199,6 +242,7 @@ jobs:
         with:
           name: cormier-realtime-package-promotion-${{ github.sha }}
           if-no-files-found: warn
+          include-hidden-files: true
           path: |
             artifacts/package-promotion
             .logs/package-publish-*.log

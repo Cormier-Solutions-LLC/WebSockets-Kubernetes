@@ -13,16 +13,11 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$ContractsVersion = '0.1.0',
-    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$DotNetClientVersion = '0.1.0',
-    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$RedisAdapterVersion = '0.1.0',
-    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$AspNetCoreIntegrationVersion = '0.1.0',
-    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$BrowserPackageVersion = '0.1.0',
+    [string]$ContractsVersion,
+    [string]$DotNetClientVersion,
+    [string]$RedisAdapterVersion,
+    [string]$AspNetCoreIntegrationVersion,
+    [string]$BrowserPackageVersion,
     [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE,
     [string]$RedisTestEndpoint = $env:REDIS_TEST_ENDPOINT,
     [string]$OutputPath = 'artifacts/packages',
@@ -289,6 +284,27 @@ try {
     }
     if (-not $SkipIntegrationTests -and [string]::IsNullOrWhiteSpace($RedisTestEndpoint)) {
         throw 'INVALID input: RedisTestEndpoint or REDIS_TEST_ENDPOINT is required unless SkipIntegrationTests is explicitly selected.'
+    }
+    [xml]$centralProperties = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Directory.Build.props') -Raw
+    foreach ($versionName in @(
+        'ContractsVersion',
+        'DotNetClientVersion',
+        'RedisAdapterVersion',
+        'AspNetCoreIntegrationVersion',
+        'BrowserPackageVersion'
+    )) {
+        if ([string]::IsNullOrWhiteSpace((Get-Variable -Name $versionName -ValueOnly))) {
+            $centralNode = $centralProperties.SelectSingleNode("/Project/PropertyGroup/$versionName")
+            if ($null -eq $centralNode) {
+                throw "INVALID configuration: Directory.Build.props does not define $versionName."
+            }
+            $centralValue = $centralNode.InnerText
+            $ExecutionContext.SessionState.PSVariable.Set($versionName, $centralValue)
+        }
+        $versionValue = Get-Variable -Name $versionName -ValueOnly
+        if ($versionValue -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+            throw "INVALID input: $versionName must be a semantic version."
+        }
     }
     $packageJson = Get-Content -LiteralPath (Join-Path $repositoryRoot 'sdk/typescript/package.json') -Raw | ConvertFrom-Json
     $normalizedBrowserVersion = ($BrowserPackageVersion -split '\+', 2)[0]

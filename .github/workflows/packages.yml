@@ -145,7 +145,7 @@ jobs:
             artifacts/packages/**/*.tgz
 
   publish-candidate:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
     needs: [package-candidate, attest-candidate]
     runs-on: ubuntu-latest
     environment: package-production
@@ -154,7 +154,25 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Validate trusted release commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA&status=completed" | ConvertFrom-Json
+          $trusted = @($runs.workflow_runs | Where-Object {
+            $_.event -eq 'push' -and
+            $_.head_branch -eq 'main' -and
+            $_.head_sha -eq $env:EXPECTED_SHA -and
+            $_.conclusion -eq 'success'
+          })
+          if ($LASTEXITCODE -ne 0 -or $trusted.Count -eq 0) {
+            throw 'Publication requires successful main-branch CI for the exact candidate commit.'
+          }
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x

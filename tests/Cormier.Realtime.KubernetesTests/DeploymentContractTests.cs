@@ -484,6 +484,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("Test-DotNetClientPackage.ps1", build, StringComparison.Ordinal);
         Assert.Contains("Test-BrowserPackage.ps1", build, StringComparison.Ordinal);
         Assert.Contains("sourceTree = if ($sourceDirty) { 'dirty' } else { 'clean' }", build, StringComparison.Ordinal);
+        Assert.Contains("Directory.Build.props", build, StringComparison.Ordinal);
+        Assert.DoesNotContain("[string]$ContractsVersion = '0.1.0'", build, StringComparison.Ordinal);
         Assert.Contains("<ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
         Assert.Contains("<ProjectVersion>[$(RedisAdapterVersion),$(RedisAdapterCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
 
@@ -494,6 +496,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("actions: read", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
         Assert.Contains("resume_run_id:", workflow, StringComparison.Ordinal);
+        Assert.Contains("github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
@@ -501,6 +505,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);
         Assert.Contains("manifestSha256", publish, StringComparison.Ordinal);
         Assert.Contains("Existing npm promotion state belongs to a different registry", publish, StringComparison.Ordinal);
+        Assert.Contains("SetUnixFileMode", publish, StringComparison.Ordinal);
         Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);
     }

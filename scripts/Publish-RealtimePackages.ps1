@@ -38,6 +38,7 @@ $timestamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMdd-HHmmss')
 $logDirectory = Join-Path $repositoryRoot '.logs'
 $logPath = Join-Path $logDirectory "package-publish-$timestamp.log"
 $temporaryNpmConfig = $null
+$temporaryNpmDirectory = $null
 $phase = 'Initialize'
 $scriptExitCode = 0
 
@@ -255,9 +256,21 @@ try {
             throw "UNAUTHORIZED: environment variable $NpmTokenEnvironmentName is required."
         }
         $registryUri = [Uri]$NpmRegistry
-        $temporaryNpmConfig = Join-Path ([IO.Path]::GetTempPath()) ("cormier-npm-" + [guid]::NewGuid().ToString('N') + '.npmrc')
+        $temporaryNpmDirectory = Join-Path ([IO.Path]::GetTempPath()) ("cormier-npm-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $temporaryNpmDirectory -ErrorAction Stop | Out-Null
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode(
+                $temporaryNpmDirectory,
+                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+        }
+        $temporaryNpmConfig = Join-Path $temporaryNpmDirectory '.npmrc'
         ("//{0}{1}/:_authToken={2}" -f $registryUri.Authority, $registryUri.AbsolutePath.TrimEnd('/'), $npmToken) |
             Set-Content -LiteralPath $temporaryNpmConfig -Encoding utf8NoBOM
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode(
+                $temporaryNpmConfig,
+                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+        }
         Invoke-PromotionTool $npm @('publish', $npmPackages[0].FullName, '--registry', $NpmRegistry) `
             -Environment @{ NPM_CONFIG_USERCONFIG = $temporaryNpmConfig }
         [void]$completed.Add($npmPackages[0].Name)
@@ -284,8 +297,13 @@ catch {
         else { 1 }
 }
 finally {
-    if ($null -ne $temporaryNpmConfig -and (Test-Path -LiteralPath $temporaryNpmConfig)) {
-        Remove-Item -LiteralPath $temporaryNpmConfig -Force
+    if ($null -ne $temporaryNpmDirectory -and (Test-Path -LiteralPath $temporaryNpmDirectory)) {
+        $resolvedNpmDirectory = (Resolve-Path -LiteralPath $temporaryNpmDirectory).Path
+        $resolvedTemp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).Path
+        if (-not $resolvedNpmDirectory.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to remove npm credential directory outside the configured temporary directory: $resolvedNpmDirectory"
+        }
+        Remove-Item -LiteralPath $resolvedNpmDirectory -Recurse -Force
     }
 }
 if ($scriptExitCode -ne 0) {

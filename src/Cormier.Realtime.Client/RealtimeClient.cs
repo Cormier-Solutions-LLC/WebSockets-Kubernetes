@@ -609,6 +609,7 @@ public sealed class RealtimeClient : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected completion path for linked connection loops.
         }
     }
 

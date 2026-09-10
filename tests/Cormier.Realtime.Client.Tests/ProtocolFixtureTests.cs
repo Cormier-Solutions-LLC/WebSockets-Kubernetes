@@ -108,5 +108,5 @@ public sealed class ProtocolFixtureTests
     }
 
     private static JsonDocument LoadFixture() => JsonDocument.Parse(
-        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "protocol/fixtures/v1/envelopes.json")));
+        File.ReadAllText(Path.Join(AppContext.BaseDirectory, "protocol", "fixtures", "v1", "envelopes.json")));
 }

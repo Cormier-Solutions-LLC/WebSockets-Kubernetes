@@ -38,8 +38,7 @@ try {
         'src/Cormier.Realtime.Client/Cormier.Realtime.Client.csproj'
     )) {
         dotnet pack (Join-Path $repositoryRoot $project) --configuration Release --no-build --output $feedPath `
-            -p:DotNetClientVersion=$DotNetClientVersion -p:ContractsVersion=$ContractsVersion `
-            -p:ContractsCompatibilityUpperBound=$contractsUpperBound
+            -p:DotNetClientVersion=$DotNetClientVersion -p:ContractsVersion=$ContractsVersion
         if ($LASTEXITCODE -ne 0) { throw "Packing failed for $project." }
     }
 

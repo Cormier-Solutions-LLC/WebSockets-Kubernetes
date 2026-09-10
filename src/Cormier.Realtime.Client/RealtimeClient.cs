@@ -41,6 +41,7 @@ public sealed class RealtimeClient : IDisposable
     private bool _acceptingSends = true;
     private bool _disposed;
     private long _nextSubscriptionMutationSequence;
+    private SubscriptionRollback? _activeSubscriptionRollback;
 
     public RealtimeClient(
         RealtimeClientOptions options,
@@ -272,7 +273,7 @@ public sealed class RealtimeClient : IDisposable
         var sendSlotTransferred = false;
         var responseSlotAcquired = false;
         var responseSlotTransferred = false;
-        bool? previousSubscriptionState = null;
+        SubscriptionRollback? rollback = null;
         try
         {
             await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -282,24 +283,29 @@ public sealed class RealtimeClient : IDisposable
             {
                 ThrowIfDisposed();
                 EnsureConnectedForSubscriptionChange();
-                lock (_subscriptions)
+                lock (_pendingSubscriptionMutations)
                 {
-                    previousSubscriptionState = _subscriptions.Contains(route);
-                    if (previousSubscriptionState.Value == subscribe)
+                    lock (_subscriptions)
                     {
-                        return;
-                    }
-                    if (subscribe)
-                    {
-                        if (_subscriptions.Count >= _options.MaximumSubscriptions)
+                        var previousSubscriptionState = _subscriptions.Contains(route);
+                        if (previousSubscriptionState == subscribe)
                         {
-                            throw new RealtimeClientException("The configured subscription limit has been reached.");
+                            return;
                         }
-                        _subscriptions.Add(route);
-                    }
-                    else
-                    {
-                        _subscriptions.Remove(route);
+                        if (subscribe)
+                        {
+                            if (_subscriptions.Count >= _options.MaximumSubscriptions)
+                            {
+                                throw new RealtimeClientException("The configured subscription limit has been reached.");
+                            }
+                            _subscriptions.Add(route);
+                        }
+                        else
+                        {
+                            _subscriptions.Remove(route);
+                        }
+                        rollback = new SubscriptionRollback(route, previousSubscriptionState);
+                        _activeSubscriptionRollback = rollback;
                     }
                 }
 
@@ -336,22 +342,10 @@ public sealed class RealtimeClient : IDisposable
                 catch
                 {
                     RemoveSubscriptionMutation(registeredCorrelationId);
-                    if (previousSubscriptionState.HasValue)
-                    {
-                        lock (_subscriptions)
-                        {
-                            if (previousSubscriptionState.Value)
-                            {
-                                _subscriptions.Add(route);
-                            }
-                            else
-                            {
-                                _subscriptions.Remove(route);
-                            }
-                        }
-                    }
+                    RollbackSubscriptionChange(rollback);
                     throw;
                 }
+                ClearSubscriptionRollback(rollback);
             }
             finally
             {
@@ -826,15 +820,20 @@ public sealed class RealtimeClient : IDisposable
                         null);
                     await _subscriptionResponseSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
                     var responseSlotTransferred = false;
+                    var mutationRegistered = false;
                     try
                     {
                         RegisterSubscriptionMutation(command.CorrelationId, route, subscribe: true);
+                        mutationRegistered = true;
                         await SendDirectAsync(transport, command, cancellationToken).ConfigureAwait(false);
                         responseSlotTransferred = true;
                     }
                     catch
                     {
-                        RemoveSubscriptionMutation(command.CorrelationId);
+                        if (mutationRegistered && !RemoveSubscriptionMutation(command.CorrelationId))
+                        {
+                            responseSlotTransferred = true;
+                        }
                         throw;
                     }
                     finally
@@ -960,6 +959,11 @@ public sealed class RealtimeClient : IDisposable
                 return;
             }
             _pendingSubscriptionMutations.Remove(message.CorrelationId);
+            if (_activeSubscriptionRollback is { } rollback &&
+                string.Equals(rollback.Route, mutation.Route, StringComparison.Ordinal))
+            {
+                rollback.ResponseObserved = true;
+            }
             if (message.Type == ProtocolMessageTypes.Acknowledge)
             {
                 if (mutation.Subscribe)
@@ -992,6 +996,50 @@ public sealed class RealtimeClient : IDisposable
             else
             {
                 _subscriptions.Remove(route);
+            }
+        }
+    }
+
+    private void RollbackSubscriptionChange(SubscriptionRollback? rollback)
+    {
+        if (rollback is null)
+        {
+            return;
+        }
+        lock (_pendingSubscriptionMutations)
+        {
+            if (rollback.ResponseObserved)
+            {
+                ReconcileDesiredSubscriptionLocked(rollback.Route);
+            }
+            else
+            {
+                lock (_subscriptions)
+                {
+                    if (rollback.PreviousState)
+                    {
+                        _subscriptions.Add(rollback.Route);
+                    }
+                    else
+                    {
+                        _subscriptions.Remove(rollback.Route);
+                    }
+                }
+            }
+            if (ReferenceEquals(_activeSubscriptionRollback, rollback))
+            {
+                _activeSubscriptionRollback = null;
+            }
+        }
+    }
+
+    private void ClearSubscriptionRollback(SubscriptionRollback? rollback)
+    {
+        lock (_pendingSubscriptionMutations)
+        {
+            if (ReferenceEquals(_activeSubscriptionRollback, rollback))
+            {
+                _activeSubscriptionRollback = null;
             }
         }
     }
@@ -1290,6 +1338,15 @@ public sealed class RealtimeClient : IDisposable
         public bool Subscribe { get; } = subscribe;
 
         public long Sequence { get; } = sequence;
+    }
+
+    private sealed class SubscriptionRollback(string route, bool previousState)
+    {
+        public string Route { get; } = route;
+
+        public bool PreviousState { get; } = previousState;
+
+        public bool ResponseObserved { get; set; }
     }
 
     private sealed class InsecureCredentialTransportException(string message) : Exception(message);

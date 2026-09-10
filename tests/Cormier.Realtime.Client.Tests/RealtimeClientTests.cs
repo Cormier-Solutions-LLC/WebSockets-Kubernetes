@@ -1006,6 +1006,32 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task ReplayAcknowledgementCannotMaskAConcurrentProtocolSendFailure()
+    {
+        var first = new FakeTransport();
+        var second = new AcknowledgeThenFailReplayTransport();
+        var unusedThird = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second, unusedThird);
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.SubscribeAsync("topics/orders", "initial-subscribe");
+        _ = await first.WaitForSentAsync();
+
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+
+        await WaitUntilAsync(() => client.State == RealtimeClientState.Faulted);
+        Assert.Equal(2, factory.ConnectionCount);
+        Assert.Equal(RealtimeCloseCodes.InvalidPayloadData, second.LastCloseCode);
+    }
+
+    [Fact]
     public async Task ReceiveLoopRunsWhileInitialBacklogIsReplayed()
     {
         var transport = new FakeTransport { BlockSends = true };
@@ -1152,6 +1178,34 @@ public sealed class RealtimeClientTests
             await second.WaitForSentAsync(),
             RealtimeJsonSerializerContext.Default.MessageEnvelope);
         Assert.Equal(ProtocolMessageTypes.Subscribe, replayed?.Type);
+    }
+
+    [Fact]
+    public async Task RejectedSubscribeIsNotRestoredWhenWaitingUnsubscribeObservesReconnect()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second);
+        using var client = new RealtimeClient(
+            Options(sendQueueCapacity: 1),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.SubscribeAsync("topics/orders", "rejected-subscribe");
+        _ = await first.WaitForSentAsync();
+        var unsubscribe = client.UnsubscribeAsync("topics/orders", "waiting-unsubscribe");
+        await Task.Delay(25);
+
+        await first.ReceiveWriter.WriteAsync(ServerError("rejected-subscribe", "topics/orders"));
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => unsubscribe);
+        await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
+        Assert.Equal(0, second.SentCount);
     }
 
     [Fact]
@@ -1745,6 +1799,53 @@ public sealed class RealtimeClientTests
 
         public Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken) =>
             Task.CompletedTask;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class AcknowledgeThenFailReplayTransport : IRealtimeTransport
+    {
+        private readonly TaskCompletionSource<RealtimeTransportReceiveResult> _acknowledgement =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _acknowledgementProcessed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _receiveCount;
+
+        public int? LastCloseCode { get; private set; }
+
+        public async Task SendAsync(byte[] payload, CancellationToken cancellationToken)
+        {
+            var command = JsonSerializer.Deserialize(
+                payload,
+                RealtimeJsonSerializerContext.Default.MessageEnvelope)!;
+            _acknowledgement.TrySetResult(Server(
+                ProtocolMessageTypes.Acknowledge,
+                command.CorrelationId,
+                command.Route));
+            await _acknowledgementProcessed.Task.WaitAsync(cancellationToken);
+            throw new RealtimeProtocolException(
+                "The transport rejected the replay frame.",
+                RealtimeCloseCodes.InvalidPayloadData);
+        }
+
+        public async Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _receiveCount) == 1)
+            {
+                return await _acknowledgement.Task.WaitAsync(cancellationToken);
+            }
+            _acknowledgementProcessed.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The receive wait unexpectedly completed.");
+        }
+
+        public Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken)
+        {
+            LastCloseCode = closeCode;
+            return Task.CompletedTask;
+        }
 
         public void Dispose()
         {

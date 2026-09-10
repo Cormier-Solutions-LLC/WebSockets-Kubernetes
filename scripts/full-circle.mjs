@@ -68,10 +68,21 @@ async function verifyRedis() {
   });
 }
 
+function escapeRedisGlob(value) {
+  let escaped = "";
+  for (const character of value) {
+    escaped += "\\*?[]".includes(character) ? `\\${character}` : character;
+  }
+  return escaped;
+}
+
 async function cleanRedisFixtures() {
-  await command("node", ["--input-type=module", "--eval", "import {createClient} from 'redis'; const c=createClient({url:process.env.FULL_CIRCLE_REDIS_URL}); await c.connect(); const script=\"local c='0' repeat local r=redis.call('SCAN',c,'MATCH',ARGV[1]..':*','COUNT',100); c=r[1]; if #r[2]>0 then redis.call('UNLINK',unpack(r[2])) end until c=='0' return 1\"; await c.sendCommand(['EVAL',script,'0',process.env.FULL_CIRCLE_PREFIX]); await c.quit();"], {
+  if (typeof plan.redis.instancePrefix !== "string" || plan.redis.instancePrefix.length === 0) {
+    throw new Error("Redis fixture cleanup requires a non-empty instance prefix.");
+  }
+  await command("node", ["--input-type=module", "--eval", "import {createClient} from 'redis'; const c=createClient({url:process.env.FULL_CIRCLE_REDIS_URL}); await c.connect(); const script=\"local c='0' repeat local r=redis.call('SCAN',c,'MATCH',ARGV[1],'COUNT',100); c=r[1]; if #r[2]>0 then redis.call('UNLINK',unpack(r[2])) end until c=='0' return 1\"; await c.sendCommand(['EVAL',script,'0',process.env.FULL_CIRCLE_PATTERN]); await c.quit();"], {
     cwd: resolve(repositoryRoot, "sdk/typescript"),
-    env: { FULL_CIRCLE_REDIS_URL: `redis://${redisEndpoint}`, FULL_CIRCLE_PREFIX: plan.redis.instancePrefix },
+    env: { FULL_CIRCLE_REDIS_URL: `redis://${redisEndpoint}`, FULL_CIRCLE_PATTERN: `${escapeRedisGlob(plan.redis.instancePrefix)}:*` },
   });
 }
 
@@ -81,11 +92,14 @@ function xml(value) {
 
 async function buildPackageConsumer() {
   const feed = resolve(evidenceRoot, "feed");
-  const consumerOutput = resolve(evidenceRoot, "consumer-bin") + "/";
-  const consumerLock = resolve(evidenceRoot, "consumer-packages.lock.json");
+  const consumerOutputRoot = resolve(evidenceRoot, "consumer-bin");
+  const consumerOutput = consumerOutputRoot + "/";
+  const consumerLock = resolve(repositoryRoot, "examples/full-circle/package-consumer.packages.lock.json");
   const packages = resolve(evidenceRoot, "packages");
   const config = resolve(evidenceRoot, "NuGet.Config");
   await rm(feed, { recursive: true, force: true });
+  await rm(packages, { recursive: true, force: true });
+  await rm(consumerOutputRoot, { recursive: true, force: true });
   await mkdir(feed, { recursive: true });
   for (const project of [
     "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj",
@@ -95,6 +109,7 @@ async function buildPackageConsumer() {
   ]) {
     await command("dotnet", ["pack", project, "--configuration", "Release", "--no-build", "--output", feed]);
   }
+  await command("pwsh", ["-NoLogo", "-NoProfile", "-File", "scripts/Normalize-NuGetPackages.ps1", "-PackageDirectory", feed]);
   await writeFile(config, `<configuration><config><add key="globalPackagesFolder" value="${xml(packages)}" /></config><packageSources><clear /><add key="local" value="${xml(feed)}" /><add key="upstream" value="${xml(upstreamPackageSource)}" /></packageSources><packageSourceMapping><packageSource key="local"><package pattern="Cormier.Realtime.*" /></packageSource><packageSource key="upstream"><package pattern="Microsoft.*" /><package pattern="StackExchange.Redis" /><package pattern="RESPite" /><package pattern="System.*" /></packageSource></packageSourceMapping></configuration>\n`);
   const project = "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj";
   const properties = [
@@ -102,7 +117,7 @@ async function buildPackageConsumer() {
     `-p:NuGetLockFilePath=${consumerLock}`,
     `-p:BaseOutputPath=${consumerOutput}`,
   ];
-  await command("dotnet", ["restore", project, "--configfile", config, ...properties]);
+  await command("dotnet", ["restore", project, "--locked-mode", "--configfile", config, ...properties]);
   await command("dotnet", ["build", project, "--configuration", "Release", "--no-restore", ...properties]);
   const endpointsPath = resolve(consumerOutput, "Release/net10.0/Cormier.Realtime.Example.FullCircle.staticwebassets.endpoints.json");
   const endpoints = await readFile(endpointsPath, "utf8");

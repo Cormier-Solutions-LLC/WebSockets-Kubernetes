@@ -104,6 +104,8 @@ public sealed class DiagnosticsContractTests
         Assert.DoesNotContain("Metrics__ScrapeToken", config, StringComparison.Ordinal);
         Assert.Contains("maximumLogOverrideSeconds must be greater than or equal", config, StringComparison.Ordinal);
         Assert.Contains("authorizationPolicy and metrics.authorizationPolicy must be distinct", config, StringComparison.Ordinal);
+        Assert.Contains("lower .Values.diagnostics.authorizationPolicy", config, StringComparison.Ordinal);
+        Assert.Contains("lower .Values.metrics.authorizationPolicy", config, StringComparison.Ordinal);
         Assert.Contains("operatorTokenSecret and metrics.scrapeTokenSecret must reference distinct Secret keys", config, StringComparison.Ordinal);
         Assert.Contains("if and .Values.diagnostics.enabled .Values.diagnostics.operatorTokenSecret.name", deployment, StringComparison.Ordinal);
         Assert.Contains("if and .Values.metrics.enabled .Values.metrics.authorizationPolicy", deployment, StringComparison.Ordinal);

@@ -1,4 +1,4 @@
-{{- if and .Values.diagnostics.enabled .Values.metrics.enabled .Values.metrics.authorizationPolicy (eq .Values.diagnostics.authorizationPolicy .Values.metrics.authorizationPolicy) }}
+{{- if and .Values.diagnostics.enabled .Values.metrics.enabled .Values.metrics.authorizationPolicy (eq (lower .Values.diagnostics.authorizationPolicy) (lower .Values.metrics.authorizationPolicy)) }}
 {{- fail "diagnostics.authorizationPolicy and metrics.authorizationPolicy must be distinct" }}
 {{- end }}
 {{- if and .Values.diagnostics.enabled .Values.metrics.enabled .Values.metrics.authorizationPolicy (eq .Values.diagnostics.operatorTokenSecret.name .Values.metrics.scrapeTokenSecret.name) (eq .Values.diagnostics.operatorTokenSecret.key .Values.metrics.scrapeTokenSecret.key) }}

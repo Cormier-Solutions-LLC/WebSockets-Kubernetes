@@ -75,6 +75,28 @@ public sealed class DiagnosticsEndpointTests
     }
 
     [Fact]
+    public void StandaloneRejectsAuthorizationPoliciesThatDifferOnlyByCase()
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Diagnostics:Enabled", "true");
+            builder.UseSetting("Diagnostics:ProductionEnabled", "true");
+            builder.UseSetting("Diagnostics:AuthorizationPolicy", "operator-access");
+            builder.UseSetting("Diagnostics:OperatorToken", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
+            builder.UseSetting("Diagnostics:AllowedNetworks:0", "127.0.0.0/8");
+            builder.UseSetting("Metrics:Enabled", "true");
+            builder.UseSetting("Metrics:AuthorizationPolicy", "OPERATOR-ACCESS");
+            builder.UseSetting("Metrics:ScrapeToken", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
+            builder.UseSetting("Realtime:AllowedOrigins:0", "https://app.example");
+            builder.UseSetting("Redis:Endpoint", "redis.example:6379");
+        });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => _ = factory.Services);
+
+        Assert.Contains("distinct authorization policies", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DiagnosticsRequireOperatorPolicyAndAllowedOrigin()
     {
         await using var factory = CreateFactory();

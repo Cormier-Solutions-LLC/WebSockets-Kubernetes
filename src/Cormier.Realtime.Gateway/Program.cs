@@ -22,7 +22,7 @@ var metricsPolicy = builder.Configuration["Metrics:AuthorizationPolicy"];
 var protectedMetricsEnabled = builder.Configuration.GetValue<bool>("Metrics:Enabled") &&
     !string.IsNullOrWhiteSpace(metricsPolicy);
 if (diagnosticsEnabled && protectedMetricsEnabled &&
-    string.Equals(diagnosticsPolicy, metricsPolicy, StringComparison.Ordinal))
+    string.Equals(diagnosticsPolicy, metricsPolicy, StringComparison.OrdinalIgnoreCase))
 {
     throw new InvalidOperationException("Diagnostics and protected metrics require distinct authorization policies.");
 }

@@ -65,6 +65,19 @@ function Get-RequiredApplication {
     return $command.Source
 }
 
+function Get-RegistryIdentity {
+    param([string]$Endpoint)
+    try { $uri = [Uri]$Endpoint }
+    catch { throw "INVALID registry endpoint: $Endpoint" }
+    if (-not $uri.IsAbsoluteUri -or $uri.Scheme -cne 'https' -or
+        -not [string]::IsNullOrEmpty($uri.UserInfo) -or -not [string]::IsNullOrEmpty($uri.Fragment)) {
+        throw "INVALID registry endpoint: an absolute HTTPS URL without user information or a fragment is required."
+    }
+    $server = $uri.GetComponents([UriComponents]::SchemeAndServer, [UriFormat]::UriEscaped).ToLowerInvariant()
+    $pathAndQuery = $uri.GetComponents([UriComponents]::PathAndQuery, [UriFormat]::UriEscaped)
+    return "$server$pathAndQuery"
+}
+
 function Invoke-PromotionTool {
     param(
         [string]$FilePath,
@@ -130,6 +143,8 @@ try {
     if ($PublishNpm -and [string]::IsNullOrWhiteSpace($NpmRegistry)) {
         throw 'INVALID input: NpmRegistry is required when PublishNpm is selected.'
     }
+    $nugetRegistryIdentity = Get-RegistryIdentity $NuGetSource
+    $npmRegistryIdentity = if ($PublishNpm) { Get-RegistryIdentity $NpmRegistry } else { $null }
 
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     $phase = 'Verify candidate'
@@ -220,7 +235,8 @@ try {
     if ($npmPackages.Count -ne 1) {
         throw "INVALID candidate: expected one npm tarball, found $($npmPackages.Count)."
     }
-    $npmTag = if ([string]$manifest.versions.browser -match '-') { 'next' } else { 'latest' }
+    $normalizedBrowserVersion = ([string]$manifest.versions.browser -split '\+', 2)[0]
+    $npmTag = if ($normalizedBrowserVersion -match '-') { 'next' } else { 'latest' }
 
     $phase = 'Promotion plan'
     if (-not $PSCmdlet.ShouldProcess($NuGetSource, "Publish $($nugetPackages.Count) immutable NuGet packages")) {
@@ -239,19 +255,28 @@ try {
     if ([string]::IsNullOrWhiteSpace($nugetApiKey)) {
         throw "UNAUTHORIZED: environment variable $NuGetApiKeyEnvironmentName is required."
     }
+    $npmToken = $null
+    if ($PublishNpm) {
+        $npmToken = [Environment]::GetEnvironmentVariable($NpmTokenEnvironmentName)
+        if ([string]::IsNullOrWhiteSpace($npmToken)) {
+            throw "UNAUTHORIZED: environment variable $NpmTokenEnvironmentName is required."
+        }
+    }
     New-Item -ItemType Directory -Path $resolvedEvidence -Force | Out-Null
     $statePath = Join-Path $resolvedEvidence ("promotion-$($manifest.sourceCommit).json")
     $manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $completed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     if (Test-Path -LiteralPath $statePath) {
         $prior = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-        if ($prior.sourceCommit -ne $manifest.sourceCommit -or $prior.nugetSource -ne $NuGetSource -or
+        if ($prior.sourceCommit -ne $manifest.sourceCommit -or
+            -not [StringComparer]::Ordinal.Equals([string]$prior.nugetSource, $nugetRegistryIdentity) -or
             $prior.manifestSha256 -ne $manifestSha256) {
             throw 'Existing promotion state belongs to a different candidate or registry.'
         }
         $priorCompleted = @($prior.completed | ForEach-Object { [string]$_ })
         $priorNpmCompleted = @($priorCompleted | Where-Object { $_ -like '*.tgz' })
-        if ($PublishNpm -and $priorNpmCompleted.Count -gt 0 -and $prior.npmRegistry -ne $NpmRegistry) {
+        if ($PublishNpm -and $priorNpmCompleted.Count -gt 0 -and
+            -not [StringComparer]::Ordinal.Equals([string]$prior.npmRegistry, $npmRegistryIdentity)) {
             throw 'Existing npm promotion state belongs to a different registry.'
         }
         $candidateArtifactNames = @($manifest.artifacts | ForEach-Object { [string]$_.name })
@@ -272,8 +297,8 @@ try {
                 schemaVersion = 1
                 sourceCommit = $manifest.sourceCommit
                 manifestSha256 = $manifestSha256
-                nugetSource = $NuGetSource
-                npmRegistry = if ($PublishNpm) { $NpmRegistry } else { $null }
+                nugetSource = $nugetRegistryIdentity
+                npmRegistry = $npmRegistryIdentity
                 completed = @($completed | Sort-Object)
                 updatedUtc = [DateTimeOffset]::UtcNow.ToString('o')
             } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding utf8NoBOM
@@ -295,8 +320,8 @@ try {
             schemaVersion = 1
             sourceCommit = $manifest.sourceCommit
             manifestSha256 = $manifestSha256
-            nugetSource = $NuGetSource
-            npmRegistry = if ($PublishNpm) { $NpmRegistry } else { $null }
+            nugetSource = $nugetRegistryIdentity
+            npmRegistry = $npmRegistryIdentity
             completed = @($completed | Sort-Object)
             updatedUtc = [DateTimeOffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding utf8NoBOM
@@ -304,10 +329,6 @@ try {
 
     if ($PublishNpm -and -not $completed.Contains($npmPackages[0].Name)) {
         $phase = 'Publish npm'
-        $npmToken = [Environment]::GetEnvironmentVariable($NpmTokenEnvironmentName)
-        if ([string]::IsNullOrWhiteSpace($npmToken)) {
-            throw "UNAUTHORIZED: environment variable $NpmTokenEnvironmentName is required."
-        }
         $registryUri = [Uri]$NpmRegistry
         $temporaryNpmDirectory = Join-Path ([IO.Path]::GetTempPath()) ("cormier-npm-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $temporaryNpmDirectory -ErrorAction Stop | Out-Null
@@ -331,8 +352,8 @@ try {
             schemaVersion = 1
             sourceCommit = $manifest.sourceCommit
             manifestSha256 = $manifestSha256
-            nugetSource = $NuGetSource
-            npmRegistry = $NpmRegistry
+            nugetSource = $nugetRegistryIdentity
+            npmRegistry = $npmRegistryIdentity
             completed = @($completed | Sort-Object)
             updatedUtc = [DateTimeOffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding utf8NoBOM

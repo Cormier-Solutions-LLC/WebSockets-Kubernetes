@@ -507,6 +507,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
+        Assert.Contains("${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("overwrite: true", workflow, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
 
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);
@@ -522,7 +524,13 @@ public sealed class DeploymentContractTests
         Assert.Contains("$symbolPackage.FullName", publish, StringComparison.Ordinal);
         Assert.Contains("'--no-symbols'", publish, StringComparison.Ordinal);
         Assert.Contains("{ 'next' } else { 'latest' }", publish, StringComparison.Ordinal);
+        Assert.Contains("-split '\\+', 2", publish, StringComparison.Ordinal);
         Assert.Contains("'--tag', $npmTag", publish, StringComparison.Ordinal);
+        Assert.Contains("Get-RegistryIdentity", publish, StringComparison.Ordinal);
+        Assert.Contains("[StringComparer]::Ordinal.Equals", publish, StringComparison.Ordinal);
+        Assert.True(
+            publish.IndexOf("$npmToken = [Environment]::GetEnvironmentVariable", StringComparison.Ordinal) <
+            publish.IndexOf("$phase = 'Publish NuGet'", StringComparison.Ordinal));
         Assert.Contains("SetUnixFileMode", publish, StringComparison.Ordinal);
         Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);

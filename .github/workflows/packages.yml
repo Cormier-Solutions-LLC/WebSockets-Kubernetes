@@ -73,7 +73,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cormier-realtime-package-build-${{ github.sha }}
+          name: cormier-realtime-package-build-${{ github.sha }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 30
           include-hidden-files: true
@@ -94,7 +94,7 @@ jobs:
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: artifacts/packages
-          artifact-name: cormier-realtime-packages-sbom.spdx.json
+          artifact-name: cormier-realtime-packages-sbom-${{ github.sha }}-${{ github.run_attempt }}.spdx.json
           output-file: artifacts/packages.spdx.json
           format: spdx-json
       - name: Upload package scan
@@ -106,7 +106,7 @@ jobs:
       - name: Upload immutable candidate
         uses: actions/upload-artifact@v4
         with:
-          name: cormier-realtime-packages-${{ github.sha }}
+          name: cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 30
           path: |
@@ -126,7 +126,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: cormier-realtime-packages-${{ github.sha }}
+          name: cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}
           path: artifacts
       - name: Attest immutable package provenance
         uses: actions/attest-build-provenance@v3
@@ -178,7 +178,7 @@ jobs:
           registry-url: ${{ vars.NPM_REGISTRY }}
       - uses: actions/download-artifact@v4
         with:
-          name: cormier-realtime-packages-${{ github.sha }}
+          name: cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}
           path: artifacts
       - name: Validate publication inputs
         shell: pwsh
@@ -256,6 +256,7 @@ jobs:
         with:
           name: cormier-realtime-package-promotion-${{ github.sha }}
           if-no-files-found: warn
+          overwrite: true
           include-hidden-files: true
           path: |
             artifacts/package-promotion

@@ -341,11 +341,11 @@ public sealed class RealtimeClient : IDisposable
                 _runTask = Task.CompletedTask;
                 completeWithoutRun = true;
             }
-            else if (runTask.IsCompleted || _state is RealtimeClientState.Disconnected or RealtimeClientState.Faulted)
+            else if (runTask.IsCompleted)
             {
                 return;
             }
-            else
+            else if (_state is not RealtimeClientState.Disconnected and not RealtimeClientState.Faulted)
             {
                 QueueStateChangeLocked(RealtimeClientState.Stopping);
             }
@@ -444,8 +444,12 @@ public sealed class RealtimeClient : IDisposable
                         send = SendLoopAsync(transport, connectionCancellation.Token);
                         heartbeat = HeartbeatLoopAsync(connectionCancellation.Token);
                         completed = await Task.WhenAny(send, receive, heartbeat).ConfigureAwait(false);
-                        close = completed == receive ? await receive.ConfigureAwait(false) : null;
-                        if (completed != receive)
+                        if (receive.IsCompleted)
+                        {
+                            completed = receive;
+                            close = await receive.ConfigureAwait(false);
+                        }
+                        else
                         {
                             await completed.ConfigureAwait(false);
                         }

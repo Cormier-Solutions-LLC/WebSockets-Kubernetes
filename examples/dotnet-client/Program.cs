@@ -3,7 +3,8 @@ using Cormier.Realtime.Client;
 using Cormier.Realtime.Contracts;
 
 var configuredEndpoint = Environment.GetEnvironmentVariable("REALTIME_ENDPOINT");
-if (!Uri.TryCreate(configuredEndpoint, UriKind.Absolute, out var endpoint))
+if (!Uri.TryCreate(configuredEndpoint, UriKind.Absolute, out var endpoint)
+    || endpoint.Scheme is not ("ws" or "wss"))
 {
     Console.WriteLine("Set REALTIME_ENDPOINT to a ws:// or wss:// gateway endpoint.");
     return;

@@ -474,6 +474,31 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task NormalCloseWinsWhenAnActiveSendFaultsAtTheSameTime()
+    {
+        var transport = new CloseThenFailSendTransport();
+        var factory = new FakeTransportFactory(transport, new FakeTransport());
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+
+        await client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "closing-send");
+        await WaitUntilAsync(() => client.State == RealtimeClientState.Disconnected);
+
+        Assert.Equal(1, factory.ConnectionCount);
+        await Assert.ThrowsAsync<ChannelClosedException>(() => client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 2 }),
+            "after-close"));
+    }
+
+    [Fact]
     public async Task LowLevelMessagesQueuedBeforeConnectAreRetained()
     {
         var transport = new FakeTransport();
@@ -617,6 +642,25 @@ public sealed class RealtimeClientTests
         await client.DisconnectAsync(CancellationToken.None);
 
         Assert.Equal(RealtimeClientState.Faulted, client.State);
+    }
+
+    [Fact]
+    public async Task DisconnectAfterFaultAwaitsTerminalCleanup()
+    {
+        var transport = new FakeTransport { BlockClose = true };
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+        await transport.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Message(
+            Encoding.UTF8.GetBytes("{\"version\":\"99\",\"type\":\"event\"}")));
+        await WaitUntilAsync(() => client.State == RealtimeClientState.Faulted);
+        await transport.CloseStarted.Task;
+
+        var disconnect = client.DisconnectAsync(CancellationToken.None);
+
+        Assert.False(disconnect.IsCompleted);
+        transport.ReleaseClose.TrySetResult(true);
+        await disconnect;
+        await Assert.ThrowsAsync<ChannelClosedException>(() => client.ReceiveAsync(CancellationToken.None));
     }
 
     [Fact]
@@ -1128,7 +1172,7 @@ public sealed class RealtimeClientTests
         }
     }
 
-    private sealed class FakeTransportFactory(params FakeTransport[] transports) : IRealtimeTransportFactory
+    private sealed class FakeTransportFactory(params IRealtimeTransport[] transports) : IRealtimeTransportFactory
     {
         private int _index;
 
@@ -1231,6 +1275,31 @@ public sealed class RealtimeClientTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("The connection wait unexpectedly completed.");
+        }
+    }
+
+    private sealed class CloseThenFailSendTransport : IRealtimeTransport
+    {
+        private readonly TaskCompletionSource<RealtimeTransportReceiveResult> _receive =
+            new();
+
+        public Task SendAsync(byte[] payload, CancellationToken cancellationToken)
+        {
+            _receive.TrySetResult(RealtimeTransportReceiveResult.Closed(
+                RealtimeCloseCodes.Normal,
+                "normal_close",
+                clean: true));
+            return Task.FromException(new InvalidOperationException("The socket closed during send."));
+        }
+
+        public Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken) =>
+            _receive.Task.WaitAsync(cancellationToken);
+
+        public Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public void Dispose()
+        {
         }
     }
 

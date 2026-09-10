@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <VersionPrefix>$(DotNetClientVersion)</VersionPrefix>
-    <ContractsVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(ContractsVersion)', '-.*$', ''))</ContractsVersionCore>
+    <ContractsVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(ContractsVersion)', '[-+].*$', ''))</ContractsVersionCore>
     <ContractsCompatibilityUpperBound Condition="'$(ContractsCompatibilityUpperBound)' == ''">$([System.Version]::Parse('$(ContractsVersionCore)').Major).$([MSBuild]::Add($([System.Version]::Parse('$(ContractsVersionCore)').Minor), 1)).0</ContractsCompatibilityUpperBound>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>

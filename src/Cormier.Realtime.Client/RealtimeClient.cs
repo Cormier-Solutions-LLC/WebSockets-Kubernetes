@@ -125,7 +125,7 @@ public sealed class RealtimeClient : IDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 if (cancellationToken.CanBeCanceled)
                 {
-                    connectCancellation = cancellationToken.Register(() => _lifetime.Cancel());
+                    connectCancellation = cancellationToken.Register(CancelLifetime);
                 }
                 _runTask = RunAsync(_lifetime.Token);
             }
@@ -343,7 +343,11 @@ public sealed class RealtimeClient : IDisposable
                 }
                 catch
                 {
-                    RemoveSubscriptionMutation(registeredCorrelationId);
+                    if (registeredCorrelationId is not null &&
+                        !RemoveSubscriptionMutation(registeredCorrelationId))
+                    {
+                        responseSlotTransferred = true;
+                    }
                     RollbackSubscriptionChange(rollback);
                     throw;
                 }

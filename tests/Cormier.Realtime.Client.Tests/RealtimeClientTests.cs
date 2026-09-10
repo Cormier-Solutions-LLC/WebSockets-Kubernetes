@@ -680,6 +680,34 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task ConcurrentConnectCancellationAndDisposeDoNotExposeDisposedLifetimeSource()
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var factory = new BlockingTransportFactory();
+            var client = new RealtimeClient(Options(), transportFactory: factory);
+            using var cancellation = new CancellationTokenSource();
+            var connect = client.ConnectAsync(cancellation.Token);
+            await factory.ConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            using var start = new ManualResetEventSlim();
+            var cancel = Task.Run(() =>
+            {
+                start.Wait();
+                cancellation.Cancel();
+            });
+            var dispose = Task.Run(() =>
+            {
+                start.Wait();
+                client.Dispose();
+            });
+
+            start.Set();
+            await Task.WhenAll(cancel, dispose);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connect);
+        }
+    }
+
+    [Fact]
     public async Task TerminalCleanupDiscardsBufferedInboundPayloads()
     {
         var transport = new FakeTransport();
@@ -1759,6 +1787,9 @@ public sealed class RealtimeClientTests
 
     private sealed class BlockingTransportFactory : IRealtimeTransportFactory
     {
+        public TaskCompletionSource<bool> ConnectStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public async Task<IRealtimeTransport> ConnectAsync(
             Uri endpoint,
             RealtimeAuthenticationMaterial authentication,
@@ -1767,6 +1798,7 @@ public sealed class RealtimeClientTests
             int maximumMessageBytes,
             CancellationToken cancellationToken)
         {
+            ConnectStarted.TrySetResult(true);
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("The connection wait unexpectedly completed.");
         }

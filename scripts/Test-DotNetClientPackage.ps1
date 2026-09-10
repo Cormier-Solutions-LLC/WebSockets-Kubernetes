@@ -14,7 +14,8 @@ $scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cormier-realtime-cl
 $feedPath = Join-Path $scratchRoot 'feed'
 $packagesPath = Join-Path $scratchRoot 'packages'
 $nugetConfigPath = Join-Path $scratchRoot 'NuGet.Config'
-$contractsCoreVersion = [version](($ContractsVersion -split '-', 2)[0])
+$contractsPackageVersion = ($ContractsVersion -split '\+', 2)[0]
+$contractsCoreVersion = [version](($ContractsVersion -split '[-+]', 2)[0])
 $contractsUpperBound = "{0}.{1}.0" -f $contractsCoreVersion.Major, ($contractsCoreVersion.Minor + 1)
 
 try {
@@ -43,7 +44,7 @@ try {
     }
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $contractsPackage = Join-Path $feedPath "Cormier.Realtime.Contracts.$ContractsVersion.nupkg"
+    $contractsPackage = Join-Path $feedPath "Cormier.Realtime.Contracts.$contractsPackageVersion.nupkg"
     $clientPackage = Join-Path $feedPath "Cormier.Realtime.Client.$DotNetClientVersion.nupkg"
     $symbolsPackage = Join-Path $feedPath "Cormier.Realtime.Client.$DotNetClientVersion.snupkg"
     foreach ($requiredPackage in @($contractsPackage, $clientPackage, $symbolsPackage)) {
@@ -94,7 +95,7 @@ try {
             $reader.Dispose()
         }
         $expectedDependency = [regex]::Escape(
-            "Cormier.Realtime.Contracts`" version=`"[$ContractsVersion, $contractsUpperBound)`"")
+            "Cormier.Realtime.Contracts`" version=`"[$contractsPackageVersion, $contractsUpperBound)`"")
         if ($nuspec -notmatch $expectedDependency) {
             throw 'The client package does not constrain its contracts dependency to the compatible minor line.'
         }

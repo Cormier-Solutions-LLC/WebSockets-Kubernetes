@@ -2,6 +2,17 @@
   "version": 1,
   "dependencies": {
     ".NETStandard,Version=v2.0": {
+      "Microsoft.SourceLink.GitHub": {
+        "type": "Direct",
+        "requested": "[10.0.303, )",
+        "resolved": "10.0.303",
+        "contentHash": "fxqLxLWx4yBAabjJgSIehVITPysG30YwAMWI6LkWyrgxDlnzFKITVj9SpBAGDeFlM2QR91T4X7Z3MFkzb4kzEw==",
+        "dependencies": {
+          "Microsoft.Build.Tasks.Git": "10.0.303",
+          "Microsoft.SourceLink.Common": "10.0.303",
+          "System.IO.Hashing": "10.0.11"
+        }
+      },
       "NETStandard.Library": {
         "type": "Direct",
         "requested": "[2.0.3, )",
@@ -26,6 +37,16 @@
           "System.Threading.Tasks.Extensions": "4.6.3"
         }
       },
+      "System.Threading.Channels": {
+        "type": "Direct",
+        "requested": "[10.0.12, 11.0.0)",
+        "resolved": "10.0.12",
+        "contentHash": "/iUnzLpSBUUnnIHj/jSjhyEqhgm2eo/D2SF1Ga9ojuMqsua+QwKqByukl0UA9/Rth+P0sVJhXZojzgpV0A5Kdw==",
+        "dependencies": {
+          "Microsoft.Bcl.AsyncInterfaces": "10.0.12",
+          "System.Threading.Tasks.Extensions": "4.6.3"
+        }
+      },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
         "resolved": "10.0.12",
@@ -34,15 +55,37 @@
           "System.Threading.Tasks.Extensions": "4.6.3"
         }
       },
+      "Microsoft.Build.Tasks.Git": {
+        "type": "Transitive",
+        "resolved": "10.0.303",
+        "contentHash": "tUblJMHhGAg4WKq3fzfJqXpV8o01WmQnWvgopNBnbhVQB6qwW2c8guCTCFMILD9Dekhe8MROBJ4lEk8AtXKisQ==",
+        "dependencies": {
+          "System.IO.Hashing": "10.0.11"
+        }
+      },
       "Microsoft.NETCore.Platforms": {
         "type": "Transitive",
         "resolved": "1.1.0",
         "contentHash": "kz0PEW2lhqygehI/d6XsPCQzD7ff7gUJaVGPVETX611eadGsA3A877GdSlU0LRVMCTH/+P3o2iDTak+S08V2+A=="
       },
+      "Microsoft.SourceLink.Common": {
+        "type": "Transitive",
+        "resolved": "10.0.303",
+        "contentHash": "rEJw+kxSZHFRnSR5rIT2I4qYDnEhoOOl0SGS7wCeYXG88u008LwIb0oEZtj/auGvaQBMvy7jvPu6VFli8zUAZg=="
+      },
       "System.Buffers": {
         "type": "Transitive",
         "resolved": "4.6.1",
         "contentHash": "N8GXpmiLMtljq7gwvyS+1QvKT/W2J8sNAvx+HVg4NGmsG/H+2k/y9QI23auLJRterrzCiDH+IWAw4V/GPwsMlw=="
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.11",
+        "contentHash": "OzKDcIRkeNJeC8qAsbn8yJXnfTLP1dtkWILe+T56Gf/z+IkAASi7sMqLqJQat08j5z/mRN5xVtoAwbkMNMoBUQ==",
+        "dependencies": {
+          "System.Buffers": "4.6.1",
+          "System.Memory": "4.6.3"
+        }
       },
       "System.IO.Pipelines": {
         "type": "Transitive",
@@ -91,10 +134,14 @@
         "dependencies": {
           "System.Runtime.CompilerServices.Unsafe": "6.1.2"
         }
+      },
+      "cormier.realtime.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "System.Text.Json": "[10.0.12, 11.0.0)"
+        }
       }
     },
-    ".NETStandard,Version=v2.0/linux-x64": {},
-    "net10.0": {},
-    "net10.0/linux-x64": {}
+    ".NETStandard,Version=v2.0/linux-x64": {}
   }
 }

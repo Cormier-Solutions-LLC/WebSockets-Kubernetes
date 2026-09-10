@@ -59,7 +59,7 @@ public sealed class GatewayMetrics : IDisposable
     private static readonly string[] ConnectionCloseReasons = ["client_disconnect", "client_close", "cancelled", "abrupt_disconnect", "socket_closed", "service_restart", "authentication_expired", "authentication_invalid", "authentication_unavailable", "heartbeat_timeout", "slow_consumer", "invalid_message_type", "message_too_large", "fragmented_message"];
     private static readonly string[] AuthorizationOperations = ["publish", "subscribe", "unsubscribe", "ping"];
     private static readonly string[] HandshakeReasons = ["accepted", "draining", "not_websocket", "subprotocol", "authentication", "registration"];
-    private static readonly int[] CloseCodes = [1000, 1001, 1002, 1003, 1009, 1011, 1012, 4003, 4008, 4009];
+    private static readonly int[] CloseCodes = [1000, 1001, 1002, 1003, 1007, 1009, 1011, 1012, 4003, 4008, 4009];
     private readonly ConcurrentDictionary<string, long> _series = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, HistogramState> _histograms = new(StringComparer.Ordinal);
     private readonly Meter _meter = new(

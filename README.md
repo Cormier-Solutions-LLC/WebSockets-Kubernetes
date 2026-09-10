@@ -8,6 +8,7 @@ An independently deployable .NET 10 Native AOT foundation for the Cormier realti
 - `src/Cormier.Realtime.Contracts` — source-generated JSON protocol contracts.
 - `src/Cormier.Realtime.Redis` — Redis configuration and integration boundary.
 - `src/Cormier.Realtime.AspNetCore` — reusable ASP.NET Core hosting integration package.
+- `src/Cormier.Realtime.Client` — runtime-neutral .NET Standard 2.0 WebSocket client package.
 - `tests` — unit, integration, Kubernetes, and load-test projects.
 - `helm` and `cluster` — deployment assets developed by PBV7-487/PBV7-488.
 - `observability` — dashboard and alert assets developed by PBV7-489.
@@ -15,6 +16,7 @@ An independently deployable .NET 10 Native AOT foundation for the Cormier realti
 - `protocol/fixtures` — language-neutral wire-compatibility fixtures.
 - `examples/browser` — plain HTML/direct-script consumer example.
 - `examples/aspnet-core` — minimal package consumer using standard ASP.NET Core sessions.
+- `examples/dotnet-client` — runtime-neutral .NET client connection and authentication example.
 - `scripts` — PowerShell 7 bootstrap and lifecycle automation.
 - `docs` — architecture and developer guidance.
 - `refs` — source Jira exports and governing scripting standard.

@@ -64,7 +64,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - uses: actions/setup-node@v4
@@ -84,6 +86,11 @@ jobs:
       - name: Validate clean ASP.NET Core package consumer
         shell: pwsh
         run: ./scripts/Test-AspNetCorePackage.ps1
+      - name: Validate clean .NET client package consumers
+        shell: pwsh
+        env:
+          NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
+        run: ./scripts/Test-DotNetClientPackage.ps1
       - name: Test
         env:
           REDIS_TEST_ENDPOINT: localhost:6379

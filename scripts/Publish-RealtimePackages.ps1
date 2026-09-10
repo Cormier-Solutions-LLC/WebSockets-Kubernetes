@@ -68,7 +68,7 @@ function Get-RequiredApplication {
 function Get-RegistryIdentity {
     param([string]$Endpoint)
     try { $uri = [Uri]$Endpoint }
-    catch { throw "INVALID registry endpoint: $Endpoint" }
+    catch { throw 'INVALID registry endpoint: the configured value is not a valid URI.' }
     if (-not $uri.IsAbsoluteUri -or $uri.Scheme -cne 'https' -or
         -not [string]::IsNullOrEmpty($uri.UserInfo) -or -not [string]::IsNullOrEmpty($uri.Fragment)) {
         throw "INVALID registry endpoint: an absolute HTTPS URL without user information or a fragment is required."

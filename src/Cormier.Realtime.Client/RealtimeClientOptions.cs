@@ -55,6 +55,12 @@ public sealed class RealtimeClientOptions
         {
             throw new ArgumentException("Endpoint must be an absolute ws or wss URI.", nameof(Endpoint));
         }
+        if (EndpointHasQueryParameter(Endpoint, "ticket"))
+        {
+            throw new ArgumentException(
+                "Endpoint must not contain a ticket query parameter; use an authentication provider.",
+                nameof(Endpoint));
+        }
         if (string.IsNullOrWhiteSpace(SubProtocol) ||
             SubProtocol.Length > 128 ||
             !SubProtocol.All(IsWebSocketTokenCharacter))
@@ -113,6 +119,15 @@ public sealed class RealtimeClientOptions
             >= 'a' and <= 'z' or
             '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.' or
             '^' or '_' or '`' or '|' or '~';
+
+    private static bool EndpointHasQueryParameter(Uri endpoint, string expectedName) =>
+        endpoint.Query.TrimStart('?')
+            .Split('&')
+            .Select(parameter => parameter.Split('=')[0])
+            .Any(name => string.Equals(
+                Uri.UnescapeDataString(name),
+                expectedName,
+                StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy

@@ -798,6 +798,23 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task InitialTransportProtocolFailurePreservesItsCloseCode()
+    {
+        var transport = new FakeTransport();
+        transport.FailReceive(new RealtimeProtocolException(
+            "The transport rejected an oversized frame.",
+            RealtimeCloseCodes.MessageTooLarge));
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: new YieldingTransportFactory(transport));
+
+        var exception = await Assert.ThrowsAsync<RealtimeProtocolException>(() =>
+            client.ConnectAsync(CancellationToken.None));
+
+        Assert.Equal(RealtimeCloseCodes.MessageTooLarge, exception.CloseCode);
+    }
+
+    [Fact]
     public async Task CredentialedNonLoopbackPlaintextEndpointIsRejected()
     {
         var options = Options();
@@ -815,18 +832,15 @@ public sealed class RealtimeClientTests
         Assert.Equal(0, factory.ConnectionCount);
     }
 
-    [Fact]
-    public async Task TicketQueryOnNonLoopbackPlaintextEndpointIsRejected()
+    [Theory]
+    [InlineData("ws://gateway.example/realtime/ws?ticket=sensitive-ticket")]
+    [InlineData("wss://gateway.example/realtime/ws?TICKET=sensitive-ticket")]
+    public void EndpointTicketQueryIsRejected(string endpoint)
     {
         var options = Options();
-        options.Endpoint = new Uri("ws://gateway.example/realtime/ws?ticket=sensitive-ticket");
-        var factory = new FakeTransportFactory(new FakeTransport());
-        using var client = new RealtimeClient(options, transportFactory: factory);
+        options.Endpoint = new Uri(endpoint);
 
-        await Assert.ThrowsAsync<RealtimeClientException>(() =>
-            client.ConnectAsync(CancellationToken.None));
-
-        Assert.Equal(0, factory.ConnectionCount);
+        Assert.Throws<ArgumentException>(() => new RealtimeClient(options));
     }
 
     [Fact]
@@ -1141,6 +1155,39 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task WaitingSubscriptionIntentIsReappliedAfterEarlierAcknowledgement()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second);
+        using var client = new RealtimeClient(
+            Options(sendQueueCapacity: 1),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.SubscribeAsync("topics/orders", "subscribe");
+        _ = await first.WaitForSentAsync();
+        var unsubscribe = client.UnsubscribeAsync("topics/orders", "unsubscribe");
+        await Task.Delay(25);
+
+        await first.ReceiveWriter.WriteAsync(Server(
+            ProtocolMessageTypes.Acknowledge,
+            "subscribe",
+            "topics/orders"));
+        _ = await client.ReceiveAsync(CancellationToken.None);
+        await unsubscribe;
+        _ = await first.WaitForSentAsync();
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+        await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
+
+        Assert.Equal(0, second.SentCount);
+    }
+
+    [Fact]
     public async Task NoOpSubscriptionChangeDoesNotWaitForSendCapacity()
     {
         var transport = new FakeTransport();
@@ -1275,6 +1322,23 @@ public sealed class RealtimeClientTests
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(
             malformed,
             RealtimeJsonSerializerContext.Default.ServerMessageEnvelope));
+    }
+
+    [Fact]
+    public void ReconnectAdviceRejectsDelaysAboveTheSupportedMaximum()
+    {
+        var envelope = new ServerMessageEnvelope(
+            ProtocolVersions.Current,
+            ProtocolMessageTypes.ServiceRestart,
+            "restart",
+            DateTimeOffset.UtcNow,
+            "system/restart",
+            Reconnect: new ReconnectAdvice(0, int.MaxValue, 0, true));
+
+        var validation = ProtocolValidator.Validate(envelope);
+
+        Assert.False(validation.IsValid);
+        Assert.Equal(ProtocolErrorCodes.InvalidEnvelope, validation.ErrorCode);
     }
 
     [Fact]

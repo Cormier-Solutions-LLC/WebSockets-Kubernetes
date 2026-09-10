@@ -310,6 +310,17 @@ public sealed class RealtimeClient : IDisposable
                     responseSlotAcquired = true;
                     ThrowIfDisposed();
                     EnsureConnectedForSubscriptionChange();
+                    lock (_subscriptions)
+                    {
+                        if (subscribe)
+                        {
+                            _subscriptions.Add(route);
+                        }
+                        else
+                        {
+                            _subscriptions.Remove(route);
+                        }
+                    }
                     var message = PrepareOwnedMessage(CreateMessage(
                         subscribe ? ProtocolMessageTypes.Subscribe : ProtocolMessageTypes.Unsubscribe,
                         route,
@@ -501,6 +512,13 @@ public sealed class RealtimeClient : IDisposable
                 }
                 finally
                 {
+                    lock (_stateLock)
+                    {
+                        if (_state == RealtimeClientState.Connected)
+                        {
+                            QueueStateChangeLocked(RealtimeClientState.Reconnecting);
+                        }
+                    }
                     connectionCancellation.Cancel();
                     await ObserveSiblingLoopAsync(replay, completed).ConfigureAwait(false);
                     await ObserveSiblingLoopAsync(receive, completed).ConfigureAwait(false);
@@ -526,7 +544,9 @@ public sealed class RealtimeClient : IDisposable
                 cleanupCloseReason = "protocol_failure";
                 Log(RealtimeClientLogLevel.Error, ProtocolFailureEventId, "Realtime protocol validation failed.");
                 SetState(RealtimeClientState.Faulted);
-                _firstConnection.TrySetException(new RealtimeProtocolException("Realtime protocol validation failed."));
+                _firstConnection.TrySetException(new RealtimeProtocolException(
+                    "Realtime protocol validation failed.",
+                    exception.CloseCode));
                 break;
             }
             catch (InsecureCredentialTransportException)
@@ -1088,8 +1108,7 @@ public sealed class RealtimeClient : IDisposable
     {
         var hasCredentials = !string.IsNullOrWhiteSpace(authentication.ConnectionTicket) ||
             !string.IsNullOrWhiteSpace(authentication.CookieHeader) ||
-            authentication.Headers.Any(header => !string.IsNullOrWhiteSpace(header.Value)) ||
-            EndpointContainsTicket(_options.Endpoint!);
+            authentication.Headers.Any(header => !string.IsNullOrWhiteSpace(header.Value));
         if (hasCredentials &&
             _options.Endpoint!.Scheme == "ws" &&
             !_options.Endpoint.IsLoopback &&
@@ -1099,15 +1118,6 @@ public sealed class RealtimeClient : IDisposable
                 "Credentialed realtime connections require wss unless insecure transport is explicitly enabled.");
         }
     }
-
-    private static bool EndpointContainsTicket(Uri endpoint) =>
-        endpoint.Query.TrimStart('?')
-            .Split('&')
-            .Select(parameter => parameter.Split('=')[0])
-            .Any(name => string.Equals(
-                Uri.UnescapeDataString(name),
-                "ticket",
-                StringComparison.OrdinalIgnoreCase));
 
     private void SetState(RealtimeClientState state)
     {

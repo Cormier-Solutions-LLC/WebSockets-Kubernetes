@@ -11,6 +11,7 @@ public static class ProtocolValidator
 {
     public const int MaximumCorrelationIdLength = 128;
     public const int MaximumRouteLength = 256;
+    public const int MaximumReconnectDelayMilliseconds = 300_000;
 
     public static ProtocolValidationResult Validate(MessageEnvelope? envelope, DateTimeOffset now)
     {
@@ -113,6 +114,7 @@ public static class ProtocolValidator
         if (envelope.Reconnect is not null &&
             (envelope.Reconnect.InitialDelayMilliseconds < 0 ||
              envelope.Reconnect.MaximumDelayMilliseconds < envelope.Reconnect.InitialDelayMilliseconds ||
+             envelope.Reconnect.MaximumDelayMilliseconds > MaximumReconnectDelayMilliseconds ||
              double.IsNaN(envelope.Reconnect.JitterRatio) ||
              double.IsInfinity(envelope.Reconnect.JitterRatio) ||
              envelope.Reconnect.JitterRatio is < 0 or > 1))

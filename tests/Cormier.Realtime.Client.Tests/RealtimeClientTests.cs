@@ -1080,6 +1080,7 @@ public sealed class RealtimeClientTests
             clean: false));
 
         await WaitUntilAsync(() => client.State == RealtimeClientState.Faulted);
+        await WaitUntilAsync(() => second.LastCloseCode is not null);
         Assert.Equal(2, factory.ConnectionCount);
         Assert.Equal(RealtimeCloseCodes.InvalidPayloadData, second.LastCloseCode);
     }

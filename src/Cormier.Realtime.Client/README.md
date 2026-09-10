@@ -25,7 +25,7 @@ var message = await client.ReceiveAsync(cancellationToken);
 
 Implement `IRealtimeAuthenticationProvider` to return a fresh connection ticket, Cookie header, or application header set for every connection attempt. `RealtimeAuthenticationMaterial.ToString()` is always redacted, and the client emits only fixed diagnostic messages through `IRealtimeClientLogger`.
 
-The send and receive queues, message sizes, subscriptions, heartbeats, reconnect attempts, and transport close wait are bounded. Existing subscriptions are restored once after reconnection. Subscription changes are accepted only while connected, which avoids ambiguous offline ordering. Service-restart guidance from the gateway supplies a deterministic bounded reconnect delay; authentication material is refreshed on every connection attempt.
+The send and receive queues, message sizes, subscriptions, heartbeats, reconnect attempts, jitter, and transport close wait are bounded. Existing subscriptions are restored once after reconnection. Subscription changes are accepted only while connected, which avoids ambiguous offline ordering. Ordinary retries use configurable bounded jitter to avoid reconnect waves; service-restart guidance from the gateway overrides the local delay and jitter settings. Authentication material is refreshed on every connection attempt.
 
 `IRealtimeTransportFactory`, `IRealtimeClientClock`, `IRealtimeRetryPolicy`, `IRealtimeRandom`, and `IRealtimeClientLogger` are replaceable for platform integration and deterministic tests. The default transport uses `ClientWebSocket` and the `cormier.realtime.v1` subprotocol. A completed or faulted client is not restartable; create a new instance after an explicit disconnect or terminal close.
 

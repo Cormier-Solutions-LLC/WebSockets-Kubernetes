@@ -24,6 +24,8 @@ public sealed class RealtimeClientOptions
 
     public int MaximumReconnectDelayMilliseconds { get; set; } = 30_000;
 
+    public double ReconnectJitterRatio { get; set; } = 0.2;
+
     public int CloseTimeoutSeconds { get; set; } = 5;
 
     internal RealtimeClientOptions Snapshot() => new()
@@ -39,6 +41,7 @@ public sealed class RealtimeClientOptions
         MaximumReconnectAttempts = MaximumReconnectAttempts,
         InitialReconnectDelayMilliseconds = InitialReconnectDelayMilliseconds,
         MaximumReconnectDelayMilliseconds = MaximumReconnectDelayMilliseconds,
+        ReconnectJitterRatio = ReconnectJitterRatio,
         CloseTimeoutSeconds = CloseTimeoutSeconds,
     };
 
@@ -87,6 +90,10 @@ public sealed class RealtimeClientOptions
         {
             throw new ArgumentOutOfRangeException(nameof(MaximumReconnectDelayMilliseconds));
         }
+        if (ReconnectJitterRatio < 0 || ReconnectJitterRatio > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ReconnectJitterRatio));
+        }
         if (CloseTimeoutSeconds < 1 || CloseTimeoutSeconds > 30)
         {
             throw new ArgumentOutOfRangeException(nameof(CloseTimeoutSeconds));
@@ -98,6 +105,7 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
 {
     private readonly int _initialDelayMilliseconds;
     private readonly int _maximumDelayMilliseconds;
+    private readonly double _jitterRatio;
     private readonly IRealtimeRandom _random;
 
     public ExponentialRealtimeRetryPolicy(
@@ -110,6 +118,7 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
         }
         _initialDelayMilliseconds = options.InitialReconnectDelayMilliseconds;
         _maximumDelayMilliseconds = options.MaximumReconnectDelayMilliseconds;
+        _jitterRatio = options.ReconnectJitterRatio;
         _random = random ?? SystemRealtimeRandom.Instance;
     }
 
@@ -125,9 +134,10 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
         var delay = initial == 0 && maximum > 0
             ? attempt == 1 ? 0 : Math.Min(maximum, Math.Pow(2, Math.Min(attempt - 2, 30)))
             : Math.Min(maximum, initial * Math.Pow(2, Math.Min(attempt - 1, 30)));
-        if (close?.Reconnect is { JitterRatio: > 0 } advice)
+        var jitterRatio = close?.Reconnect?.JitterRatio ?? _jitterRatio;
+        if (jitterRatio > 0)
         {
-            var factor = 1 + (((_random.NextDouble() * 2) - 1) * advice.JitterRatio);
+            var factor = 1 + (((_random.NextDouble() * 2) - 1) * jitterRatio);
             delay = Math.Max(0, Math.Min(maximum, delay * factor));
         }
         return TimeSpan.FromMilliseconds(delay);

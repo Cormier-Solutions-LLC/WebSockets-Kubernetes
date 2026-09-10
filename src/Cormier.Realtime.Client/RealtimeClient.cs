@@ -26,6 +26,7 @@ public sealed class RealtimeClient : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskCompletionSource<bool> _firstConnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _stateLock = new();
+    private readonly SemaphoreSlim _subscriptionOrderGate = new(1, 1);
     private readonly SemaphoreSlim _subscriptionGate = new(1, 1);
     private readonly HashSet<string> _subscriptions = new(StringComparer.Ordinal);
     private readonly HashSet<string> _heartbeatCorrelations = new(StringComparer.Ordinal);
@@ -102,6 +103,12 @@ public sealed class RealtimeClient : IDisposable
                 throw new InvalidOperationException(
                     "A completed realtime client cannot be restarted. Create a new client instance.");
             }
+            if (_runTask is not null &&
+                _state is not RealtimeClientState.Connecting and not RealtimeClientState.Connected)
+            {
+                throw new InvalidOperationException(
+                    "ConnectAsync cannot be used while the realtime client is reconnecting or stopping.");
+            }
             if (_runTask is null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -134,6 +141,12 @@ public sealed class RealtimeClient : IDisposable
     private async Task SendCoreAsync(MessageEnvelope message, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
+        var ownedMessage = PrepareOwnedMessage(message);
+        await EnqueueOwnedAsync(ownedMessage, cancellationToken).ConfigureAwait(false);
+    }
+
+    private MessageEnvelope PrepareOwnedMessage(MessageEnvelope message)
+    {
         var validation = ProtocolValidator.Validate(message, _clock.UtcNow);
         if (!validation.IsValid)
         {
@@ -156,7 +169,7 @@ public sealed class RealtimeClient : IDisposable
         {
             throw new RealtimeProtocolException("The outbound protocol message exceeded the configured frame limit.");
         }
-        await EnqueueOwnedAsync(ownedMessage, cancellationToken).ConfigureAwait(false);
+        return ownedMessage;
     }
 
     public Task PublishAsync(
@@ -179,41 +192,15 @@ public sealed class RealtimeClient : IDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        await _subscriptionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _subscriptionOrderGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ThrowIfDisposed();
-            EnsureConnectedForSubscriptionChange();
-            lock (_subscriptions)
-            {
-                if (_subscriptions.Contains(route))
-                {
-                    return;
-                }
-                if (_subscriptions.Count >= _options.MaximumSubscriptions)
-                {
-                    throw new RealtimeClientException("The configured subscription limit has been reached.");
-                }
-                _subscriptions.Add(route);
-            }
-
-            try
-            {
-                await SendCoreAsync(CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, correlationId), cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                lock (_subscriptions)
-                {
-                    _subscriptions.Remove(route);
-                }
-                throw;
-            }
+            await ChangeSubscriptionAsync(route, correlationId, subscribe: true, cancellationToken)
+                .ConfigureAwait(false);
         }
         finally
         {
-            _subscriptionGate.Release();
+            _subscriptionOrderGate.Release();
         }
     }
 
@@ -229,35 +216,15 @@ public sealed class RealtimeClient : IDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        await _subscriptionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _subscriptionOrderGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ThrowIfDisposed();
-            EnsureConnectedForSubscriptionChange();
-            lock (_subscriptions)
-            {
-                if (!_subscriptions.Remove(route))
-                {
-                    return;
-                }
-            }
-            try
-            {
-                await SendCoreAsync(CreateMessage(ProtocolMessageTypes.Unsubscribe, route, NullPayload, correlationId), cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                lock (_subscriptions)
-                {
-                    _subscriptions.Add(route);
-                }
-                throw;
-            }
+            await ChangeSubscriptionAsync(route, correlationId, subscribe: false, cancellationToken)
+                .ConfigureAwait(false);
         }
         finally
         {
-            _subscriptionGate.Release();
+            _subscriptionOrderGate.Release();
         }
     }
 
@@ -266,6 +233,82 @@ public sealed class RealtimeClient : IDisposable
         string? correlationId = null,
         CancellationToken cancellationToken = default) =>
         UnsubscribeAsync(route.Value, correlationId, cancellationToken);
+
+    private async Task ChangeSubscriptionAsync(
+        string route,
+        string? correlationId,
+        bool subscribe,
+        CancellationToken cancellationToken)
+    {
+        await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var sendSlotTransferred = false;
+        try
+        {
+            await _subscriptionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ThrowIfDisposed();
+                EnsureConnectedForSubscriptionChange();
+                lock (_subscriptions)
+                {
+                    if (subscribe)
+                    {
+                        if (_subscriptions.Contains(route))
+                        {
+                            return;
+                        }
+                        if (_subscriptions.Count >= _options.MaximumSubscriptions)
+                        {
+                            throw new RealtimeClientException("The configured subscription limit has been reached.");
+                        }
+                        _subscriptions.Add(route);
+                    }
+                    else if (!_subscriptions.Remove(route))
+                    {
+                        return;
+                    }
+                }
+
+                try
+                {
+                    var message = PrepareOwnedMessage(CreateMessage(
+                        subscribe ? ProtocolMessageTypes.Subscribe : ProtocolMessageTypes.Unsubscribe,
+                        route,
+                        NullPayload,
+                        correlationId));
+                    sendSlotTransferred = true;
+                    await EnqueueOwnedAsync(message, cancellationToken, acquireSendSlot: false)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    lock (_subscriptions)
+                    {
+                        if (subscribe)
+                        {
+                            _subscriptions.Remove(route);
+                        }
+                        else
+                        {
+                            _subscriptions.Add(route);
+                        }
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                _subscriptionGate.Release();
+            }
+        }
+        finally
+        {
+            if (!sendSlotTransferred)
+            {
+                ReleaseSendSlot();
+            }
+        }
+    }
 
     public async Task<ServerMessageEnvelope> ReceiveAsync(CancellationToken cancellationToken = default)
     {
@@ -369,8 +412,7 @@ public sealed class RealtimeClient : IDisposable
                     _options.MaximumFrameBytes,
                     _options.MaximumMessageBytes,
                     cancellationToken).ConfigureAwait(false);
-                await ReplaySubscriptionsAsync(transport, cancellationToken).ConfigureAwait(false);
-                await ReplayPendingApplicationMessagesAsync(transport, cancellationToken).ConfigureAwait(false);
+                await ReplayConnectionStateAsync(transport, cancellationToken).ConfigureAwait(false);
                 retryContext = null;
                 SetState(RealtimeClientState.Connected);
                 reconnectAttempt = 0;
@@ -422,6 +464,7 @@ public sealed class RealtimeClient : IDisposable
                         "The realtime connection could not be established within the retry limit."));
                     break;
                 }
+                SetState(RealtimeClientState.Reconnecting);
             }
             finally
             {
@@ -507,16 +550,17 @@ public sealed class RealtimeClient : IDisposable
         {
             while (_outbound.Reader.TryRead(out var message))
             {
+                var refreshedMessage = RefreshTimestamp(message);
                 try
                 {
-                    await SendDirectAsync(transport, message, cancellationToken).ConfigureAwait(false);
+                    await SendDirectAsync(transport, refreshedMessage, cancellationToken).ConfigureAwait(false);
                     ReleaseSendSlot();
                 }
                 catch
                 {
                     lock (_replayBacklog)
                     {
-                        _replayBacklog.Enqueue(message);
+                        _replayBacklog.Enqueue(refreshedMessage);
                     }
                     throw;
                 }
@@ -535,7 +579,11 @@ public sealed class RealtimeClient : IDisposable
             {
                 if (received.Close.Code == RealtimeCloseCodes.Normal)
                 {
-                    StopAcceptingSends();
+                    BeginStopping();
+                }
+                else
+                {
+                    SetState(RealtimeClientState.Reconnecting);
                 }
                 return received.Close;
             }
@@ -563,6 +611,7 @@ public sealed class RealtimeClient : IDisposable
 
             if (string.Equals(envelope!.Type, ProtocolMessageTypes.ServiceRestart, StringComparison.Ordinal))
             {
+                SetState(RealtimeClientState.Reconnecting);
                 return new RealtimeTransportClose(
                     RealtimeCloseCodes.ServiceRestart,
                     "service_restart",
@@ -605,19 +654,32 @@ public sealed class RealtimeClient : IDisposable
         }
     }
 
-    private async Task ReplaySubscriptionsAsync(IRealtimeTransport transport, CancellationToken cancellationToken)
+    private async Task ReplayConnectionStateAsync(
+        IRealtimeTransport transport,
+        CancellationToken cancellationToken)
     {
-        string[] routes;
-        lock (_subscriptions)
+        await _subscriptionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            routes = _subscriptions.OrderBy(route => route, StringComparer.Ordinal).ToArray();
+            var pending = DrainPendingApplicationMessages();
+            string[] routes;
+            lock (_subscriptions)
+            {
+                routes = _subscriptions.OrderBy(route => route, StringComparer.Ordinal).ToArray();
+            }
+            foreach (var route in routes)
+            {
+                await SendDirectAsync(
+                    transport,
+                    CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, null),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            await ReplayPendingApplicationMessagesAsync(transport, pending, cancellationToken)
+                .ConfigureAwait(false);
         }
-        foreach (var route in routes)
+        finally
         {
-            await SendDirectAsync(
-                transport,
-                CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, null),
-                cancellationToken).ConfigureAwait(false);
+            _subscriptionGate.Release();
         }
     }
 
@@ -678,9 +740,9 @@ public sealed class RealtimeClient : IDisposable
 
     private async Task ReplayPendingApplicationMessagesAsync(
         IRealtimeTransport transport,
+        List<MessageEnvelope> pending,
         CancellationToken cancellationToken)
     {
-        var pending = DrainPendingApplicationMessages();
         for (var index = 0; index < pending.Count; index++)
         {
             try
@@ -711,9 +773,15 @@ public sealed class RealtimeClient : IDisposable
             message.Route,
             message.Payload);
 
-    private async Task EnqueueOwnedAsync(MessageEnvelope message, CancellationToken cancellationToken)
+    private async Task EnqueueOwnedAsync(
+        MessageEnvelope message,
+        CancellationToken cancellationToken,
+        bool acquireSendSlot = true)
     {
-        await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (acquireSendSlot)
+        {
+            await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
         var accepted = false;
         lock (_stateLock)
         {
@@ -771,6 +839,15 @@ public sealed class RealtimeClient : IDisposable
         lock (_stateLock)
         {
             _acceptingSends = false;
+        }
+    }
+
+    private void BeginStopping()
+    {
+        lock (_stateLock)
+        {
+            _acceptingSends = false;
+            QueueStateChangeLocked(RealtimeClientState.Stopping);
         }
     }
 

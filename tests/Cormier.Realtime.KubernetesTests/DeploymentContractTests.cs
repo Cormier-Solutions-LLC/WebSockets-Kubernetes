@@ -473,6 +473,7 @@ public sealed class DeploymentContractTests
     public void PackagePromotionUsesOneVerifiedImmutableCandidate()
     {
         var workflow = Read(".github/workflows/packages.yml");
+        var ciWorkflow = Read(".github/workflows/ci.yml");
         var build = Read("scripts/Build-RealtimePackages.ps1");
         var publish = Read("scripts/Publish-RealtimePackages.ps1");
         var targets = Read("Directory.Build.targets");
@@ -491,6 +492,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Generate package SBOM", workflow, StringComparison.Ordinal);
         Assert.Contains("Scan package candidate", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
+        Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
 
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);
         Assert.Contains("manifestSha256", publish, StringComparison.Ordinal);

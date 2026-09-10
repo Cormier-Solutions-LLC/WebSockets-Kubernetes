@@ -28,7 +28,9 @@ public sealed class RealtimeClient : IDisposable
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _subscriptionOrderGate = new(1, 1);
     private readonly SemaphoreSlim _subscriptionGate = new(1, 1);
+    private readonly SemaphoreSlim _subscriptionResponseSlots;
     private readonly HashSet<string> _subscriptions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _confirmedSubscriptions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SubscriptionMutation> _pendingSubscriptionMutations =
         new(StringComparer.Ordinal);
     private readonly HashSet<string> _heartbeatCorrelations = new(StringComparer.Ordinal);
@@ -38,6 +40,7 @@ public sealed class RealtimeClient : IDisposable
     private RealtimeClientState _state;
     private bool _acceptingSends = true;
     private bool _disposed;
+    private long _nextSubscriptionMutationSequence;
 
     public RealtimeClient(
         RealtimeClientOptions options,
@@ -58,6 +61,9 @@ public sealed class RealtimeClient : IDisposable
         _logger = logger ?? NullRealtimeClientLogger.Instance;
         _clock = clock ?? SystemRealtimeClientClock.Instance;
         _retryPolicy = retryPolicy ?? new ExponentialRealtimeRetryPolicy(_options);
+        _subscriptionResponseSlots = new SemaphoreSlim(
+            _options.SendQueueCapacity,
+            _options.SendQueueCapacity);
         _outbound = Channel.CreateUnbounded<MessageEnvelope>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -244,10 +250,15 @@ public sealed class RealtimeClient : IDisposable
         bool subscribe,
         CancellationToken cancellationToken)
     {
-        await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        await _subscriptionResponseSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var responseSlotTransferred = false;
+        var sendSlotAcquired = false;
         var sendSlotTransferred = false;
+        bool? previousSubscriptionState = null;
         try
         {
+            await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            sendSlotAcquired = true;
             await _subscriptionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -255,6 +266,7 @@ public sealed class RealtimeClient : IDisposable
                 EnsureConnectedForSubscriptionChange();
                 lock (_subscriptions)
                 {
+                    previousSubscriptionState = _subscriptions.Contains(route);
                     if (subscribe)
                     {
                         if (_subscriptions.Contains(route))
@@ -286,19 +298,23 @@ public sealed class RealtimeClient : IDisposable
                     sendSlotTransferred = true;
                     await EnqueueOwnedAsync(message, cancellationToken, acquireSendSlot: false)
                         .ConfigureAwait(false);
+                    responseSlotTransferred = true;
                 }
                 catch
                 {
                     RemoveSubscriptionMutation(registeredCorrelationId);
-                    lock (_subscriptions)
+                    if (previousSubscriptionState.HasValue)
                     {
-                        if (subscribe)
+                        lock (_subscriptions)
                         {
-                            _subscriptions.Remove(route);
-                        }
-                        else
-                        {
-                            _subscriptions.Add(route);
+                            if (previousSubscriptionState.Value)
+                            {
+                                _subscriptions.Add(route);
+                            }
+                            else
+                            {
+                                _subscriptions.Remove(route);
+                            }
                         }
                     }
                     throw;
@@ -311,9 +327,13 @@ public sealed class RealtimeClient : IDisposable
         }
         finally
         {
-            if (!sendSlotTransferred)
+            if (sendSlotAcquired && !sendSlotTransferred)
             {
                 ReleaseSendSlot();
+            }
+            if (!responseSlotTransferred)
+            {
+                _subscriptionResponseSlots.Release();
             }
         }
     }
@@ -428,8 +448,9 @@ public sealed class RealtimeClient : IDisposable
                 var completed = await Task.WhenAny(replay, receive).ConfigureAwait(false);
                 try
                 {
-                    if (completed == receive)
+                    if (receive.IsCompleted)
                     {
+                        completed = receive;
                         close = await receive.ConfigureAwait(false);
                     }
                     else
@@ -517,7 +538,17 @@ public sealed class RealtimeClient : IDisposable
                             CloseFailureEventId,
                             "Realtime transport close failed during cleanup.");
                     }
-                    transport.Dispose();
+                    try
+                    {
+                        transport.Dispose();
+                    }
+                    catch (Exception)
+                    {
+                        Log(
+                            RealtimeClientLogLevel.Warning,
+                            CloseFailureEventId,
+                            "Realtime transport disposal failed during cleanup.");
+                    }
                 }
             }
 
@@ -620,6 +651,7 @@ public sealed class RealtimeClient : IDisposable
             }
             if (received.Payload is null)
             {
+                BeginProtocolFailure();
                 throw new RealtimeProtocolException(
                     "The server returned an empty transport message.",
                     RealtimeCloseCodes.InvalidPayloadData);
@@ -634,6 +666,7 @@ public sealed class RealtimeClient : IDisposable
             }
             catch (JsonException)
             {
+                BeginProtocolFailure();
                 throw new RealtimeProtocolException(
                     "The server returned malformed protocol JSON.",
                     RealtimeCloseCodes.InvalidPayloadData);
@@ -641,6 +674,7 @@ public sealed class RealtimeClient : IDisposable
             var validation = ProtocolValidator.Validate(envelope);
             if (!validation.IsValid)
             {
+                BeginProtocolFailure();
                 throw new RealtimeProtocolException(
                     "The server returned an invalid protocol envelope.",
                     RealtimeCloseCodes.InvalidPayloadData);
@@ -714,15 +748,25 @@ public sealed class RealtimeClient : IDisposable
                         route,
                         NullPayload,
                         null);
-                    RegisterSubscriptionMutation(command.CorrelationId, route, subscribe: true);
+                    await _subscriptionResponseSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    var responseSlotTransferred = false;
                     try
                     {
+                        RegisterSubscriptionMutation(command.CorrelationId, route, subscribe: true);
                         await SendDirectAsync(transport, command, cancellationToken).ConfigureAwait(false);
+                        responseSlotTransferred = true;
                     }
                     catch
                     {
                         RemoveSubscriptionMutation(command.CorrelationId);
                         throw;
+                    }
+                    finally
+                    {
+                        if (!responseSlotTransferred)
+                        {
+                            _subscriptionResponseSlots.Release();
+                        }
                     }
                 }
             }
@@ -803,19 +847,26 @@ public sealed class RealtimeClient : IDisposable
             {
                 throw new RealtimeClientException("A subscription command correlation identifier is already pending.");
             }
-            _pendingSubscriptionMutations.Add(correlationId, new SubscriptionMutation(route, subscribe));
+            _pendingSubscriptionMutations.Add(
+                correlationId,
+                new SubscriptionMutation(route, subscribe, ++_nextSubscriptionMutationSequence));
         }
     }
 
-    private void RemoveSubscriptionMutation(string? correlationId)
+    private bool RemoveSubscriptionMutation(string? correlationId)
     {
         if (correlationId is null)
         {
-            return;
+            return false;
         }
         lock (_pendingSubscriptionMutations)
         {
+            if (!_pendingSubscriptionMutations.TryGetValue(correlationId, out var mutation))
+            {
+                return false;
+            }
             _pendingSubscriptionMutations.Remove(correlationId);
+            return true;
         }
     }
 
@@ -833,20 +884,38 @@ public sealed class RealtimeClient : IDisposable
                 return;
             }
             _pendingSubscriptionMutations.Remove(message.CorrelationId);
+            if (message.Type == ProtocolMessageTypes.Acknowledge)
+            {
+                if (mutation.Subscribe)
+                {
+                    _confirmedSubscriptions.Add(mutation.Route);
+                }
+                else
+                {
+                    _confirmedSubscriptions.Remove(mutation.Route);
+                }
+            }
+            ReconcileDesiredSubscriptionLocked(mutation.Route);
         }
-        if (message.Type != ProtocolMessageTypes.Error)
-        {
-            return;
-        }
+        _subscriptionResponseSlots.Release();
+    }
+
+    private void ReconcileDesiredSubscriptionLocked(string route)
+    {
+        var latest = _pendingSubscriptionMutations.Values
+            .Where(candidate => string.Equals(candidate.Route, route, StringComparison.Ordinal))
+            .OrderByDescending(candidate => candidate.Sequence)
+            .FirstOrDefault();
+        var subscribe = latest?.Subscribe ?? _confirmedSubscriptions.Contains(route);
         lock (_subscriptions)
         {
-            if (mutation.Subscribe)
+            if (subscribe)
             {
-                _subscriptions.Remove(mutation.Route);
+                _subscriptions.Add(route);
             }
             else
             {
-                _subscriptions.Add(mutation.Route);
+                _subscriptions.Remove(route);
             }
         }
     }
@@ -855,7 +924,13 @@ public sealed class RealtimeClient : IDisposable
     {
         lock (_pendingSubscriptionMutations)
         {
+            var count = _pendingSubscriptionMutations.Count;
             _pendingSubscriptionMutations.Clear();
+            _confirmedSubscriptions.Clear();
+            if (count > 0)
+            {
+                _subscriptionResponseSlots.Release(count);
+            }
         }
     }
 
@@ -974,6 +1049,15 @@ public sealed class RealtimeClient : IDisposable
         {
             _acceptingSends = false;
             QueueStateChangeLocked(RealtimeClientState.Stopping);
+        }
+    }
+
+    private void BeginProtocolFailure()
+    {
+        lock (_stateLock)
+        {
+            _acceptingSends = false;
+            QueueStateChangeLocked(RealtimeClientState.Faulted);
         }
     }
 
@@ -1107,10 +1191,12 @@ public sealed class RealtimeClient : IDisposable
         await task.ConfigureAwait(false);
     }
 
-    private sealed class SubscriptionMutation(string route, bool subscribe)
+    private sealed class SubscriptionMutation(string route, bool subscribe, long sequence)
     {
         public string Route { get; } = route;
 
         public bool Subscribe { get; } = subscribe;
+
+        public long Sequence { get; } = sequence;
     }
 }

@@ -262,12 +262,14 @@ public sealed class DiagnosticsEndpointTests
         using var invalidRequest = OperatorRequest(HttpMethod.Get, "/diagnostics/v1/logs/tail?level=not-a-level");
         using var invalid = await client.SendAsync(invalidRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
-        foreach (var request in InvalidNumericLogTailPaths
+        foreach (var numericRequest in InvalidNumericLogTailPaths
                      .Select(static path => OperatorRequest(HttpMethod.Get, path)))
         {
-            using var numericRequest = request;
-            using var numeric = await client.SendAsync(numericRequest, CancellationToken.None);
-            Assert.Equal(HttpStatusCode.BadRequest, numeric.StatusCode);
+            using (numericRequest)
+            {
+                using var numeric = await client.SendAsync(numericRequest, CancellationToken.None);
+                Assert.Equal(HttpStatusCode.BadRequest, numeric.StatusCode);
+            }
         }
 
         using var tailRequest = OperatorRequest(

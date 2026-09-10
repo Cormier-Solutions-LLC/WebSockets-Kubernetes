@@ -72,6 +72,45 @@ public sealed class AspNetCoreHostingIntegrationTests
         Assert.Contains(exception.Failures, failure => failure.Contains("collide", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("Realtime:EndpointPath", "/diagnostics/v1/snapshot")]
+    [InlineData("Realtime:TicketEndpointPath", "/diagnostics/v1/logging/overrides")]
+    public void AddRealtimeGatewayRejectsDiagnosticsRouteCollisions(string setting, string route)
+    {
+        var values = ValidConfiguration();
+        values[setting] = route;
+        values["Diagnostics:Enabled"] = "true";
+        using var provider = CreateServices(values).BuildServiceProvider();
+
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => provider.GetRequiredService<IOptions<RealtimeOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("diagnostics", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MapRealtimeDiagnosticsRejectsAConflictingApplicationRoute()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development,
+        });
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Diagnostics:Enabled"] = "true",
+            ["Diagnostics:AuthorizationPolicy"] = "diagnostics-operator",
+            ["Realtime:AllowedOrigins:0"] = "https://app.example",
+            ["Redis:Endpoint"] = "redis.example:6379",
+        });
+        builder.Services.AddRealtimeGateway(builder.Configuration);
+        await using var app = builder.Build();
+        app.MapGet("/diagnostics/v1/snapshot", () => Results.Ok());
+
+        var exception = Assert.Throws<InvalidOperationException>(() => app.MapRealtimeDiagnostics());
+
+        Assert.Contains("already mapped", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AddRealtimeGatewayDoesNotDuplicateHostedInfrastructure()
     {

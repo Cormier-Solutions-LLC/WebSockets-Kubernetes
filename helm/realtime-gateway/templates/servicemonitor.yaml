@@ -23,8 +23,8 @@ spec:
       authorization:
         type: Bearer
         credentials:
-          name: {{ .Values.diagnostics.operatorTokenSecret.name }}
-          key: {{ .Values.diagnostics.operatorTokenSecret.key }}
+          name: {{ .Values.metrics.scrapeTokenSecret.name }}
+          key: {{ .Values.metrics.scrapeTokenSecret.key }}
       {{- end }}
       relabelings:
         - sourceLabels: [__meta_kubernetes_service_name]

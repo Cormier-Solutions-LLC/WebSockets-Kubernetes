@@ -11,7 +11,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void RedactorRemovesCredentialsAndPrivateIdentityValues()
     {
-        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b password=hunter2 secret structured-secret {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}";
+        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b password=hunter2 secret structured-secret {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
 
         var output = DiagnosticRedactor.Redact(input);
 
@@ -26,6 +26,8 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain("json-secret", output, StringComparison.Ordinal);
         Assert.DoesNotContain("json-session", output, StringComparison.Ordinal);
         Assert.DoesNotContain("structured-secret", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("correct horse battery staple", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("multi word credential", output, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", output, StringComparison.Ordinal);
     }
 
@@ -265,6 +267,33 @@ public sealed class DiagnosticsTests
             out _));
 
         Assert.Equal(LogLevel.Trace, controller.EffectiveLevel("Cormier.Realtime.Redis.Connection"));
+    }
+
+    [Fact]
+    public void PersistingAnEvictedAuditEntryDoesNotDequeueANewerEntry()
+    {
+        var controller = Controller(new DiagnosticsOptions { AuditCapacity = 2 });
+        foreach (var suffix in new[] { "One", "Two" })
+        {
+            Assert.True(controller.TryApply(
+                new LogLevelChangeRequest($"Cormier.Realtime.{suffix}", "Debug", 30, "audit queue verification", "instance"),
+                "operator",
+                out _,
+                out _));
+        }
+        Assert.True(controller.TryPeekPendingAudit(out var originallyPeeked));
+        Assert.NotNull(originallyPeeked);
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.Three", "Debug", 30, "audit queue verification", "instance"),
+            "operator",
+            out _,
+            out _));
+
+        controller.MarkPendingAuditPersisted(originallyPeeked);
+
+        Assert.True(controller.TryPeekPendingAudit(out var remaining));
+        Assert.NotNull(remaining);
+        Assert.Equal("Cormier.Realtime.Two", remaining.Category);
     }
 
     private static RuntimeLogLevelController Controller(DiagnosticsOptions options) => new(

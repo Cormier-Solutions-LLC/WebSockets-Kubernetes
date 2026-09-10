@@ -1,3 +1,9 @@
+{{- if and .Values.diagnostics.enabled .Values.metrics.authorizationPolicy (eq .Values.diagnostics.authorizationPolicy .Values.metrics.authorizationPolicy) }}
+{{- fail "diagnostics.authorizationPolicy and metrics.authorizationPolicy must be distinct" }}
+{{- end }}
+{{- if gt (int .Values.diagnostics.minimumLogOverrideSeconds) (int .Values.diagnostics.maximumLogOverrideSeconds) }}
+{{- fail "diagnostics.maximumLogOverrideSeconds must be greater than or equal to diagnostics.minimumLogOverrideSeconds" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -95,7 +95,7 @@ public static partial class DiagnosticRedactor
 {
     private const string Redacted = "[REDACTED]";
 
-    [GeneratedRegex("(?i)(authorization|cookie|set-cookie|password|secret|token|ticket)[\"']?(?:\\s*[:=]\\s*|\\s+)[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?i)(authorization|cookie|set-cookie|password|secret|token|ticket)[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
     private static partial Regex SecretPattern();
 
     [GeneratedRegex("(?i)(tenant|user|session)(?:[-_.]?id)?[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
@@ -131,7 +131,8 @@ public sealed class RuntimeLogLevelController(
 {
     private readonly ConcurrentDictionary<string, ActiveLogLevelOverride> _overrides = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<LogLevelAuditEntry> _audit = new();
-    private readonly ConcurrentQueue<LogLevelAuditEntry> _pendingAudit = new();
+    private readonly Queue<LogLevelAuditEntry> _pendingAudit = new();
+    private readonly object _pendingAuditLock = new();
     private readonly DiagnosticsOptions _options = options.Value;
     private readonly KeyValuePair<string, LogLevel>[] _baselineLevels = ReadBaselineLevels(configuration);
 
@@ -178,9 +179,25 @@ public sealed class RuntimeLogLevelController(
 
     public int AuditCount => _audit.Count;
 
-    internal bool TryPeekPendingAudit(out LogLevelAuditEntry? entry) => _pendingAudit.TryPeek(out entry);
+    internal bool TryPeekPendingAudit(out LogLevelAuditEntry? entry)
+    {
+        lock (_pendingAuditLock)
+        {
+            entry = _pendingAudit.Count == 0 ? null : _pendingAudit.Peek();
+            return entry is not null;
+        }
+    }
 
-    internal void MarkPendingAuditPersisted() => _pendingAudit.TryDequeue(out _);
+    internal void MarkPendingAuditPersisted(LogLevelAuditEntry persisted)
+    {
+        lock (_pendingAuditLock)
+        {
+            if (_pendingAudit.Count > 0 && _pendingAudit.Peek() == persisted)
+            {
+                _pendingAudit.Dequeue();
+            }
+        }
+    }
 
     public bool Contains(string id)
     {
@@ -197,6 +214,47 @@ public sealed class RuntimeLogLevelController(
         DateTimeOffset? startedAt = null)
     {
         response = null;
+        if (!TryValidate(request, out error))
+        {
+            return false;
+        }
+
+        var category = request.Category.Trim();
+        _ = Enum.TryParse<LogLevel>(request.Level, true, out var level);
+        var now = startedAt ?? DateTimeOffset.UtcNow;
+        var changeId = id ?? Guid.NewGuid().ToString("N");
+        if (_overrides.TryGetValue(changeId, out var existing))
+        {
+            response = ToResponse(existing);
+            return true;
+        }
+        var previous = EffectiveLevel(category);
+        var active = new ActiveLogLevelOverride(
+            changeId,
+            category,
+            level,
+            request.Scope,
+            now,
+            now.AddSeconds(request.DurationSeconds));
+        _overrides[changeId] = active;
+        AddAudit(new LogLevelAuditEntry(
+            changeId,
+            now,
+            DiagnosticRedactor.RedactBounded(actor, 128),
+            DiagnosticRedactor.RedactBounded(request.Reason, 256),
+            category,
+            previous.ToString(),
+            level.ToString(),
+            request.Scope,
+            active.ExpiresAt,
+            "applied",
+            identity.InstanceId));
+        response = ToResponse(active);
+        return true;
+    }
+
+    internal bool TryValidate(LogLevelChangeRequest request, out string error)
+    {
         error = string.Empty;
         if (string.IsNullOrWhiteSpace(request.Category) ||
             string.IsNullOrWhiteSpace(request.Level) ||
@@ -251,35 +309,6 @@ public sealed class RuntimeLogLevelController(
             return false;
         }
 
-        var now = startedAt ?? DateTimeOffset.UtcNow;
-        var changeId = id ?? Guid.NewGuid().ToString("N");
-        if (_overrides.TryGetValue(changeId, out var existing))
-        {
-            response = ToResponse(existing);
-            return true;
-        }
-        var previous = EffectiveLevel(category);
-        var active = new ActiveLogLevelOverride(
-            changeId,
-            category,
-            level,
-            request.Scope,
-            now,
-            now.AddSeconds(request.DurationSeconds));
-        _overrides[changeId] = active;
-        AddAudit(new LogLevelAuditEntry(
-            changeId,
-            now,
-            DiagnosticRedactor.RedactBounded(actor, 128),
-            DiagnosticRedactor.RedactBounded(request.Reason, 256),
-            category,
-            previous.ToString(),
-            level.ToString(),
-            request.Scope,
-            active.ExpiresAt,
-            "applied",
-            identity.InstanceId));
-        response = ToResponse(active);
         return true;
     }
 
@@ -329,14 +358,17 @@ public sealed class RuntimeLogLevelController(
     private void AddAudit(LogLevelAuditEntry entry)
     {
         _audit.Enqueue(entry);
-        _pendingAudit.Enqueue(entry);
+        lock (_pendingAuditLock)
+        {
+            _pendingAudit.Enqueue(entry);
+            while (_pendingAudit.Count > _options.AuditCapacity)
+            {
+                _pendingAudit.Dequeue();
+            }
+        }
         while (_audit.Count > _options.AuditCapacity)
         {
             _audit.TryDequeue(out _);
-        }
-        while (_pendingAudit.Count > _options.AuditCapacity)
-        {
-            _pendingAudit.TryDequeue(out _);
         }
     }
 

@@ -63,6 +63,8 @@ public static class RealtimeGatewayHostingExtensions
             .Bind(configuration.GetSection(DiagnosticsOptions.SectionName))
             .Validate(options => !options.Enabled || IsValidRoute(options.BasePath),
                 "Diagnostics:BasePath must be an absolute route without query or fragment.")
+            .Validate(options => !options.Enabled || !DiagnosticsRouteCollidesWithRealtime(options.BasePath, configuration),
+                "Diagnostics routes must not collide with the configured realtime or ticket endpoint.")
             .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.AuthorizationPolicy),
                 "Diagnostics:AuthorizationPolicy is required when diagnostics are enabled.")
             .Validate(options => options.AllowedOrigins.All(IsAbsoluteOrigin),
@@ -118,6 +120,11 @@ public static class RealtimeGatewayHostingExtensions
             .Validate(options => IsValidRoute(options.TicketEndpointPath), "Realtime:TicketEndpointPath must be an absolute route without query or fragment.")
             .Validate(options => !string.Equals(options.EndpointPath, options.TicketEndpointPath, StringComparison.OrdinalIgnoreCase),
                 "Realtime endpoint and ticket endpoint paths must be different.")
+            .Validate(_ => !configuration.GetValue<bool>($"{DiagnosticsOptions.SectionName}:Enabled") ||
+                    !DiagnosticsRouteCollidesWithRealtime(
+                        configuration[$"{DiagnosticsOptions.SectionName}:BasePath"] ?? new DiagnosticsOptions().BasePath,
+                        configuration),
+                "Realtime and ticket endpoints must not collide with diagnostics routes.")
             .Validate(options => options.SessionSource != RealtimeSessionSource.Cookie || !string.IsNullOrWhiteSpace(options.SessionCookieName),
                 "Realtime:SessionCookieName is required for cookie session resolution.")
             .Validate(options => options.SessionSource != RealtimeSessionSource.AspNetCoreSession || !string.IsNullOrWhiteSpace(options.AspNetCoreSessionIdKey),
@@ -410,6 +417,15 @@ public static class RealtimeGatewayHostingExtensions
             });
         }
         return reserved.Contains(metricsPath, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool DiagnosticsRouteCollidesWithRealtime(string basePath, IConfiguration configuration)
+    {
+        var realtimePath = configuration[$"{RealtimeOptions.SectionName}:EndpointPath"] ?? new RealtimeOptions().EndpointPath;
+        var ticketPath = configuration[$"{RealtimeOptions.SectionName}:TicketEndpointPath"] ?? new RealtimeOptions().TicketEndpointPath;
+        return DiagnosticsEndpointExtensions.ConcreteRoutes(basePath)
+            .Any(route => string.Equals(route, realtimePath, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(route, ticketPath, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsAbsoluteOrigin(string value) => Uri.TryCreate(value, UriKind.Absolute, out var origin) &&

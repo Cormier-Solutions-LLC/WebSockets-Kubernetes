@@ -36,76 +36,86 @@ public sealed class DiagnosticsControlService(
         };
         var id = Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
-        if (!controller.TryApply(request, actor, out var result, out var error, id, startedAt))
+        if (request.Scope != "all")
         {
-            return (false, null, error);
-        }
-        if (request.Scope == "all")
-        {
-            IDatabase? database = null;
-            string? key = null;
-            try
+            if (!controller.TryApply(request, actor, out var localResult, out var localError, id, startedAt))
             {
-                var connection = await redis.GetConnectionAsync(cancellationToken);
-                if (!connection.IsConnected)
-                {
-                    controller.Revert(id, "system", "coordination failure rollback");
-                    return (false, null, "Replica-wide changes require an available Redis coordination service.");
-                }
-                database = connection.GetDatabase();
-                var message = new DiagnosticsCoordinationMessage("apply", id, request, actor, startedAt);
-                var payload = JsonSerializer.Serialize(
-                    message,
-                    DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
-                key = ActiveKey(id);
-                var reservationKey = ReservationKey(request.Category);
-                var lifetime = TimeSpan.FromSeconds(request.DurationSeconds);
-                var transaction = database.CreateTransaction();
-                transaction.AddCondition(Condition.KeyNotExists(reservationKey));
-                var activeWrite = transaction.StringSetAsync(key, payload, lifetime);
-                var reservationWrite = transaction.StringSetAsync(reservationKey, id, lifetime);
-                var indexWrite = transaction.SortedSetAddAsync(
-                    ActiveIndexKey(), id, startedAt.Add(lifetime).ToUnixTimeMilliseconds());
-                if (!await transaction.ExecuteAsync())
-                {
-                    controller.Revert(id, "system", "coordination conflict rollback");
-                    return (false, null, "An active replica-wide override already exists for the requested category.");
-                }
-                await activeWrite;
-                await reservationWrite;
-                await indexWrite;
-                await connection.GetSubscriber().PublishAsync(
-                    RedisChannel.Literal($"{redisOptions.InstancePrefix}:{_options.CoordinationChannel}"),
-                    payload);
+                return (false, null, localError);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            await FlushLocalAuditAsync(cancellationToken);
+            return (true, localResult, string.Empty);
+        }
+        if (!controller.TryValidate(request, out var validationError))
+        {
+            return (false, null, validationError);
+        }
+
+        IDatabase? database = null;
+        string? key = null;
+        try
+        {
+            var connection = await redis.GetConnectionAsync(cancellationToken);
+            if (!connection.IsConnected)
             {
-                if (database is not null && key is not null)
+                return (false, null, "Replica-wide changes require an available Redis coordination service.");
+            }
+            database = connection.GetDatabase();
+            var message = new DiagnosticsCoordinationMessage("apply", id, request, actor, startedAt);
+            var payload = JsonSerializer.Serialize(
+                message,
+                DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
+            key = ActiveKey(id);
+            var reservationKey = ReservationKey(request.Category);
+            var lifetime = TimeSpan.FromSeconds(request.DurationSeconds);
+            var transaction = database.CreateTransaction();
+            transaction.AddCondition(Condition.KeyNotExists(reservationKey));
+            var activeWrite = transaction.StringSetAsync(key, payload, lifetime);
+            var reservationWrite = transaction.StringSetAsync(reservationKey, id, lifetime);
+            var indexWrite = transaction.SortedSetAddAsync(
+                ActiveIndexKey(), id, startedAt.Add(lifetime).ToUnixTimeMilliseconds());
+            if (!await transaction.ExecuteAsync())
+            {
+                return (false, null, "An active replica-wide override already exists for the requested category.");
+            }
+            await activeWrite;
+            await reservationWrite;
+            await indexWrite;
+            if (!controller.TryApply(request, actor, out var result, out var error, id, startedAt))
+            {
+                await RemoveActiveAsync(database, id, key, reservationKey);
+                return (false, null, error);
+            }
+            await connection.GetSubscriber().PublishAsync(
+                RedisChannel.Literal($"{redisOptions.InstancePrefix}:{_options.CoordinationChannel}"),
+                payload);
+            await FlushLocalAuditAsync(cancellationToken);
+            return (true, result, string.Empty);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (database is not null && key is not null)
+            {
+                await RemoveActiveAsync(database, id, key, ReservationKey(request.Category));
+            }
+            controller.Revert(id, "system", "cancelled coordination rollback");
+            throw;
+        }
+        catch (RedisException)
+        {
+            if (database is not null && key is not null)
+            {
+                try
                 {
                     await RemoveActiveAsync(database, id, key, ReservationKey(request.Category));
                 }
-                controller.Revert(id, "system", "cancelled coordination rollback");
-                throw;
-            }
-            catch (RedisException)
-            {
-                if (database is not null && key is not null)
+                catch (RedisException)
                 {
-                    try
-                    {
-                        await RemoveActiveAsync(database, id, key, ReservationKey(request.Category));
-                    }
-                    catch (RedisException)
-                    {
-                        // The key is TTL-bounded and will expire even if cleanup cannot reach Redis.
-                    }
+                    // The key is TTL-bounded and will expire even if cleanup cannot reach Redis.
                 }
-                controller.Revert(id, "system", "coordination failure rollback");
-                return (false, null, "Replica-wide changes require an available Redis coordination service.");
             }
+            controller.Revert(id, "system", "coordination failure rollback");
+            return (false, null, "Replica-wide changes require an available Redis coordination service.");
         }
-        await FlushLocalAuditAsync(cancellationToken);
-        return (true, result, string.Empty);
     }
 
     public async ValueTask<(bool Found, bool Succeeded, string Error)> RevertAsync(
@@ -229,7 +239,7 @@ public sealed class DiagnosticsControlService(
                     "return 1;",
                     [AuditKey()],
                     [entry.Timestamp.ToUnixTimeMilliseconds(), payload, auditCutoff, _options.AuditCapacity]);
-                controller.MarkPendingAuditPersisted();
+                controller.MarkPendingAuditPersisted(entry);
             }
         }
         catch (RedisException)

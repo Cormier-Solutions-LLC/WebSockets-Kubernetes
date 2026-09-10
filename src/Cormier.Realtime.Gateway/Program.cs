@@ -21,20 +21,37 @@ var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"]
 var metricsPolicy = builder.Configuration["Metrics:AuthorizationPolicy"];
 var protectedMetricsEnabled = builder.Configuration.GetValue<bool>("Metrics:Enabled") &&
     !string.IsNullOrWhiteSpace(metricsPolicy);
-if (diagnosticsEnabled || protectedMetricsEnabled)
+if (diagnosticsEnabled && protectedMetricsEnabled &&
+    string.Equals(diagnosticsPolicy, metricsPolicy, StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Diagnostics and protected metrics require distinct authorization policies.");
+}
+if (diagnosticsEnabled)
 {
     var diagnosticsToken = builder.Configuration["Diagnostics:OperatorToken"];
-    var primaryPolicy = diagnosticsEnabled ? diagnosticsPolicy : metricsPolicy;
-    if (string.IsNullOrWhiteSpace(primaryPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
+    if (string.IsNullOrWhiteSpace(diagnosticsPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
     {
         throw new InvalidOperationException(
-            "Protected standalone diagnostics or metrics require an authorization policy and a Secret-backed Diagnostics:OperatorToken.");
+            "Standalone diagnostics require an authorization policy and a Secret-backed Diagnostics:OperatorToken.");
     }
-    var additionalPolicies = diagnosticsEnabled && protectedMetricsEnabled &&
-        !string.Equals(diagnosticsPolicy, metricsPolicy, StringComparison.Ordinal)
-        ? new[] { metricsPolicy! }
-        : [];
-    builder.Services.AddRealtimeDiagnosticsBearer(primaryPolicy, diagnosticsToken, additionalPolicies);
+    builder.Services.AddRealtimeDiagnosticsBearer(diagnosticsPolicy, diagnosticsToken);
+}
+if (protectedMetricsEnabled)
+{
+    var metricsToken = builder.Configuration["Metrics:ScrapeToken"];
+    if (string.IsNullOrWhiteSpace(metricsPolicy) || string.IsNullOrWhiteSpace(metricsToken))
+    {
+        throw new InvalidOperationException(
+            "Protected metrics require an authorization policy and a Secret-backed Metrics:ScrapeToken.");
+    }
+    if (diagnosticsEnabled && string.Equals(
+        metricsToken,
+        builder.Configuration["Diagnostics:OperatorToken"],
+        StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("Diagnostics and protected metrics require distinct bearer tokens.");
+    }
+    builder.Services.AddRealtimeMetricsBearer(metricsPolicy, metricsToken);
 }
 
 builder.Configuration.AddCommandLine(args);

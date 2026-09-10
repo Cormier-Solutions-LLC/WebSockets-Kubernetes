@@ -51,6 +51,10 @@ public sealed class DiagnosticsRedisTests
             var winner = Assert.Single(outcomes, outcome => outcome.Succeeded);
             Assert.Single(outcomes, outcome => !outcome.Succeeded);
             Assert.NotNull(winner.Result);
+            var loserIndex = Array.FindIndex(outcomes, outcome => !outcome.Succeeded);
+            var loserController = loserIndex == 0 ? first : second;
+            var loserActor = loserIndex == 0 ? "operator-one" : "operator-two";
+            Assert.DoesNotContain(loserController.GetAudit(0, 20), item => item.Actor == loserActor);
             await WaitUntilAsync(() => first.Contains(winner.Result.Id) && second.Contains(winner.Result.Id));
 
             var database = firstRedis.CurrentConnection!.GetDatabase();

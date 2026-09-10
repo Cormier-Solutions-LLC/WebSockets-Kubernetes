@@ -65,6 +65,10 @@ public static class DiagnosticsEndpointExtensions
             return;
         }
 
+        foreach (var route in ConcreteRoutes(options.BasePath))
+        {
+            RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, route);
+        }
         var group = endpoints.MapGroup(options.BasePath)
             .RequireCors(RealtimeGatewayHostingExtensions.DiagnosticsCorsPolicy)
             .RequireAuthorization(options.AuthorizationPolicy);
@@ -361,15 +365,17 @@ public static class DiagnosticsEndpointExtensions
             options.MaximumTailDurationSeconds,
             1,
             options.MaximumTailDurationSeconds);
+        var minimum = LogLevel.Information;
+        var levelValid = string.IsNullOrEmpty(levelText) ||
+            (Enum.TryParse<LogLevel>(levelText, true, out minimum) && Enum.IsDefined(minimum) && minimum is not LogLevel.None);
         if (category.Length > 128 || instance.Length > 128 || correlation.Length > 128 ||
             durationSeconds is null ||
-            (!string.IsNullOrEmpty(levelText) && !Enum.TryParse<LogLevel>(levelText, true, out _)))
+            !levelValid)
         {
             lease?.Dispose();
             await WriteErrorAsync(context, StatusCodes.Status400BadRequest, "invalid_filter", "A log tail filter is invalid.");
             return;
         }
-        var minimum = string.IsNullOrEmpty(levelText) ? LogLevel.Information : Enum.Parse<LogLevel>(levelText, true);
         using (lease)
         await using (var subscription = context.RequestServices.GetRequiredService<DiagnosticsStreamHub>()
             .SubscribeLogs(options.TailBufferCapacity))
@@ -404,15 +410,19 @@ public static class DiagnosticsEndpointExtensions
         {
             while (!duration.IsCancellationRequested)
             {
-                var available = reader.WaitToReadAsync(duration.Token).AsTask();
-                var heartbeat = Task.Delay(TimeSpan.FromSeconds(15), duration.Token);
-                if (await Task.WhenAny(available, heartbeat) == heartbeat)
+                bool hasData;
+                try
+                {
+                    hasData = await reader.WaitToReadAsync(duration.Token).AsTask()
+                        .WaitAsync(TimeSpan.FromSeconds(15), duration.Token);
+                }
+                catch (TimeoutException)
                 {
                     await context.Response.WriteAsync(": heartbeat\n\n", duration.Token);
                     await context.Response.Body.FlushAsync(duration.Token);
                     continue;
                 }
-                if (!await available)
+                if (!hasData)
                 {
                     break;
                 }
@@ -447,6 +457,16 @@ public static class DiagnosticsEndpointExtensions
             return;
         }
     }
+
+    internal static string[] ConcreteRoutes(string basePath) =>
+    [
+        $"{basePath}/snapshot",
+        $"{basePath}/connections",
+        $"{basePath}/events",
+        $"{basePath}/logs/tail",
+        $"{basePath}/logging/overrides",
+        $"{basePath}/logging/audit",
+    ];
 
     private static Task PrepareEventStreamAsync(HttpContext context)
     {

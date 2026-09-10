@@ -87,6 +87,7 @@ public sealed class DiagnosticsContractTests
         var config = Read("helm/realtime-gateway/templates/configmap.yaml");
         var deployment = Read("helm/realtime-gateway/templates/deployment.yaml");
         var monitor = Read("helm/realtime-gateway/templates/servicemonitor.yaml");
+        var networkPolicy = Read("helm/realtime-gateway/templates/networkpolicy.yaml");
 
         Assert.Contains("diagnostics:\n  enabled: false", values.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("Diagnostics__ProductionEnabled", config, StringComparison.Ordinal);
@@ -95,12 +96,21 @@ public sealed class DiagnosticsContractTests
         Assert.Contains("OTEL_EXPORTER_OTLP_HEADERS", deployment, StringComparison.Ordinal);
         Assert.Contains("Diagnostics__OperatorToken", deployment, StringComparison.Ordinal);
         Assert.Contains(".Values.diagnostics.operatorTokenSecret.name", deployment, StringComparison.Ordinal);
+        Assert.Contains("Metrics__ScrapeToken", deployment, StringComparison.Ordinal);
+        Assert.Contains(".Values.metrics.scrapeTokenSecret.name", deployment, StringComparison.Ordinal);
         Assert.Contains("secretKeyRef", deployment, StringComparison.Ordinal);
         Assert.DoesNotContain("OTEL_EXPORTER_OTLP_HEADERS:", config, StringComparison.Ordinal);
         Assert.DoesNotContain("Diagnostics__OperatorToken", config, StringComparison.Ordinal);
+        Assert.DoesNotContain("Metrics__ScrapeToken", config, StringComparison.Ordinal);
+        Assert.Contains("maximumLogOverrideSeconds must be greater than or equal", config, StringComparison.Ordinal);
+        Assert.Contains("authorizationPolicy and metrics.authorizationPolicy must be distinct", config, StringComparison.Ordinal);
         Assert.Contains(".Values.metrics.path", monitor, StringComparison.Ordinal);
         Assert.Contains("authorization:", monitor, StringComparison.Ordinal);
-        Assert.Contains(".Values.diagnostics.operatorTokenSecret.name", monitor, StringComparison.Ordinal);
+        Assert.Contains(".Values.metrics.scrapeTokenSecret.name", monitor, StringComparison.Ordinal);
+        Assert.Contains("observability.otlp.egressNamespaceSelector", networkPolicy, StringComparison.Ordinal);
+        Assert.Contains("observability.otlp.egressCidrs", networkPolicy, StringComparison.Ordinal);
+        Assert.Contains("observability.otlp.egressPorts", networkPolicy, StringComparison.Ordinal);
+        Assert.Contains("observability.otlp requires an egress namespace selector or CIDR", networkPolicy, StringComparison.Ordinal);
         Assert.StartsWith("{{- if and .Values.metrics.enabled", monitor, StringComparison.Ordinal);
         Assert.StartsWith(
             "{{- if and .Values.metrics.enabled",

@@ -66,6 +66,10 @@ observability:
     enabled: false
     endpoint: ""
     protocol: http/protobuf
+    egressNamespaceSelector: {}
+    egressPodSelector: {}
+    egressCidrs: []
+    egressPorts: [4317, 4318, 443]
     headersSecret:
       name: ""
       key: headers
@@ -125,6 +129,10 @@ metrics:
   enabled: true
   path: /metrics
   authorizationPolicy: ""
+  scrapeTokenSecret:
+    # Required for protected metrics. This credential must be distinct from the diagnostics operator token.
+    name: ""
+    key: token
   allowedNetworks: []
 
 redis:

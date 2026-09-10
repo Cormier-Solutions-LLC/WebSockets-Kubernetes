@@ -25,9 +25,11 @@ public sealed class DiagnosticsEndpointTests
     public async Task BuiltInDiagnosticsBearerRequiresTheConfiguredRuntimeCredential()
     {
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var metricsToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddRealtimeDiagnosticsBearer("diagnostics-operator", token, "metrics-operator");
+        builder.Services.AddRealtimeDiagnosticsBearer("diagnostics-operator", token);
+        builder.Services.AddRealtimeMetricsBearer("metrics-operator", metricsToken);
         Assert.Throws<ArgumentException>(() => builder.Services.AddRealtimeDiagnosticsBearer(
             "invalid-token-policy",
             $"{token}\n"));
@@ -53,9 +55,19 @@ public sealed class DiagnosticsEndpointTests
         Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
 
         using var metricsRequest = new HttpRequestMessage(HttpMethod.Get, "/secured-metrics");
-        metricsRequest.Headers.Authorization = new("Bearer", token);
+        metricsRequest.Headers.Authorization = new("Bearer", metricsToken);
         using var metrics = await client.SendAsync(metricsRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.OK, metrics.StatusCode);
+
+        using var diagnosticsCredentialOnMetrics = new HttpRequestMessage(HttpMethod.Get, "/secured-metrics");
+        diagnosticsCredentialOnMetrics.Headers.Authorization = new("Bearer", token);
+        using var rejectedMetrics = await client.SendAsync(diagnosticsCredentialOnMetrics, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.Unauthorized, rejectedMetrics.StatusCode);
+
+        using var metricsCredentialOnDiagnostics = new HttpRequestMessage(HttpMethod.Get, "/secured-diagnostics");
+        metricsCredentialOnDiagnostics.Headers.Authorization = new("Bearer", metricsToken);
+        using var rejectedDiagnostics = await client.SendAsync(metricsCredentialOnDiagnostics, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.Unauthorized, rejectedDiagnostics.StatusCode);
     }
 
     [Fact]
@@ -246,6 +258,14 @@ public sealed class DiagnosticsEndpointTests
         using var invalidRequest = OperatorRequest(HttpMethod.Get, "/diagnostics/v1/logs/tail?level=not-a-level");
         using var invalid = await client.SendAsync(invalidRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        foreach (var numericLevel in new[] { "-1", "7" })
+        {
+            using var numericRequest = OperatorRequest(
+                HttpMethod.Get,
+                $"/diagnostics/v1/logs/tail?level={numericLevel}");
+            using var numeric = await client.SendAsync(numericRequest, CancellationToken.None);
+            Assert.Equal(HttpStatusCode.BadRequest, numeric.StatusCode);
+        }
 
         using var tailRequest = OperatorRequest(
             HttpMethod.Get,

@@ -28,10 +28,17 @@ await client.PublishAsync(
     JsonSerializer.SerializeToElement(new { source = "dotnet-client-example" }),
     cancellationToken: stopping.Token);
 
-while (!stopping.IsCancellationRequested)
+try
 {
-    var message = await client.ReceiveAsync(stopping.Token);
-    Console.WriteLine($"Received {message.Type} for {message.Route}.");
+    while (!stopping.IsCancellationRequested)
+    {
+        var message = await client.ReceiveAsync(stopping.Token);
+        Console.WriteLine($"Received {message.Type} for {message.Route}.");
+    }
+}
+catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+{
+    // Ctrl+C requests a cooperative, successful shutdown.
 }
 
 internal sealed class EnvironmentAuthenticationProvider : IRealtimeAuthenticationProvider

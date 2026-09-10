@@ -69,10 +69,10 @@ public sealed record ServerMessageEnvelope(
 public sealed record ProtocolError(string Code, string Message);
 
 public sealed record ReconnectAdvice(
-    int InitialDelayMilliseconds,
-    int MaximumDelayMilliseconds,
-    double JitterRatio,
-    bool Reauthenticate);
+    [property: JsonRequired] int InitialDelayMilliseconds,
+    [property: JsonRequired] int MaximumDelayMilliseconds,
+    [property: JsonRequired] double JitterRatio,
+    [property: JsonRequired] bool Reauthenticate);
 
 public sealed record RealtimeIdentity(
     string TenantId,

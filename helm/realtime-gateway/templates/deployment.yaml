@@ -79,7 +79,7 @@ spec:
             {{- end }}
             - name: Redis__Ssl
               value: {{ .Values.redis.tls | quote }}
-            {{- if .Values.diagnostics.operatorTokenSecret.name }}
+            {{- if and .Values.diagnostics.enabled .Values.diagnostics.operatorTokenSecret.name }}
             - name: Diagnostics__OperatorToken
               valueFrom:
                 secretKeyRef: { name: {{ .Values.diagnostics.operatorTokenSecret.name }}, key: {{ .Values.diagnostics.operatorTokenSecret.key }} }

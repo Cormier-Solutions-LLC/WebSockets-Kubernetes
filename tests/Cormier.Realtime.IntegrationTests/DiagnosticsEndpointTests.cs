@@ -21,6 +21,9 @@ namespace Cormier.Realtime.IntegrationTests;
 
 public sealed class DiagnosticsEndpointTests
 {
+    private static readonly string[] InvalidNumericLogTailPaths = [.. new[] { "-1", "7" }
+        .Select(static level => $"/diagnostics/v1/logs/tail?level={level}")];
+
     [Fact]
     public async Task BuiltInDiagnosticsBearerRequiresTheConfiguredRuntimeCredential()
     {
@@ -258,11 +261,9 @@ public sealed class DiagnosticsEndpointTests
         using var invalidRequest = OperatorRequest(HttpMethod.Get, "/diagnostics/v1/logs/tail?level=not-a-level");
         using var invalid = await client.SendAsync(invalidRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
-        foreach (var numericLevel in new[] { "-1", "7" })
+        foreach (var path in InvalidNumericLogTailPaths)
         {
-            using var numericRequest = OperatorRequest(
-                HttpMethod.Get,
-                $"/diagnostics/v1/logs/tail?level={numericLevel}");
+            using var numericRequest = OperatorRequest(HttpMethod.Get, path);
             using var numeric = await client.SendAsync(numericRequest, CancellationToken.None);
             Assert.Equal(HttpStatusCode.BadRequest, numeric.StatusCode);
         }

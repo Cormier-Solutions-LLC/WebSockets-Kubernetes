@@ -95,10 +95,13 @@ public static partial class DiagnosticRedactor
 {
     private const string Redacted = "[REDACTED]";
 
-    [GeneratedRegex("(?i)(authorization|cookie|set-cookie|password|secret|token|ticket)[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?im)\\b(authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*", RegexOptions.CultureInvariant)]
+    private static partial Regex HeaderPattern();
+
+    [GeneratedRegex("(?i)\\b(password|secret|token|ticket)[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
     private static partial Regex SecretPattern();
 
-    [GeneratedRegex("(?i)(tenant|user|session)(?:[-_.]?id)?[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?i)\\b(tenant|user|session)(?:[-_.]?id)?[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
     private static partial Regex PrivateIdentityPattern();
 
     [GeneratedRegex("(?i)bearer\\s+[A-Za-z0-9._~+/-]+=*", RegexOptions.CultureInvariant)]
@@ -111,7 +114,8 @@ public static partial class DiagnosticRedactor
             return value;
         }
 
-        var redacted = BearerPattern().Replace(value, $"Bearer {Redacted}");
+        var redacted = HeaderPattern().Replace(value, match => $"{match.Groups[1].Value}={Redacted}");
+        redacted = BearerPattern().Replace(redacted, $"Bearer {Redacted}");
         redacted = SecretPattern().Replace(redacted, match => $"{match.Groups[1].Value}={Redacted}");
         redacted = PrivateIdentityPattern().Replace(redacted, match => $"{match.Groups[1].Value}={Redacted}");
         return redacted;
@@ -130,6 +134,7 @@ public sealed class RuntimeLogLevelController(
     IConfiguration? configuration = null)
 {
     private readonly ConcurrentDictionary<string, ActiveLogLevelOverride> _overrides = new(StringComparer.Ordinal);
+    private readonly object _overrideLock = new();
     private readonly ConcurrentQueue<LogLevelAuditEntry> _audit = new();
     private readonly Queue<LogLevelAuditEntry> _pendingAudit = new();
     private readonly object _pendingAuditLock = new();
@@ -213,8 +218,22 @@ public sealed class RuntimeLogLevelController(
         string? id = null,
         DateTimeOffset? startedAt = null)
     {
+        lock (_overrideLock)
+        {
+            return TryApplyLocked(request, actor, out response, out error, id, startedAt);
+        }
+    }
+
+    private bool TryApplyLocked(
+        LogLevelChangeRequest request,
+        string actor,
+        out LogLevelOverrideResponse? response,
+        out string error,
+        string? id,
+        DateTimeOffset? startedAt)
+    {
         response = null;
-        if (!TryValidate(request, out error))
+        if (!TryValidateLocked(request, out error))
         {
             return false;
         }
@@ -254,6 +273,14 @@ public sealed class RuntimeLogLevelController(
     }
 
     internal bool TryValidate(LogLevelChangeRequest request, out string error)
+    {
+        lock (_overrideLock)
+        {
+            return TryValidateLocked(request, out error);
+        }
+    }
+
+    private bool TryValidateLocked(LogLevelChangeRequest request, out string error)
     {
         error = string.Empty;
         if (string.IsNullOrWhiteSpace(request.Category) ||
@@ -433,7 +460,8 @@ public sealed class DiagnosticsLoggerProvider(
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => enabled && logLevel >= levels.EffectiveLevel(category);
+        public bool IsEnabled(LogLevel logLevel) => enabled &&
+            (!levels.HasOverride(category) || logLevel >= levels.EffectiveLevel(category));
 
         public void Log<TState>(
             LogLevel logLevel,

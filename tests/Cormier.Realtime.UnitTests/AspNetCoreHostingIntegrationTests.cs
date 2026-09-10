@@ -88,8 +88,10 @@ public sealed class AspNetCoreHostingIntegrationTests
         Assert.Contains(exception.Failures, failure => failure.Contains("diagnostics", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task MapRealtimeDiagnosticsRejectsAConflictingApplicationRoute()
+    [Theory]
+    [InlineData("/diagnostics/v1/snapshot", false)]
+    [InlineData("/diagnostics/v1/logging/overrides/{id}", true)]
+    public async Task MapRealtimeDiagnosticsRejectsAConflictingApplicationRoute(string route, bool delete)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -104,7 +106,14 @@ public sealed class AspNetCoreHostingIntegrationTests
         });
         builder.Services.AddRealtimeGateway(builder.Configuration);
         await using var app = builder.Build();
-        app.MapGet("/diagnostics/v1/snapshot", () => Results.Ok());
+        if (delete)
+        {
+            app.MapDelete(route, () => Results.Ok());
+        }
+        else
+        {
+            app.MapGet(route, () => Results.Ok());
+        }
 
         var exception = Assert.Throws<InvalidOperationException>(() => app.MapRealtimeDiagnostics());
 

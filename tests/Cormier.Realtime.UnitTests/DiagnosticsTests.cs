@@ -11,7 +11,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void RedactorRemovesCredentialsAndPrivateIdentityValues()
     {
-        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b password=hunter2 secret structured-secret {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
+        const string input = "Authorization: Bearer abc.def\nCookie: theme=dark; sid=victim-secret\ncookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b tenant structured-tenant password=hunter2 secret structured-secret {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
 
         var output = DiagnosticRedactor.Redact(input);
 
@@ -28,6 +28,8 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain("structured-secret", output, StringComparison.Ordinal);
         Assert.DoesNotContain("correct horse battery staple", output, StringComparison.Ordinal);
         Assert.DoesNotContain("multi word credential", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("victim-secret", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("structured-tenant", output, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", output, StringComparison.Ordinal);
     }
 
@@ -180,6 +182,29 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public async Task DiagnosticsLoggerDefersToTheOuterProgrammaticBaselineWithoutAnOverride()
+    {
+        var hub = new DiagnosticsStreamHub();
+        await using var subscription = hub.SubscribeLogs(4);
+        using var provider = new DiagnosticsLoggerProvider(
+            hub,
+            Controller(new DiagnosticsOptions()),
+            new DiagnosticsIdentity());
+        using var factory = LoggerFactory.Create(builder =>
+        {
+            builder.ClearProviders();
+            builder.SetMinimumLevel(LogLevel.Debug);
+            builder.AddProvider(provider);
+        });
+        var logger = factory.CreateLogger("Cormier.Realtime.ProgrammaticBaseline");
+
+        logger.Log(LogLevel.Debug, new EventId(2), "debug-visible", null, static (state, _) => state);
+
+        Assert.True(subscription.Reader.TryRead(out var item));
+        Assert.Equal("debug-visible", item.Message);
+    }
+
+    [Fact]
     public void TailAndRequestConcurrencyAreIndependentlyBounded()
     {
         using var limiter = new Cormier.Realtime.AspNetCore.DiagnosticsRequestLimiter(Options.Create(new DiagnosticsOptions
@@ -267,6 +292,29 @@ public sealed class DiagnosticsTests
             out _));
 
         Assert.Equal(LogLevel.Trace, controller.EffectiveLevel("Cormier.Realtime.Redis.Connection"));
+    }
+
+    [Fact]
+    public async Task ConcurrentInstanceOverridesReserveCategoryAndCapacityAtomically()
+    {
+        var duplicateController = Controller(new DiagnosticsOptions());
+        var duplicateOutcomes = await Task.WhenAll(Enumerable.Range(0, 20).Select(index => Task.Run(() =>
+            duplicateController.TryApply(
+                new LogLevelChangeRequest("Cormier.Realtime.Concurrent", "Debug", 30, "concurrency verification", "instance"),
+                "operator",
+                out _,
+                out _))));
+        Assert.Single(duplicateOutcomes, succeeded => succeeded);
+
+        var capacityController = Controller(new DiagnosticsOptions { MaximumDetailItems = 2 });
+        var capacityOutcomes = await Task.WhenAll(Enumerable.Range(0, 20).Select(index => Task.Run(() =>
+            capacityController.TryApply(
+                new LogLevelChangeRequest($"Cormier.Realtime.Category{index}", "Debug", 30, "capacity verification", "instance"),
+                "operator",
+                out _,
+                out _))));
+        Assert.Equal(2, capacityOutcomes.Count(succeeded => succeeded));
+        Assert.Equal(2, capacityController.GetActive().Length);
     }
 
     [Fact]

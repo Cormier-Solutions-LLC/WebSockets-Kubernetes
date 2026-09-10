@@ -465,6 +465,7 @@ public static class DiagnosticsEndpointExtensions
         $"{basePath}/events",
         $"{basePath}/logs/tail",
         $"{basePath}/logging/overrides",
+        $"{basePath}/logging/overrides/{{id}}",
         $"{basePath}/logging/audit",
     ];
 

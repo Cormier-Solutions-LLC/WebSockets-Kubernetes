@@ -104,6 +104,8 @@ public sealed class DiagnosticsContractTests
         Assert.DoesNotContain("Metrics__ScrapeToken", config, StringComparison.Ordinal);
         Assert.Contains("maximumLogOverrideSeconds must be greater than or equal", config, StringComparison.Ordinal);
         Assert.Contains("authorizationPolicy and metrics.authorizationPolicy must be distinct", config, StringComparison.Ordinal);
+        Assert.Contains("operatorTokenSecret and metrics.scrapeTokenSecret must reference distinct Secret keys", config, StringComparison.Ordinal);
+        Assert.Contains("if and .Values.diagnostics.enabled .Values.diagnostics.operatorTokenSecret.name", deployment, StringComparison.Ordinal);
         Assert.Contains(".Values.metrics.path", monitor, StringComparison.Ordinal);
         Assert.Contains("authorization:", monitor, StringComparison.Ordinal);
         Assert.Contains(".Values.metrics.scrapeTokenSecret.name", monitor, StringComparison.Ordinal);
@@ -121,6 +123,12 @@ public sealed class DiagnosticsContractTests
             .GetProperty("diagnostics").GetProperty("allOf")[0];
         Assert.True(diagnosticsCondition.GetProperty("then").GetProperty("properties")
             .GetProperty("productionEnabled").GetProperty("const").GetBoolean());
+        var otlpCondition = schema.RootElement.GetProperty("properties").GetProperty("observability")
+            .GetProperty("properties").GetProperty("otlp").GetProperty("allOf")[0];
+        Assert.True(otlpCondition.GetProperty("if").GetProperty("properties")
+            .GetProperty("enabled").GetProperty("const").GetBoolean());
+        Assert.Equal(1, otlpCondition.GetProperty("then").GetProperty("properties")
+            .GetProperty("endpoint").GetProperty("minLength").GetInt32());
         Assert.Contains("CORMIER_REALTIME_INSTANCE_ID", deployment, StringComparison.Ordinal);
     }
 

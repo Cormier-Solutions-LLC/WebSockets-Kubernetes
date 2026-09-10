@@ -125,7 +125,12 @@ public sealed class RealtimeClientTests
         var second = new FakeTransport();
         var factory = new FakeTransportFactory(first, second);
         var clock = new AdviceRecordingClock();
-        using var client = new RealtimeClient(Options(), transportFactory: factory, clock: clock);
+        var options = Options();
+        using var client = new RealtimeClient(
+            options,
+            transportFactory: factory,
+            clock: clock,
+            retryPolicy: new ExponentialRealtimeRetryPolicy(options, new FixedRandom(0.5)));
         await client.ConnectAsync(CancellationToken.None);
         var restart = new ServerMessageEnvelope(
             ProtocolVersions.Current,
@@ -143,6 +148,130 @@ public sealed class RealtimeClientTests
         await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
 
         Assert.Equal(TimeSpan.FromMilliseconds(500), clock.ReconnectDelay);
+    }
+
+    [Theory]
+    [InlineData(0.0, 400)]
+    [InlineData(0.5, 500)]
+    [InlineData(1.0, 600)]
+    public void ServerReconnectJitterUsesTheInjectedRandomSource(double sample, int expectedMilliseconds)
+    {
+        var policy = new ExponentialRealtimeRetryPolicy(Options(), new FixedRandom(sample));
+        var close = new RealtimeTransportClose(
+            RealtimeCloseCodes.ServiceRestart,
+            "service_restart",
+            true,
+            new ReconnectAdvice(500, 5_000, 0.2, true));
+
+        var delay = policy.GetDelay(1, close);
+
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), delay);
+    }
+
+    [Fact]
+    public async Task SuccessfulReconnectResetsTheConsecutiveAttemptLimit()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport();
+        var third = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second, third);
+        using var client = new RealtimeClient(
+            Options(maximumReconnectAttempts: 1),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+        await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
+        await second.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+        await WaitUntilAsync(() => factory.ConnectionCount == 3 && client.State == RealtimeClientState.Connected);
+
+        Assert.Equal(3, factory.ConnectionCount);
+    }
+
+    [Fact]
+    public async Task NormalRemoteCloseStopsWithoutReconnect()
+    {
+        var transport = new FakeTransport();
+        var factory = new FakeTransportFactory(transport);
+        using var client = new RealtimeClient(Options(), transportFactory: factory);
+        await client.ConnectAsync(CancellationToken.None);
+
+        await transport.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.Normal,
+            "normal",
+            clean: true));
+        await WaitUntilAsync(() => client.State == RealtimeClientState.Disconnected);
+
+        Assert.Equal(1, factory.ConnectionCount);
+    }
+
+    [Fact]
+    public async Task DisconnectCancelsAnActiveReconnectDelayAndCompletesChannels()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport();
+        var options = Options();
+        options.InitialReconnectDelayMilliseconds = 30_000;
+        options.MaximumReconnectDelayMilliseconds = 30_000;
+        using var client = new RealtimeClient(
+            options,
+            transportFactory: new FakeTransportFactory(first, second));
+        await client.ConnectAsync(CancellationToken.None);
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+        await WaitUntilAsync(() => client.State == RealtimeClientState.Reconnecting);
+
+        await client.DisconnectAsync(CancellationToken.None);
+
+        Assert.Equal(RealtimeClientState.Disconnected, client.State);
+        await Assert.ThrowsAsync<ChannelClosedException>(() => client.ReceiveAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CompletedClientCannotReportAFalseSuccessfulRestart()
+    {
+        var transport = new FakeTransport();
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+        await client.DisconnectAsync(CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.ConnectAsync(CancellationToken.None));
+
+        Assert.Contains("cannot be restarted", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task QueuedPublishReceivesAFreshTimestampWhenConnectionStarts()
+    {
+        var clock = new AdjustableClock(new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero));
+        var transport = new FakeTransport();
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: new FakeTransportFactory(transport),
+            clock: clock);
+        await client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "queued-1",
+            CancellationToken.None);
+        clock.UtcNow = clock.UtcNow.AddMinutes(10);
+
+        await client.ConnectAsync(CancellationToken.None);
+        var sent = await transport.WaitForSentAsync();
+        var envelope = JsonSerializer.Deserialize(sent, RealtimeJsonSerializerContext.Default.MessageEnvelope);
+
+        Assert.Equal(clock.UtcNow, envelope?.Timestamp);
     }
 
     [Fact]
@@ -306,6 +435,14 @@ public sealed class RealtimeClientTests
         }
     }
 
+    private sealed class AdjustableClock(DateTimeOffset now) : IRealtimeClientClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = now;
+
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+    }
+
     private sealed class ThrowingTransportFactory(string secret) : IRealtimeTransportFactory
     {
         private int _connectionCount;
@@ -420,6 +557,11 @@ public sealed class RealtimeClientTests
     private sealed class FixedRetryPolicy : IRealtimeRetryPolicy
     {
         public TimeSpan GetDelay(int attempt, RealtimeTransportClose? close) => TimeSpan.Zero;
+    }
+
+    private sealed class FixedRandom(double value) : IRealtimeRandom
+    {
+        public double NextDouble() => value;
     }
 
     private sealed class ThrowingLogger : IRealtimeClientLogger

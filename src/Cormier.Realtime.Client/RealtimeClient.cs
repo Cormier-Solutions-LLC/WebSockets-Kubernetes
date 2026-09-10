@@ -11,6 +11,8 @@ public sealed class RealtimeClient : IDisposable
     private const int ReconnectingEventId = 1002;
     private const int DisconnectedEventId = 1003;
     private const int ProtocolFailureEventId = 1004;
+    private const int CloseFailureEventId = 1005;
+    private const int ConsumerCallbackFailureEventId = 1006;
     private static readonly JsonElement NullPayload = JsonSerializer.Deserialize<JsonElement>("null");
     private readonly RealtimeClientOptions _options;
     private readonly IRealtimeAuthenticationProvider _authenticationProvider;
@@ -80,6 +82,11 @@ public sealed class RealtimeClient : IDisposable
         CancellationTokenRegistration connectCancellation = default;
         lock (_stateLock)
         {
+            if (_runTask is { IsCompleted: true } && _state != RealtimeClientState.Connected)
+            {
+                throw new InvalidOperationException(
+                    "A completed realtime client cannot be restarted. Create a new client instance.");
+            }
             if (_runTask is null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -247,6 +254,7 @@ public sealed class RealtimeClient : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected completion path during synchronous disposal.
         }
         _lifetime.Dispose();
     }
@@ -282,6 +290,7 @@ public sealed class RealtimeClient : IDisposable
                     await SendDirectAsync(transport, pendingMessage, cancellationToken).ConfigureAwait(false);
                 }
                 SetState(RealtimeClientState.Connected);
+                reconnectAttempt = 0;
                 _firstConnection.TrySetResult(true);
                 Log(RealtimeClientLogLevel.Information, ConnectedEventId, "Realtime connection is established.");
 
@@ -333,14 +342,22 @@ public sealed class RealtimeClient : IDisposable
                             "client_disconnect",
                             closeTimeout.Token).ConfigureAwait(false);
                     }
-                    catch
+                    catch (Exception)
                     {
+                        Log(
+                            RealtimeClientLogLevel.Warning,
+                            CloseFailureEventId,
+                            "Realtime transport close failed during cleanup.");
                     }
                     transport.Dispose();
                 }
             }
 
             if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            if (close?.Code == RealtimeCloseCodes.Normal)
             {
                 break;
             }
@@ -358,7 +375,14 @@ public sealed class RealtimeClient : IDisposable
             }
             SetState(RealtimeClientState.Reconnecting);
             var delay = ReconnectDelay(reconnectAttempt, close);
-            await _clock.DelayAsync(delay, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _clock.DelayAsync(delay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
 
         _outbound.Writer.TryComplete();
@@ -463,7 +487,13 @@ public sealed class RealtimeClient : IDisposable
         {
             if (string.Equals(message.Type, ProtocolMessageTypes.Publish, StringComparison.Ordinal))
             {
-                pending.Add(message);
+                pending.Add(new MessageEnvelope(
+                    message.Version,
+                    message.Type,
+                    message.CorrelationId,
+                    _clock.UtcNow,
+                    message.Route,
+                    message.Payload));
             }
         }
         return pending;
@@ -494,18 +524,7 @@ public sealed class RealtimeClient : IDisposable
             payload);
 
     private TimeSpan ReconnectDelay(int attempt, RealtimeTransportClose? close)
-    {
-        if (close?.Reconnect is not null)
-        {
-            var advice = close.Reconnect;
-            var multiplier = Math.Pow(2, Math.Min(attempt - 1, 30));
-            var milliseconds = Math.Min(
-                advice.MaximumDelayMilliseconds,
-                advice.InitialDelayMilliseconds * multiplier);
-            return TimeSpan.FromMilliseconds(milliseconds);
-        }
-        return _retryPolicy.GetDelay(attempt, close);
-    }
+        => _retryPolicy.GetDelay(attempt, close);
 
     private void SetState(RealtimeClientState state)
     {
@@ -547,8 +566,12 @@ public sealed class RealtimeClient : IDisposable
             {
                 handler(this, eventArgs);
             }
-            catch
+            catch (Exception)
             {
+                Log(
+                    RealtimeClientLogLevel.Warning,
+                    ConsumerCallbackFailureEventId,
+                    "A realtime state callback failed.");
             }
         }
     }
@@ -559,8 +582,9 @@ public sealed class RealtimeClient : IDisposable
         {
             _logger.Log(level, eventId, message);
         }
-        catch
+        catch (Exception)
         {
+            // Logging is an application extension boundary and must remain best effort.
         }
     }
 

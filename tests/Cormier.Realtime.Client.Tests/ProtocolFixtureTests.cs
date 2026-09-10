@@ -28,6 +28,13 @@ public sealed class ProtocolFixtureTests
     }
 
     [Fact]
+    public void UserRouteFactoryEnforcesTheProtocolRouteLimit()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            RealtimeRoute.ForUserTopic(new string('u', 128), new string('t', 128)));
+    }
+
+    [Fact]
     public void SharedClientFixturesRoundTripAndValidate()
     {
         using var fixture = LoadFixture();
@@ -101,5 +108,5 @@ public sealed class ProtocolFixtureTests
     }
 
     private static JsonDocument LoadFixture() => JsonDocument.Parse(
-        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "protocol", "fixtures", "v1", "envelopes.json")));
+        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "protocol/fixtures/v1/envelopes.json")));
 }

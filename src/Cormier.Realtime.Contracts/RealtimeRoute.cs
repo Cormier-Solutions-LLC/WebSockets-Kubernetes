@@ -29,7 +29,12 @@ public readonly record struct RealtimeRoute
     {
         ValidateSegment(userId, nameof(userId));
         ValidateSegment(topic, nameof(topic));
-        return new RealtimeRoute($"users/{userId}/topics/{topic}", topic, userId);
+        var value = $"users/{userId}/topics/{topic}";
+        if (value.Length > ProtocolValidator.MaximumRouteLength)
+        {
+            throw new ArgumentException("The user topic route must not exceed 256 characters.");
+        }
+        return new RealtimeRoute(value, topic, userId);
     }
 
     public static bool TryParse(string? value, out RealtimeRoute route)

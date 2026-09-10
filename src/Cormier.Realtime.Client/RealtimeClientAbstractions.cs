@@ -65,6 +65,31 @@ public interface IRealtimeRetryPolicy
     TimeSpan GetDelay(int attempt, RealtimeTransportClose? close);
 }
 
+public interface IRealtimeRandom
+{
+    double NextDouble();
+}
+
+public sealed class SystemRealtimeRandom : IRealtimeRandom
+{
+    private static readonly Random Random = new();
+    private static readonly object Sync = new();
+
+    public static SystemRealtimeRandom Instance { get; } = new();
+
+    private SystemRealtimeRandom()
+    {
+    }
+
+    public double NextDouble()
+    {
+        lock (Sync)
+        {
+            return Random.NextDouble();
+        }
+    }
+}
+
 public interface IRealtimeAuthenticationProvider
 {
     Task<RealtimeAuthenticationMaterial> GetAuthenticationAsync(CancellationToken cancellationToken);

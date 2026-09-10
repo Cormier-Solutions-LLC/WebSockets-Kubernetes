@@ -27,6 +27,6 @@ Implement `IRealtimeAuthenticationProvider` to return a fresh connection ticket,
 
 The send and receive queues, message sizes, subscriptions, heartbeats, reconnect attempts, and transport close wait are bounded. Existing subscriptions are restored once after reconnection. Subscription changes are accepted only while connected, which avoids ambiguous offline ordering. Service-restart guidance from the gateway supplies a deterministic bounded reconnect delay; authentication material is refreshed on every connection attempt.
 
-`IRealtimeTransportFactory`, `IRealtimeClientClock`, `IRealtimeRetryPolicy`, and `IRealtimeClientLogger` are replaceable for platform integration and deterministic tests. The default transport uses `ClientWebSocket` and the `cormier.realtime.v1` subprotocol.
+`IRealtimeTransportFactory`, `IRealtimeClientClock`, `IRealtimeRetryPolicy`, `IRealtimeRandom`, and `IRealtimeClientLogger` are replaceable for platform integration and deterministic tests. The default transport uses `ClientWebSocket` and the `cormier.realtime.v1` subprotocol. A completed or faulted client is not restartable; create a new instance after an explicit disconnect or terminal close.
 
 The package ships XML documentation, symbols with Source Link metadata, a README, and a dependency on the compatible `Cormier.Realtime.Contracts` `0.1.x` line. Its runtime support dependencies are constrained to the compatible `10.x` line. Routes, hosts, headers, cookies, and tickets are supplied at runtime and are never compiled into the package.

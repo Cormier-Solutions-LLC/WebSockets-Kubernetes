@@ -98,8 +98,11 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
 {
     private readonly int _initialDelayMilliseconds;
     private readonly int _maximumDelayMilliseconds;
+    private readonly IRealtimeRandom _random;
 
-    public ExponentialRealtimeRetryPolicy(RealtimeClientOptions options)
+    public ExponentialRealtimeRetryPolicy(
+        RealtimeClientOptions options,
+        IRealtimeRandom? random = null)
     {
         if (options is null)
         {
@@ -107,6 +110,7 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
         }
         _initialDelayMilliseconds = options.InitialReconnectDelayMilliseconds;
         _maximumDelayMilliseconds = options.MaximumReconnectDelayMilliseconds;
+        _random = random ?? SystemRealtimeRandom.Instance;
     }
 
     public TimeSpan GetDelay(int attempt, RealtimeTransportClose? close)
@@ -116,8 +120,15 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
             throw new ArgumentOutOfRangeException(nameof(attempt));
         }
 
+        var initial = close?.Reconnect?.InitialDelayMilliseconds ?? _initialDelayMilliseconds;
+        var maximum = close?.Reconnect?.MaximumDelayMilliseconds ?? _maximumDelayMilliseconds;
         var multiplier = Math.Pow(2, Math.Min(attempt - 1, 30));
-        var delay = Math.Min(_maximumDelayMilliseconds, _initialDelayMilliseconds * multiplier);
+        var delay = Math.Min(maximum, initial * multiplier);
+        if (close?.Reconnect is { JitterRatio: > 0 } advice)
+        {
+            var factor = 1 + (((_random.NextDouble() * 2) - 1) * advice.JitterRatio);
+            delay = Math.Max(0, Math.Min(maximum, delay * factor));
+        }
         return TimeSpan.FromMilliseconds(delay);
     }
 }

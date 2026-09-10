@@ -570,6 +570,23 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task TerminalCleanupDiscardsBufferedInboundPayloads()
+    {
+        var transport = new FakeTransport();
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+        await transport.ReceiveWriter.WriteAsync(Server(
+            ProtocolMessageTypes.Event,
+            "buffered-event",
+            "topics/orders"));
+        await WaitUntilAsync(() => transport.ReceiveCount >= 2);
+
+        await client.DisconnectAsync(CancellationToken.None);
+
+        await Assert.ThrowsAsync<ChannelClosedException>(() => client.ReceiveAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task SendsAreRejectedAfterDisconnectStarts()
     {
         var transport = new FakeTransport { BlockClose = true };
@@ -744,6 +761,68 @@ public sealed class RealtimeClientTests
 
         Assert.Single(replayed, message => message.Type == ProtocolMessageTypes.Subscribe);
         Assert.Single(replayed, message => message.CorrelationId == "pending-publish");
+    }
+
+    [Fact]
+    public async Task ReceiveLoopRunsWhileInitialBacklogIsReplayed()
+    {
+        var transport = new FakeTransport { BlockSends = true };
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: new FakeTransportFactory(transport));
+        await client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "queued-publish");
+
+        var connecting = client.ConnectAsync(CancellationToken.None);
+        await transport.SendStarted.Task;
+        await transport.ReceiveWriter.WriteAsync(Server(
+            ProtocolMessageTypes.Event,
+            "event-during-replay",
+            "topics/orders"));
+
+        var received = await client.ReceiveAsync(CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("event-during-replay", received.CorrelationId);
+        transport.ReleaseSends.TrySetResult(true);
+        await connecting;
+    }
+
+    [Fact]
+    public async Task RejectedSubscriptionIsRemovedFromDesiredReconnectState()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second);
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.SubscribeAsync("topics/orders", "rejected-subscribe");
+        _ = await first.WaitForSentAsync();
+        var rejection = new ServerMessageEnvelope(
+            ProtocolVersions.Current,
+            ProtocolMessageTypes.Error,
+            "rejected-subscribe",
+            DateTimeOffset.UtcNow,
+            "topics/orders",
+            Error: new ProtocolError(ProtocolErrorCodes.Unauthorized, "The route is unauthorized."));
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Message(
+            JsonSerializer.SerializeToUtf8Bytes(
+                rejection,
+                RealtimeJsonSerializerContext.Default.ServerMessageEnvelope)));
+        _ = await client.ReceiveAsync(CancellationToken.None);
+
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+        await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
+
+        Assert.Equal(0, second.SentCount);
     }
 
     [Fact]
@@ -1164,6 +1243,7 @@ public sealed class RealtimeClientTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _sentCount;
         private int _sendAttempts;
+        private int _receiveCount;
 
         public ChannelWriter<RealtimeTransportReceiveResult> ReceiveWriter => _received.Writer;
 
@@ -1186,6 +1266,8 @@ public sealed class RealtimeClientTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int SentCount => Volatile.Read(ref _sentCount);
+
+        public int ReceiveCount => Volatile.Read(ref _receiveCount);
 
         public int? LastCloseCode { get; private set; }
 
@@ -1210,6 +1292,7 @@ public sealed class RealtimeClientTests
 
         public async Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref _receiveCount);
             var receive = _received.Reader.ReadAsync(cancellationToken).AsTask();
             if (await Task.WhenAny(receive, _receiveFailure.Task) == _receiveFailure.Task)
             {

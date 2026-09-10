@@ -29,6 +29,8 @@ public sealed class RealtimeClient : IDisposable
     private readonly SemaphoreSlim _subscriptionOrderGate = new(1, 1);
     private readonly SemaphoreSlim _subscriptionGate = new(1, 1);
     private readonly HashSet<string> _subscriptions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SubscriptionMutation> _pendingSubscriptionMutations =
+        new(StringComparer.Ordinal);
     private readonly HashSet<string> _heartbeatCorrelations = new(StringComparer.Ordinal);
     private readonly Queue<MessageEnvelope> _replayBacklog = new();
     private Task _stateNotificationTask = Task.CompletedTask;
@@ -271,6 +273,7 @@ public sealed class RealtimeClient : IDisposable
                     }
                 }
 
+                string? registeredCorrelationId = null;
                 try
                 {
                     var message = PrepareOwnedMessage(CreateMessage(
@@ -278,12 +281,15 @@ public sealed class RealtimeClient : IDisposable
                         route,
                         NullPayload,
                         correlationId));
+                    RegisterSubscriptionMutation(message.CorrelationId, route, subscribe);
+                    registeredCorrelationId = message.CorrelationId;
                     sendSlotTransferred = true;
                     await EnqueueOwnedAsync(message, cancellationToken, acquireSendSlot: false)
                         .ConfigureAwait(false);
                 }
                 catch
                 {
+                    RemoveSubscriptionMutation(registeredCorrelationId);
                     lock (_subscriptions)
                     {
                         if (subscribe)
@@ -414,32 +420,51 @@ public sealed class RealtimeClient : IDisposable
                     _options.MaximumFrameBytes,
                     _options.MaximumMessageBytes,
                     cancellationToken).ConfigureAwait(false);
-                await ReplayConnectionStateAsync(transport, cancellationToken).ConfigureAwait(false);
-                retryContext = null;
-                SetState(RealtimeClientState.Connected);
-                reconnectAttempt = 0;
-                _firstConnection.TrySetResult(true);
-                Log(RealtimeClientLogLevel.Information, ConnectedEventId, "Realtime connection is established.");
-
                 using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                var send = SendLoopAsync(transport, connectionCancellation.Token);
                 var receive = ReceiveLoopAsync(transport, connectionCancellation.Token);
-                var heartbeat = HeartbeatLoopAsync(connectionCancellation.Token);
-                var completed = await Task.WhenAny(send, receive, heartbeat).ConfigureAwait(false);
+                var replay = ReplayConnectionStateAsync(transport, connectionCancellation.Token);
+                Task? send = null;
+                Task? heartbeat = null;
+                var completed = await Task.WhenAny(replay, receive).ConfigureAwait(false);
                 try
                 {
-                    close = completed == receive ? await receive.ConfigureAwait(false) : null;
-                    if (completed != receive)
+                    if (completed == receive)
                     {
-                        await completed.ConfigureAwait(false);
+                        close = await receive.ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await replay.ConfigureAwait(false);
+                        retryContext = null;
+                        SetState(RealtimeClientState.Connected);
+                        reconnectAttempt = 0;
+                        _firstConnection.TrySetResult(true);
+                        Log(RealtimeClientLogLevel.Information, ConnectedEventId, "Realtime connection is established.");
+
+                        send = SendLoopAsync(transport, connectionCancellation.Token);
+                        heartbeat = HeartbeatLoopAsync(connectionCancellation.Token);
+                        completed = await Task.WhenAny(send, receive, heartbeat).ConfigureAwait(false);
+                        close = completed == receive ? await receive.ConfigureAwait(false) : null;
+                        if (completed != receive)
+                        {
+                            await completed.ConfigureAwait(false);
+                        }
                     }
                 }
                 finally
                 {
                     connectionCancellation.Cancel();
-                    await ObserveSiblingLoopAsync(send, completed).ConfigureAwait(false);
+                    await ObserveSiblingLoopAsync(replay, completed).ConfigureAwait(false);
                     await ObserveSiblingLoopAsync(receive, completed).ConfigureAwait(false);
-                    await ObserveSiblingLoopAsync(heartbeat, completed).ConfigureAwait(false);
+                    if (send is not null)
+                    {
+                        await ObserveSiblingLoopAsync(send, completed).ConfigureAwait(false);
+                    }
+                    if (heartbeat is not null)
+                    {
+                        await ObserveSiblingLoopAsync(heartbeat, completed).ConfigureAwait(false);
+                    }
+                    ClearPendingSubscriptionMutations();
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -631,6 +656,7 @@ public sealed class RealtimeClient : IDisposable
             {
                 continue;
             }
+            HandleSubscriptionResponse(envelope);
             await _inbound.Writer.WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
         }
         return null;
@@ -679,10 +705,21 @@ public sealed class RealtimeClient : IDisposable
             {
                 foreach (var route in routes)
                 {
-                    await SendDirectAsync(
-                        transport,
-                        CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, null),
-                        cancellationToken).ConfigureAwait(false);
+                    var command = CreateMessage(
+                        ProtocolMessageTypes.Subscribe,
+                        route,
+                        NullPayload,
+                        null);
+                    RegisterSubscriptionMutation(command.CorrelationId, route, subscribe: true);
+                    try
+                    {
+                        await SendDirectAsync(transport, command, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        RemoveSubscriptionMutation(command.CorrelationId);
+                        throw;
+                    }
                 }
             }
             catch
@@ -751,6 +788,70 @@ public sealed class RealtimeClient : IDisposable
         lock (_heartbeatCorrelations)
         {
             return _heartbeatCorrelations.Remove(message.CorrelationId);
+        }
+    }
+
+    private void RegisterSubscriptionMutation(string correlationId, string route, bool subscribe)
+    {
+        lock (_pendingSubscriptionMutations)
+        {
+            if (_pendingSubscriptionMutations.ContainsKey(correlationId))
+            {
+                throw new RealtimeClientException("A subscription command correlation identifier is already pending.");
+            }
+            _pendingSubscriptionMutations.Add(correlationId, new SubscriptionMutation(route, subscribe));
+        }
+    }
+
+    private void RemoveSubscriptionMutation(string? correlationId)
+    {
+        if (correlationId is null)
+        {
+            return;
+        }
+        lock (_pendingSubscriptionMutations)
+        {
+            _pendingSubscriptionMutations.Remove(correlationId);
+        }
+    }
+
+    private void HandleSubscriptionResponse(ServerMessageEnvelope message)
+    {
+        if (message.Type is not ProtocolMessageTypes.Acknowledge and not ProtocolMessageTypes.Error)
+        {
+            return;
+        }
+        SubscriptionMutation mutation;
+        lock (_pendingSubscriptionMutations)
+        {
+            if (!_pendingSubscriptionMutations.TryGetValue(message.CorrelationId, out mutation!))
+            {
+                return;
+            }
+            _pendingSubscriptionMutations.Remove(message.CorrelationId);
+        }
+        if (message.Type != ProtocolMessageTypes.Error)
+        {
+            return;
+        }
+        lock (_subscriptions)
+        {
+            if (mutation.Subscribe)
+            {
+                _subscriptions.Remove(mutation.Route);
+            }
+            else
+            {
+                _subscriptions.Add(mutation.Route);
+            }
+        }
+    }
+
+    private void ClearPendingSubscriptionMutations()
+    {
+        lock (_pendingSubscriptionMutations)
+        {
+            _pendingSubscriptionMutations.Clear();
         }
     }
 
@@ -897,6 +998,21 @@ public sealed class RealtimeClient : IDisposable
             _inbound.Writer.TryComplete();
             _firstConnection.TrySetCanceled(CancellationToken.None);
         }
+        while (_outbound.Reader.TryRead(out _))
+        {
+        }
+        while (_inbound.Reader.TryRead(out _))
+        {
+        }
+        lock (_replayBacklog)
+        {
+            _replayBacklog.Clear();
+        }
+        lock (_heartbeatCorrelations)
+        {
+            _heartbeatCorrelations.Clear();
+        }
+        ClearPendingSubscriptionMutations();
     }
 
     private void RaiseStateChanged(RealtimeClientState previous, RealtimeClientState current)
@@ -985,5 +1101,12 @@ public sealed class RealtimeClient : IDisposable
             }
         }
         await task.ConfigureAwait(false);
+    }
+
+    private sealed class SubscriptionMutation(string route, bool subscribe)
+    {
+        public string Route { get; } = route;
+
+        public bool Subscribe { get; } = subscribe;
     }
 }

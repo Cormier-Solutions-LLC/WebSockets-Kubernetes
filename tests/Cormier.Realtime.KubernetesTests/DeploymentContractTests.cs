@@ -509,6 +509,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
         Assert.Contains("${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
         Assert.Contains("overwrite: true", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
 
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);

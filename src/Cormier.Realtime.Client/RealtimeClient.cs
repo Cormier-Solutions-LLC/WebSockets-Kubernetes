@@ -21,6 +21,7 @@ public sealed class RealtimeClient : IDisposable
     private readonly IRealtimeClientClock _clock;
     private readonly IRealtimeRetryPolicy _retryPolicy;
     private readonly Channel<MessageEnvelope> _outbound;
+    private readonly Channel<bool> _sendSlots;
     private readonly Channel<ServerMessageEnvelope> _inbound;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskCompletionSource<bool> _firstConnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -52,12 +53,21 @@ public sealed class RealtimeClient : IDisposable
         _logger = logger ?? NullRealtimeClientLogger.Instance;
         _clock = clock ?? SystemRealtimeClientClock.Instance;
         _retryPolicy = retryPolicy ?? new ExponentialRealtimeRetryPolicy(_options);
-        _outbound = Channel.CreateBounded<MessageEnvelope>(new BoundedChannelOptions(_options.SendQueueCapacity)
+        _outbound = Channel.CreateUnbounded<MessageEnvelope>(new UnboundedChannelOptions
         {
-            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false,
         });
+        _sendSlots = Channel.CreateBounded<bool>(new BoundedChannelOptions(_options.SendQueueCapacity)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = false,
+            SingleWriter = false,
+        });
+        for (var index = 0; index < _options.SendQueueCapacity; index++)
+        {
+            _sendSlots.Writer.TryWrite(true);
+        }
         _inbound = Channel.CreateBounded<ServerMessageEnvelope>(new BoundedChannelOptions(_options.ReceiveQueueCapacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -128,7 +138,7 @@ public sealed class RealtimeClient : IDisposable
         {
             throw new RealtimeProtocolException("The outbound protocol message exceeded the configured frame limit.");
         }
-        await _outbound.Writer.WriteAsync(ownedMessage, cancellationToken).ConfigureAwait(false);
+        await EnqueueOwnedAsync(ownedMessage, cancellationToken).ConfigureAwait(false);
     }
 
     public Task PublishAsync(
@@ -350,13 +360,20 @@ public sealed class RealtimeClient : IDisposable
                 var receive = ReceiveLoopAsync(transport, connectionCancellation.Token);
                 var heartbeat = HeartbeatLoopAsync(connectionCancellation.Token);
                 var completed = await Task.WhenAny(send, receive, heartbeat).ConfigureAwait(false);
-                close = completed == receive ? await receive.ConfigureAwait(false) : null;
-                connectionCancellation.Cancel();
-                await IgnoreCancellationAsync(send).ConfigureAwait(false);
-                await IgnoreCancellationAsync(heartbeat).ConfigureAwait(false);
-                if (completed != receive)
+                try
                 {
-                    await completed.ConfigureAwait(false);
+                    close = completed == receive ? await receive.ConfigureAwait(false) : null;
+                    if (completed != receive)
+                    {
+                        await completed.ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    connectionCancellation.Cancel();
+                    await ObserveSiblingLoopAsync(send, completed).ConfigureAwait(false);
+                    await ObserveSiblingLoopAsync(receive, completed).ConfigureAwait(false);
+                    await ObserveSiblingLoopAsync(heartbeat, completed).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -455,7 +472,19 @@ public sealed class RealtimeClient : IDisposable
         {
             while (_outbound.Reader.TryRead(out var message))
             {
-                await SendDirectAsync(transport, message, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await SendDirectAsync(transport, message, cancellationToken).ConfigureAwait(false);
+                    ReleaseSendSlot();
+                }
+                catch
+                {
+                    lock (_replayBacklog)
+                    {
+                        _replayBacklog.Enqueue(message);
+                    }
+                    throw;
+                }
             }
         }
     }
@@ -512,9 +541,10 @@ public sealed class RealtimeClient : IDisposable
         {
             await _clock.DelayAsync(TimeSpan.FromSeconds(_options.HeartbeatSeconds), cancellationToken)
                 .ConfigureAwait(false);
-            await _outbound.Writer.WriteAsync(
-                CreateMessage(ProtocolMessageTypes.Ping, "system/heartbeat", NullPayload, null),
-                cancellationToken).ConfigureAwait(false);
+            await EnqueueOwnedAsync(
+                    CreateMessage(ProtocolMessageTypes.Ping, "system/heartbeat", NullPayload, null),
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -541,21 +571,12 @@ public sealed class RealtimeClient : IDisposable
         {
             while (_replayBacklog.Count > 0)
             {
-                pending.Add(_replayBacklog.Dequeue());
+                pending.Add(RefreshTimestamp(_replayBacklog.Dequeue()));
             }
         }
         while (_outbound.Reader.TryRead(out var message))
         {
-            if (string.Equals(message.Type, ProtocolMessageTypes.Publish, StringComparison.Ordinal))
-            {
-                pending.Add(new MessageEnvelope(
-                    message.Version,
-                    message.Type,
-                    message.CorrelationId,
-                    _clock.UtcNow,
-                    message.Route,
-                    message.Payload));
-            }
+            pending.Add(RefreshTimestamp(message));
         }
         return pending;
     }
@@ -570,6 +591,7 @@ public sealed class RealtimeClient : IDisposable
             try
             {
                 await SendDirectAsync(transport, pending[index], cancellationToken).ConfigureAwait(false);
+                ReleaseSendSlot();
             }
             catch
             {
@@ -584,6 +606,31 @@ public sealed class RealtimeClient : IDisposable
             }
         }
     }
+
+    private MessageEnvelope RefreshTimestamp(MessageEnvelope message) =>
+        new(
+            message.Version,
+            message.Type,
+            message.CorrelationId,
+            _clock.UtcNow,
+            message.Route,
+            message.Payload);
+
+    private async Task EnqueueOwnedAsync(MessageEnvelope message, CancellationToken cancellationToken)
+    {
+        await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _outbound.Writer.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            ReleaseSendSlot();
+            throw;
+        }
+    }
+
+    private void ReleaseSendSlot() => _sendSlots.Writer.TryWrite(true);
 
     private static Task SendDirectAsync(
         IRealtimeTransport transport,
@@ -638,6 +685,7 @@ public sealed class RealtimeClient : IDisposable
     private void CompleteChannels()
     {
         _outbound.Writer.TryComplete();
+        _sendSlots.Writer.TryComplete();
         _inbound.Writer.TryComplete();
         _firstConnection.TrySetCanceled(CancellationToken.None);
     }
@@ -695,15 +743,19 @@ public sealed class RealtimeClient : IDisposable
         }
     }
 
-    private static async Task IgnoreCancellationAsync(Task task)
+    private static async Task ObserveSiblingLoopAsync(Task task, Task completed)
     {
+        if (ReferenceEquals(task, completed))
+        {
+            return;
+        }
         try
         {
             await task.ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception)
         {
-            // Cancellation is the expected completion path for linked connection loops.
+            // The completed loop owns the reconnect outcome; sibling failures are only observed here.
         }
     }
 

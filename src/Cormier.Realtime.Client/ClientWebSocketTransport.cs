@@ -36,6 +36,10 @@ public sealed class ClientWebSocketTransportFactory : IRealtimeTransportFactory
 
             var authenticatedEndpoint = AppendTicket(endpoint, authentication.ConnectionTicket);
             await socket.ConnectAsync(authenticatedEndpoint, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(socket.SubProtocol, subProtocol, StringComparison.Ordinal))
+            {
+                throw new RealtimeProtocolException("The server did not negotiate the required realtime subprotocol.");
+            }
             return new ClientWebSocketTransport(socket, maximumFrameBytes, maximumMessageBytes);
         }
         catch
@@ -93,33 +97,30 @@ public sealed class ClientWebSocketTransport : IRealtimeTransport
     public async Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken)
     {
         var buffer = new byte[_maximumFrameBytes];
-        using var message = new MemoryStream();
-        while (true)
+        var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken)
+            .ConfigureAwait(false);
+        if (result.MessageType == WebSocketMessageType.Close)
         {
-            var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken)
-                .ConfigureAwait(false);
-            if (result.MessageType == WebSocketMessageType.Close)
-            {
-                return RealtimeTransportReceiveResult.Closed(
-                    result.CloseStatus.HasValue ? (int)result.CloseStatus.Value : null,
-                    NormalizeCloseReason(result.CloseStatusDescription),
-                    _socket.CloseStatus.HasValue);
-            }
-            if (result.MessageType != WebSocketMessageType.Text)
-            {
-                throw new RealtimeProtocolException("The server returned an unsupported WebSocket message type.");
-            }
-            if (message.Length + result.Count > _maximumMessageBytes)
-            {
-                throw new RealtimeProtocolException("The server message exceeded the configured size limit.");
-            }
-
-            message.Write(buffer, 0, result.Count);
-            if (result.EndOfMessage)
-            {
-                return RealtimeTransportReceiveResult.Message(message.ToArray());
-            }
+            return RealtimeTransportReceiveResult.Closed(
+                result.CloseStatus.HasValue ? (int)result.CloseStatus.Value : null,
+                NormalizeCloseReason(result.CloseStatusDescription),
+                _socket.CloseStatus.HasValue);
         }
+        if (result.MessageType != WebSocketMessageType.Text)
+        {
+            throw new RealtimeProtocolException("The server returned an unsupported WebSocket message type.");
+        }
+        if (!result.EndOfMessage)
+        {
+            throw new RealtimeProtocolException("The server returned a fragmented or oversized WebSocket frame.");
+        }
+        if (result.Count > _maximumMessageBytes)
+        {
+            throw new RealtimeProtocolException("The server message exceeded the configured size limit.");
+        }
+        var payload = new byte[result.Count];
+        Buffer.BlockCopy(buffer, 0, payload, 0, result.Count);
+        return RealtimeTransportReceiveResult.Message(payload);
     }
 
     public async Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken)

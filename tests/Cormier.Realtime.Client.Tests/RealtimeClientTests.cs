@@ -296,10 +296,13 @@ public sealed class RealtimeClientTests
     {
         var first = new FakeTransport { FailOnSendNumber = 2 };
         var second = new FakeTransport();
+        var clock = new AdvancingReconnectClock(
+            new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero),
+            TimeSpan.FromMinutes(10));
         using var client = new RealtimeClient(
             Options(),
             transportFactory: new FakeTransportFactory(first, second),
-            clock: new ImmediateClock(),
+            clock: clock,
             retryPolicy: new FixedRetryPolicy());
         await client.PublishAsync("topics/orders", JsonSerializer.SerializeToElement(new { value = 1 }), "one");
         await client.PublishAsync("topics/orders", JsonSerializer.SerializeToElement(new { value = 2 }), "two");
@@ -309,6 +312,80 @@ public sealed class RealtimeClientTests
         var envelope = JsonSerializer.Deserialize(replayed, RealtimeJsonSerializerContext.Default.MessageEnvelope);
 
         Assert.Equal("two", envelope?.CorrelationId);
+        Assert.Equal(clock.UtcNow, envelope?.Timestamp);
+    }
+
+    [Fact]
+    public async Task ActiveSendFailureCancelsSiblingLoopsAndReplaysThePublish()
+    {
+        var first = new FakeTransport { BlockSends = true };
+        var second = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second);
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "in-flight");
+        await first.SendStarted.Task;
+
+        first.FailReceive();
+        await WaitUntilAsync(() => factory.ConnectionCount == 2 && client.State == RealtimeClientState.Connected);
+        var replayed = await second.WaitForSentAsync();
+        var envelope = JsonSerializer.Deserialize(replayed, RealtimeJsonSerializerContext.Default.MessageEnvelope);
+
+        Assert.Equal("in-flight", envelope?.CorrelationId);
+    }
+
+    [Fact]
+    public async Task LowLevelMessagesQueuedBeforeConnectAreRetained()
+    {
+        var transport = new FakeTransport();
+        var clock = new AdjustableClock(new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero));
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: new FakeTransportFactory(transport),
+            clock: clock);
+        await client.SendAsync(new MessageEnvelope(
+            ProtocolVersions.Current,
+            ProtocolMessageTypes.Ping,
+            "queued-ping",
+            clock.UtcNow,
+            "system/heartbeat",
+            JsonSerializer.SerializeToElement<object?>(null)));
+
+        await client.ConnectAsync(CancellationToken.None);
+        var sent = await transport.WaitForSentAsync();
+        var envelope = JsonSerializer.Deserialize(sent, RealtimeJsonSerializerContext.Default.MessageEnvelope);
+
+        Assert.Equal(ProtocolMessageTypes.Ping, envelope?.Type);
+        Assert.Equal("queued-ping", envelope?.CorrelationId);
+    }
+
+    [Fact]
+    public async Task ReplayBacklogSharesTheConfiguredSendCapacity()
+    {
+        var first = new FakeTransport { FailOnSendNumber = 1 };
+        var clock = new BlockingReconnectClock();
+        using var client = new RealtimeClient(
+            Options(sendQueueCapacity: 2),
+            transportFactory: new FakeTransportFactory(first),
+            clock: clock,
+            retryPolicy: new FixedRetryPolicy());
+        await client.PublishAsync("topics/orders", JsonSerializer.SerializeToElement(new { value = 1 }), "one");
+        await client.PublishAsync("topics/orders", JsonSerializer.SerializeToElement(new { value = 2 }), "two");
+        var connecting = client.ConnectAsync(CancellationToken.None);
+        await clock.DelayStarted.Task;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.PublishAsync("topics/orders", JsonSerializer.SerializeToElement(new { value = 3 }), "three", timeout.Token));
+        await client.DisconnectAsync(CancellationToken.None);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connecting);
     }
 
     [Fact]
@@ -375,7 +452,7 @@ public sealed class RealtimeClientTests
     {
         var transport = new FakeTransport { BlockSends = true };
         using var client = new RealtimeClient(
-            Options(sendQueueCapacity: 1),
+            Options(sendQueueCapacity: 2),
             transportFactory: new FakeTransportFactory(transport));
         await client.ConnectAsync(CancellationToken.None);
         var payload = JsonSerializer.SerializeToElement(new { value = 1 });
@@ -443,7 +520,7 @@ public sealed class RealtimeClientTests
     public async Task SendQueueAppliesCancellationBackpressureWhenTransportIsSlow()
     {
         var transport = new FakeTransport { BlockSends = true };
-        using var client = new RealtimeClient(Options(sendQueueCapacity: 1), transportFactory: new FakeTransportFactory(transport));
+        using var client = new RealtimeClient(Options(sendQueueCapacity: 2), transportFactory: new FakeTransportFactory(transport));
         await client.ConnectAsync(CancellationToken.None);
         var payload = JsonSerializer.SerializeToElement(new { value = 1 });
 
@@ -671,6 +748,8 @@ public sealed class RealtimeClientTests
         private readonly Channel<byte[]> _sent = Channel.CreateUnbounded<byte[]>();
         private readonly Channel<RealtimeTransportReceiveResult> _received =
             Channel.CreateUnbounded<RealtimeTransportReceiveResult>();
+        private readonly TaskCompletionSource<bool> _receiveFailure =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _sentCount;
         private int _sendAttempts;
 
@@ -688,6 +767,8 @@ public sealed class RealtimeClientTests
 
         public int SentCount => Volatile.Read(ref _sentCount);
 
+        public void FailReceive() => _receiveFailure.TrySetResult(true);
+
         public async Task SendAsync(byte[] payload, CancellationToken cancellationToken)
         {
             var attempt = Interlocked.Increment(ref _sendAttempts);
@@ -704,8 +785,15 @@ public sealed class RealtimeClientTests
             await _sent.Writer.WriteAsync(payload, cancellationToken);
         }
 
-        public async Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken) =>
-            await _received.Reader.ReadAsync(cancellationToken);
+        public async Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            var receive = _received.Reader.ReadAsync(cancellationToken).AsTask();
+            if (await Task.WhenAny(receive, _receiveFailure.Task) == _receiveFailure.Task)
+            {
+                throw new InvalidOperationException("Expected receive failure.");
+            }
+            return await receive;
+        }
 
         public Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -765,6 +853,35 @@ public sealed class RealtimeClientTests
             }
             Delays.Add(delay);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class AdvancingReconnectClock(DateTimeOffset now, TimeSpan advance) : IRealtimeClientClock
+    {
+        public DateTimeOffset UtcNow { get; private set; } = now;
+
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            if (delay >= TimeSpan.FromSeconds(300))
+            {
+                return Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            UtcNow += advance;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingReconnectClock : IRealtimeClientClock
+    {
+        public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+
+        public TaskCompletionSource<bool> DelayStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            DelayStarted.TrySetResult(true);
+            return Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         }
     }
 

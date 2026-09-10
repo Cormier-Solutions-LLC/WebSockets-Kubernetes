@@ -43,8 +43,17 @@ catch (OperationCanceledException) when (stopping.IsCancellationRequested)
 
 internal sealed class EnvironmentAuthenticationProvider : IRealtimeAuthenticationProvider
 {
-    public Task<RealtimeAuthenticationMaterial> GetAuthenticationAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new RealtimeAuthenticationMaterial(
+    public Task<RealtimeAuthenticationMaterial> GetAuthenticationAsync(CancellationToken cancellationToken)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var origin = Environment.GetEnvironmentVariable("REALTIME_ORIGIN");
+        if (!string.IsNullOrWhiteSpace(origin))
+        {
+            headers["Origin"] = origin;
+        }
+        return Task.FromResult(new RealtimeAuthenticationMaterial(
             connectionTicket: Environment.GetEnvironmentVariable("REALTIME_TICKET"),
-            cookieHeader: Environment.GetEnvironmentVariable("REALTIME_COOKIE")));
+            cookieHeader: Environment.GetEnvironmentVariable("REALTIME_COOKIE"),
+            headers: headers));
+    }
 }

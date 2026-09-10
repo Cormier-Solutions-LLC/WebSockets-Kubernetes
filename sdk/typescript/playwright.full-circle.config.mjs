@@ -1,0 +1,53 @@
+import { defineConfig } from "@playwright/test";
+
+const profile = process.env.FULL_CIRCLE_PROFILE;
+if (profile !== "ha" && profile !== "non-ha") throw new Error("FULL_CIRCLE_PROFILE must be ha or non-ha.");
+const redis = process.env.REDIS_TEST_ENDPOINT ?? "127.0.0.1:6379";
+const instances = profile === "ha"
+  ? [{ name: "app-a", port: 15081 }, { name: "app-b", port: 15082 }]
+  : [{ name: "app-a", port: 15080 }];
+const entryPort = profile === "ha" ? 15083 : 15080;
+const appServers = instances.map(instance => ({
+  command: "dotnet run --project ../../examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore",
+  url: `http://127.0.0.1:${instance.port}/health`,
+  timeout: 60_000,
+  reuseExistingServer: false,
+  env: {
+    ASPNETCORE_URLS: `http://127.0.0.1:${instance.port}`,
+    FullCircle__Topology: profile,
+    FullCircle__InstanceName: instance.name,
+    Redis__Endpoint: redis,
+    Redis__InstancePrefix: "cormier:full-circle-tests",
+    Realtime__AllowedOrigins__0: `http://127.0.0.1:${entryPort}`,
+  },
+}));
+if (profile === "ha") {
+  appServers.push({
+    command: "node ./test/round-robin-proxy.mjs",
+    url: `http://127.0.0.1:${entryPort}/health`,
+    timeout: 30_000,
+    reuseExistingServer: false,
+    env: {
+      REALTIME_BROWSER_PROXY_PORT: String(entryPort),
+      REALTIME_BROWSER_BACKENDS: instances.map(instance => `http://127.0.0.1:${instance.port}`).join(","),
+    },
+  });
+}
+
+export default defineConfig({
+  testDir: "./test/full-circle",
+  timeout: 30_000,
+  expect: { timeout: 8_000 },
+  workers: 1,
+  fullyParallel: false,
+  reporter: process.env.CI ? [["line"], ["html", { outputFolder: "../../artifacts/full-circle/playwright-report", open: "never" }]] : "line",
+  outputDir: "../../artifacts/full-circle/test-results",
+  use: {
+    baseURL: `http://127.0.0.1:${entryPort}`,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+  },
+  webServer: appServers,
+  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+});

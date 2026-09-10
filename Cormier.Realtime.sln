@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cormier.Realtime.Example.Cl
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cormier.Realtime.Browser", "src\Cormier.Realtime.Browser\Cormier.Realtime.Browser.csproj", "{E041A206-315D-4854-8D99-8C8EC8CF99D7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cormier.Realtime.Example.FullCircle", "examples\full-circle\Cormier.Realtime.Example.FullCircle.csproj", "{74DF711A-C54C-474C-A6A3-88A45F038577}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -217,6 +219,18 @@ Global
 		{E041A206-315D-4854-8D99-8C8EC8CF99D7}.Release|x64.Build.0 = Release|Any CPU
 		{E041A206-315D-4854-8D99-8C8EC8CF99D7}.Release|x86.ActiveCfg = Release|Any CPU
 		{E041A206-315D-4854-8D99-8C8EC8CF99D7}.Release|x86.Build.0 = Release|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Debug|x64.Build.0 = Debug|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Debug|x86.Build.0 = Debug|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Release|Any CPU.Build.0 = Release|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Release|x64.ActiveCfg = Release|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Release|x64.Build.0 = Release|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Release|x86.ActiveCfg = Release|Any CPU
+		{74DF711A-C54C-474C-A6A3-88A45F038577}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -236,5 +250,6 @@ Global
 		{0213D262-B65D-4673-A31C-5A4AFC4590B5} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{ECB0E260-762A-4A09-A420-683681424FEF} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
 		{E041A206-315D-4854-8D99-8C8EC8CF99D7} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{74DF711A-C54C-474C-A6A3-88A45F038577} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
 	EndGlobalSection
 EndGlobal

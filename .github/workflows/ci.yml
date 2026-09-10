@@ -258,3 +258,63 @@ jobs:
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+
+  full-circle:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [bash, pwsh]
+        profile: [non-ha, ha]
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Bootstrap through Bash
+        if: matrix.shell == 'bash'
+        run: bash ./scripts/full-circle.sh bootstrap --profile "${{ matrix.profile }}"
+      - name: Bootstrap through PowerShell
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: ./scripts/FullCircle.ps1 -Action bootstrap -Profile '${{ matrix.profile }}'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Validate through Bash
+        if: matrix.shell == 'bash'
+        run: bash ./scripts/full-circle.sh validate --profile "${{ matrix.profile }}"
+      - name: Validate through PowerShell
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: ./scripts/FullCircle.ps1 -Action validate -Profile '${{ matrix.profile }}'
+      - name: Upload full-circle failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-circle-${{ matrix.shell }}-${{ matrix.profile }}-${{ github.sha }}
+          path: artifacts/full-circle
+      - name: Clean full-circle fixtures through Bash
+        if: always() && matrix.shell == 'bash'
+        run: bash ./scripts/full-circle.sh cleanup --profile "${{ matrix.profile }}"
+      - name: Clean full-circle fixtures through PowerShell
+        if: always() && matrix.shell == 'pwsh'
+        shell: pwsh
+        run: ./scripts/FullCircle.ps1 -Action cleanup -Profile '${{ matrix.profile }}'

@@ -74,7 +74,7 @@ public sealed class RealtimeAuthenticator(
             metrics.RecordAuthentication(false, "session");
             throw;
         }
-        metrics.RecordAuthentication(session is not null, "session");
+        metrics.RecordAuthentication(session is not null, "session", IsReconnectRequest(request));
         return session is null
             ? new AuthenticationResult(null, "session_invalid")
             : new AuthenticationResult(session.Identity, null, session.SessionId);

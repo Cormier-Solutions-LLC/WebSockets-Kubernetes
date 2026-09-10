@@ -30,7 +30,7 @@
       "source": "gateway connection registry",
       "aggregation": "max across instances",
       "temporality": "process lifetime",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["capacity dashboard"]
     },
@@ -44,7 +44,7 @@
       "source": "gateway connection registry",
       "aggregation": "sum across instances",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["capacity dashboard"]
     },
@@ -58,7 +58,7 @@
       "source": "bounded outbound queues",
       "aggregation": "sum across instances",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["backpressure dashboard", "queue alerts"]
     },
@@ -72,7 +72,7 @@
       "source": "bounded outbound queues",
       "aggregation": "max across instances",
       "temporality": "process lifetime",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["backpressure dashboard"]
     },
@@ -171,7 +171,7 @@
       "source": "Redis adapter",
       "aggregation": "merge buckets across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["Redis dashboard", "latency alerts"]
     },
@@ -186,7 +186,7 @@
       "source": "protocol handlers",
       "aggregation": "merge buckets across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["latency dashboard", "latency alerts"]
     },
@@ -200,7 +200,7 @@
       "source": "gateway lifecycle",
       "aggregation": "max across instances",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["rollout dashboard", "drain alerts"]
     },
@@ -214,7 +214,7 @@
       "source": "Redis subscriber",
       "aggregation": "minimum across expected instances",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["Redis dashboard", "availability alerts"]
     },
@@ -228,7 +228,7 @@
       "source": ".NET runtime",
       "aggregation": "sum across instances",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["resource dashboard"]
     },
@@ -242,7 +242,7 @@
       "source": ".NET runtime",
       "aggregation": "rate of sum across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
       "stability": "stable",
       "consumers": ["resource dashboard"]
     },
@@ -256,7 +256,7 @@
       "source": "assembly metadata",
       "aggregation": "group by version",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["rollout dashboard"]
     },
@@ -270,19 +270,19 @@
       "source": "deployment configuration",
       "aggregation": "group by mode",
       "temporality": "current",
-      "availability": ["prometheus", "openmetrics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["topology dashboard"]
     },
     { "name": "cormier_realtime_health_requests_total", "description": "Health endpoint requests.", "type": "counter", "unit": "requests", "labels": ["endpoint"], "cardinalityBudget": 3, "source": "health endpoints", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["availability dashboard"] },
     { "name": "cormier_realtime_authentication_failures_total", "description": "Aggregate authentication failures.", "type": "counter", "unit": "failures", "labels": [], "cardinalityBudget": 1, "source": "realtime authenticator", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "diagnostics"], "stability": "stable", "consumers": ["security alerts"] },
     { "name": "cormier_realtime_queue_dropped_total", "description": "Messages rejected by bounded queues.", "type": "counter", "unit": "messages", "labels": [], "cardinalityBudget": 1, "source": "bounded outbound queues", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"], "stability": "stable", "consumers": ["backpressure alerts"] },
-    { "name": "cormier_realtime_slow_consumer_disconnects_total", "description": "Clients disconnected after repeated queue saturation.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "connection registry", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics"], "stability": "stable", "consumers": ["backpressure alerts"] },
-    { "name": "cormier_realtime_heartbeat_timeouts_total", "description": "Connections closed for heartbeat timeout.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics"], "stability": "stable", "consumers": ["connection alerts"] },
-    { "name": "cormier_realtime_handshakes_total", "description": "WebSocket handshake outcomes.", "type": "counter", "unit": "attempts", "labels": ["outcome", "reason"], "cardinalityBudget": 13, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics"], "stability": "stable", "consumers": ["connection dashboard", "security alerts"] },
+    { "name": "cormier_realtime_slow_consumer_disconnects_total", "description": "Clients disconnected after repeated queue saturation.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "connection registry", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["backpressure alerts"] },
+    { "name": "cormier_realtime_heartbeat_timeouts_total", "description": "Connections closed for heartbeat timeout.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["connection alerts"] },
+    { "name": "cormier_realtime_handshakes_total", "description": "WebSocket handshake outcomes.", "type": "counter", "unit": "attempts", "labels": ["outcome", "reason"], "cardinalityBudget": 13, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["connection dashboard", "security alerts"] },
     { "name": "cormier_realtime_redis_errors_total", "description": "Aggregate failed Redis operations.", "type": "counter", "unit": "errors", "labels": [], "cardinalityBudget": 1, "source": "Redis adapter", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "diagnostics"], "stability": "stable", "consumers": ["Redis alerts"] },
     { "name": "cormier_realtime_websocket_closes_total", "description": "WebSocket closes by bounded status code.", "type": "counter", "unit": "connections", "labels": ["code"], "cardinalityBudget": 12, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["connection dashboard"] },
-    { "name": "cormier_realtime_abnormal_websocket_closes_total", "description": "Unexpected WebSocket closes.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics"], "stability": "stable", "consumers": ["connection alerts"] },
+    { "name": "cormier_realtime_abnormal_websocket_closes_total", "description": "Unexpected WebSocket closes.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "WebSocket handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["connection alerts"] },
     { "name": "cormier_realtime_handler_cancellations_total", "description": "Cancelled protocol handlers.", "type": "counter", "unit": "operations", "labels": [], "cardinalityBudget": 1, "source": "protocol handler", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"], "stability": "stable", "consumers": ["protocol dashboard"] },
     { "name": "cormier_realtime_connection_duration_seconds", "description": "WebSocket connection lifetime.", "type": "histogram", "unit": "seconds", "buckets": [1, 5, 10, 30, 60, 300, 900, 1800, 3600, 7200, 14400, 28800, 86400, 172800, 604800], "labels": ["reason"], "cardinalityBudget": 17, "source": "connection registry", "aggregation": "merge buckets across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp"], "stability": "stable", "consumers": ["connection dashboard"] },
     { "name": "cormier_realtime_reconnect_authentications_total", "description": "Successful authentications explicitly marked as reconnect attempts by supported clients.", "type": "counter", "unit": "connections", "labels": [], "cardinalityBudget": 1, "source": "realtime authenticator", "aggregation": "rate of sum across instances", "temporality": "cumulative", "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"], "stability": "stable", "consumers": ["reconnect dashboard"] },

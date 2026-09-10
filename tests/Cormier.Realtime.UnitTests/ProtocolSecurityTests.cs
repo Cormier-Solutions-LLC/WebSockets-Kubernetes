@@ -113,6 +113,27 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public async Task SessionReconnectIsRecordedFromExplicitClientContext()
+    {
+        using var metrics = new GatewayMetrics();
+        var authenticator = new RealtimeAuthenticator(
+            new FixedSessionResolver(),
+            new UnusedTicketStore(),
+            new RealtimeOptions { AllowedOrigins = ["https://gateway.example"] },
+            metrics);
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("gateway.example");
+        context.Request.Headers.Origin = "https://gateway.example";
+        context.Request.QueryString = new QueryString("?reconnect=true");
+
+        var result = await authenticator.AuthenticateAsync(context, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("cormier_realtime_reconnect_authentications_total 1", metrics.RenderPrometheus(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ConnectionQueueIsBoundedAndTracksDuplicateCorrelations()
     {
         using var metrics = new GatewayMetrics();
@@ -288,6 +309,29 @@ public sealed class ProtocolSecurityTests
 
     private static RealtimeIdentity Identity() =>
         new("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.AddHours(1));
+
+    private sealed class FixedSessionResolver : IRealtimeSessionResolver
+    {
+        public ValueTask<RealtimeSessionResolution?> ResolveAsync(HttpContext context, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<RealtimeSessionResolution?>(new("session-1", Identity()));
+
+        public ValueTask<RealtimeIdentity?> RevalidateAsync(string sessionId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<RealtimeIdentity?>(Identity());
+    }
+
+    private sealed class UnusedTicketStore : IConnectionTicketStore
+    {
+        public ValueTask<string> IssueAsync(
+            RealtimeIdentity identity,
+            string audience,
+            TimeSpan lifetime,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<RealtimeIdentity?> ConsumeAsync(
+            string ticket,
+            string audience,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
 
     private static async Task IgnoreCancellationAsync(Task task)
     {

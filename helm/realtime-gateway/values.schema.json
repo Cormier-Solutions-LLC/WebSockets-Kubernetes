@@ -117,7 +117,7 @@
       "allOf": [
         {
           "if": { "properties": { "enabled": { "const": true } } },
-          "then": { "properties": { "authorizationPolicy": { "minLength": 1 }, "operatorTokenSecret": { "properties": { "name": { "minLength": 1 } } }, "allowedNetworks": { "minItems": 1 } } }
+          "then": { "properties": { "productionEnabled": { "const": true }, "authorizationPolicy": { "minLength": 1 }, "operatorTokenSecret": { "properties": { "name": { "minLength": 1 } } }, "allowedNetworks": { "minItems": 1 } } }
         }
       ]
     },

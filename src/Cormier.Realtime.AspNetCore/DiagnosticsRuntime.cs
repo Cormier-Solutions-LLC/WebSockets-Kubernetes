@@ -156,6 +156,7 @@ public sealed class RuntimeLogLevelController(
             .Where(item => item.ExpiresAt > now &&
                 (item.Category == "*" || category.StartsWith(item.Category, StringComparison.Ordinal)))
             .OrderByDescending(item => item.Category.Length)
+            .ThenByDescending(item => item.Scope == "instance")
             .FirstOrDefault();
         return selected?.Level ?? BaselineLevel(category);
     }

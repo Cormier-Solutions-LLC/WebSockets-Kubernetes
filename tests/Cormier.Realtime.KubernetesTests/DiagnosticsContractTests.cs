@@ -73,9 +73,11 @@ public sealed class DiagnosticsContractTests
             .EnumerateArray()
             .Where(metric => metric.GetProperty("availability").EnumerateArray()
                 .Any(value => value.GetString() == "otlp"))
-            .Select(metric => metric.GetProperty("name").GetString()!);
+            .Select(metric => metric.GetProperty("name").GetString()!)
+            .ToHashSet(StringComparer.Ordinal);
 
         Assert.All(otlpNames, name => Assert.Contains(name, instruments));
+        Assert.All(instruments, name => Assert.Contains(name, otlpNames));
     }
 
     [Fact]
@@ -99,6 +101,16 @@ public sealed class DiagnosticsContractTests
         Assert.Contains(".Values.metrics.path", monitor, StringComparison.Ordinal);
         Assert.Contains("authorization:", monitor, StringComparison.Ordinal);
         Assert.Contains(".Values.diagnostics.operatorTokenSecret.name", monitor, StringComparison.Ordinal);
+        Assert.StartsWith("{{- if and .Values.metrics.enabled", monitor, StringComparison.Ordinal);
+        Assert.StartsWith(
+            "{{- if and .Values.metrics.enabled",
+            Read("helm/realtime-gateway/templates/prometheusrule.yaml"),
+            StringComparison.Ordinal);
+        using var schema = JsonDocument.Parse(Read("helm/realtime-gateway/values.schema.json"));
+        var diagnosticsCondition = schema.RootElement.GetProperty("properties")
+            .GetProperty("diagnostics").GetProperty("allOf")[0];
+        Assert.True(diagnosticsCondition.GetProperty("then").GetProperty("properties")
+            .GetProperty("productionEnabled").GetProperty("const").GetBoolean());
         Assert.Contains("CORMIER_REALTIME_INSTANCE_ID", deployment, StringComparison.Ordinal);
     }
 

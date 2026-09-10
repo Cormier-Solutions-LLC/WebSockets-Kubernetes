@@ -249,6 +249,24 @@ public sealed class DiagnosticsTests
         Assert.False(subscription.Reader.TryRead(out _));
     }
 
+    [Fact]
+    public void InstanceOverrideTakesPrecedenceOverReplicaWideOverrideForTheSameCategory()
+    {
+        var controller = Controller(new DiagnosticsOptions());
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.Redis", "Warning", 30, "replica investigation", "all"),
+            "operator",
+            out _,
+            out _));
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.Redis", "Trace", 30, "instance investigation", "instance"),
+            "operator",
+            out _,
+            out _));
+
+        Assert.Equal(LogLevel.Trace, controller.EffectiveLevel("Cormier.Realtime.Redis.Connection"));
+    }
+
     private static RuntimeLogLevelController Controller(DiagnosticsOptions options) => new(
         Options.Create(options),
         new DiagnosticsIdentity());

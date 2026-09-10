@@ -1287,6 +1287,7 @@ public sealed class RealtimeClientTests
         await client.ConnectAsync(CancellationToken.None);
         _ = await transport.WaitForSentAsync();
         await clock.ThirdDelayStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        _ = await transport.WaitForSentAsync();
 
         Assert.Equal(2, transport.SentCount);
     }

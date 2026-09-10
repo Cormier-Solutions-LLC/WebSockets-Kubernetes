@@ -68,7 +68,7 @@ try {
       do {
         const batch = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
         cursor = batch.cursor;
-        if (batch.keys.length > 0) await client.unlink(batch.keys);
+        await Promise.all(batch.keys.map(key => client.unlink(key)));
       } while (cursor !== "0");
     }
   }

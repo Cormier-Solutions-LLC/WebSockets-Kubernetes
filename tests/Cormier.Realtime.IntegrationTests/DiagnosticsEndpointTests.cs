@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -261,9 +262,10 @@ public sealed class DiagnosticsEndpointTests
         using var invalidRequest = OperatorRequest(HttpMethod.Get, "/diagnostics/v1/logs/tail?level=not-a-level");
         using var invalid = await client.SendAsync(invalidRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
-        foreach (var path in InvalidNumericLogTailPaths)
+        foreach (var request in InvalidNumericLogTailPaths
+                     .Select(static path => OperatorRequest(HttpMethod.Get, path)))
         {
-            using var numericRequest = OperatorRequest(HttpMethod.Get, path);
+            using var numericRequest = request;
             using var numeric = await client.SendAsync(numericRequest, CancellationToken.None);
             Assert.Equal(HttpStatusCode.BadRequest, numeric.StatusCode);
         }

@@ -655,6 +655,31 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task ConcurrentDisconnectAndDisposeCompletePendingReceivers()
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var client = new RealtimeClient(Options());
+            var receive = client.ReceiveAsync(CancellationToken.None);
+            using var start = new ManualResetEventSlim();
+            var disconnect = Task.Run(async () =>
+            {
+                start.Wait();
+                await client.DisconnectAsync(CancellationToken.None);
+            });
+            var dispose = Task.Run(() =>
+            {
+                start.Wait();
+                client.Dispose();
+            });
+
+            start.Set();
+            await Task.WhenAll(disconnect, dispose);
+            await Assert.ThrowsAsync<ChannelClosedException>(() => receive);
+        }
+    }
+
+    [Fact]
     public async Task TerminalCleanupDiscardsBufferedInboundPayloads()
     {
         var transport = new FakeTransport();

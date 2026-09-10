@@ -24,6 +24,7 @@ public sealed class RealtimeClient : IDisposable
     private readonly Channel<bool> _sendSlots;
     private readonly Channel<ServerMessageEnvelope> _inbound;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly object _lifetimeLock = new();
     private readonly TaskCompletionSource<bool> _firstConnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _subscriptionOrderGate = new(1, 1);
@@ -40,6 +41,7 @@ public sealed class RealtimeClient : IDisposable
     private RealtimeClientState _state;
     private bool _acceptingSends = true;
     private bool _disposed;
+    private bool _lifetimeDisposed;
     private long _nextSubscriptionMutationSequence;
     private SubscriptionRollback? _activeSubscriptionRollback;
 
@@ -397,7 +399,7 @@ public sealed class RealtimeClient : IDisposable
                 QueueStateChangeLocked(RealtimeClientState.Stopping);
             }
         }
-        _lifetime.Cancel();
+        CancelLifetime();
         if (completeWithoutRun)
         {
             CompleteChannels();
@@ -425,7 +427,7 @@ public sealed class RealtimeClient : IDisposable
                 completeWithoutRun = true;
             }
         }
-        _lifetime.Cancel();
+        CancelLifetime();
         if (completeWithoutRun)
         {
             CompleteChannels();
@@ -438,7 +440,7 @@ public sealed class RealtimeClient : IDisposable
         {
             // Cancellation is the expected completion path during synchronous disposal.
         }
-        _lifetime.Dispose();
+        DisposeLifetime();
     }
 
     private async Task RunAsync(CancellationToken cancellationToken)
@@ -1284,6 +1286,30 @@ public sealed class RealtimeClient : IDisposable
         if (_disposed)
         {
             throw new ObjectDisposedException(nameof(RealtimeClient));
+        }
+    }
+
+    private void CancelLifetime()
+    {
+        lock (_lifetimeLock)
+        {
+            if (!_lifetimeDisposed)
+            {
+                _lifetime.Cancel();
+            }
+        }
+    }
+
+    private void DisposeLifetime()
+    {
+        lock (_lifetimeLock)
+        {
+            if (_lifetimeDisposed)
+            {
+                return;
+            }
+            _lifetime.Dispose();
+            _lifetimeDisposed = true;
         }
     }
 

@@ -28,6 +28,7 @@ public sealed class RealtimeClient : IDisposable
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _subscriptionGate = new(1, 1);
     private readonly HashSet<string> _subscriptions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _heartbeatCorrelations = new(StringComparer.Ordinal);
     private readonly Queue<MessageEnvelope> _replayBacklog = new();
     private Task _stateNotificationTask = Task.CompletedTask;
     private Task? _runTask;
@@ -403,6 +404,7 @@ public sealed class RealtimeClient : IDisposable
             }
             catch (RealtimeProtocolException exception)
             {
+                StopAcceptingSends();
                 cleanupCloseCode = exception.CloseCode;
                 cleanupCloseReason = "protocol_failure";
                 Log(RealtimeClientLogLevel.Error, ProtocolFailureEventId, "Realtime protocol validation failed.");
@@ -414,6 +416,7 @@ public sealed class RealtimeClient : IDisposable
             {
                 if (reconnectAttempt >= _options.MaximumReconnectAttempts)
                 {
+                    StopAcceptingSends();
                     SetState(RealtimeClientState.Faulted);
                     _firstConnection.TrySetException(new RealtimeClientException(
                         "The realtime connection could not be established within the retry limit."));
@@ -463,19 +466,28 @@ public sealed class RealtimeClient : IDisposable
             reconnectAttempt++;
             if (reconnectAttempt > _options.MaximumReconnectAttempts)
             {
+                StopAcceptingSends();
                 SetState(RealtimeClientState.Faulted);
                 _firstConnection.TrySetException(new RealtimeClientException(
                     "The realtime connection closed after the configured retry limit."));
                 break;
             }
             SetState(RealtimeClientState.Reconnecting);
-            var delay = ReconnectDelay(reconnectAttempt, retryContext);
             try
             {
+                var delay = ReconnectDelay(reconnectAttempt, retryContext);
                 await _clock.DelayAsync(delay, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                break;
+            }
+            catch (Exception)
+            {
+                StopAcceptingSends();
+                SetState(RealtimeClientState.Faulted);
+                _firstConnection.TrySetException(new RealtimeClientException(
+                    "The realtime retry schedule failed."));
                 break;
             }
         }
@@ -521,6 +533,10 @@ public sealed class RealtimeClient : IDisposable
             var received = await transport.ReceiveAsync(cancellationToken).ConfigureAwait(false);
             if (received.Close is not null)
             {
+                if (received.Close.Code == RealtimeCloseCodes.Normal)
+                {
+                    StopAcceptingSends();
+                }
                 return received.Close;
             }
             if (received.Payload is null)
@@ -553,6 +569,11 @@ public sealed class RealtimeClient : IDisposable
                     Clean: true,
                     envelope.Reconnect);
             }
+            if (string.Equals(envelope.Type, ProtocolMessageTypes.Ping, StringComparison.Ordinal) ||
+                IsAutomaticHeartbeatAcknowledgement(envelope))
+            {
+                continue;
+            }
             await _inbound.Writer.WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
         }
         return null;
@@ -564,10 +585,23 @@ public sealed class RealtimeClient : IDisposable
         {
             await _clock.DelayAsync(TimeSpan.FromSeconds(_options.HeartbeatSeconds), cancellationToken)
                 .ConfigureAwait(false);
-            await EnqueueOwnedAsync(
-                    CreateMessage(ProtocolMessageTypes.Ping, "system/heartbeat", NullPayload, null),
-                    cancellationToken)
-                .ConfigureAwait(false);
+            var heartbeat = CreateMessage(ProtocolMessageTypes.Ping, "system/heartbeat", NullPayload, null);
+            lock (_heartbeatCorrelations)
+            {
+                _heartbeatCorrelations.Add(heartbeat.CorrelationId);
+            }
+            try
+            {
+                await EnqueueOwnedAsync(heartbeat, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                lock (_heartbeatCorrelations)
+                {
+                    _heartbeatCorrelations.Remove(heartbeat.CorrelationId);
+                }
+                throw;
+            }
         }
     }
 
@@ -594,14 +628,52 @@ public sealed class RealtimeClient : IDisposable
         {
             while (_replayBacklog.Count > 0)
             {
-                pending.Add(RefreshTimestamp(_replayBacklog.Dequeue()));
+                AddPendingApplicationMessage(pending, _replayBacklog.Dequeue());
             }
         }
         while (_outbound.Reader.TryRead(out var message))
         {
-            pending.Add(RefreshTimestamp(message));
+            AddPendingApplicationMessage(pending, message);
+        }
+        lock (_heartbeatCorrelations)
+        {
+            _heartbeatCorrelations.Clear();
         }
         return pending;
+    }
+
+    private void AddPendingApplicationMessage(List<MessageEnvelope> pending, MessageEnvelope message)
+    {
+        if (IsSubscriptionCommand(message) || IsAutomaticHeartbeat(message))
+        {
+            ReleaseSendSlot();
+            return;
+        }
+        pending.Add(RefreshTimestamp(message));
+    }
+
+    private static bool IsSubscriptionCommand(MessageEnvelope message) =>
+        string.Equals(message.Type, ProtocolMessageTypes.Subscribe, StringComparison.Ordinal) ||
+        string.Equals(message.Type, ProtocolMessageTypes.Unsubscribe, StringComparison.Ordinal);
+
+    private bool IsAutomaticHeartbeat(MessageEnvelope message)
+    {
+        lock (_heartbeatCorrelations)
+        {
+            return _heartbeatCorrelations.Remove(message.CorrelationId);
+        }
+    }
+
+    private bool IsAutomaticHeartbeatAcknowledgement(ServerMessageEnvelope message)
+    {
+        if (!string.Equals(message.Type, ProtocolMessageTypes.Acknowledge, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        lock (_heartbeatCorrelations)
+        {
+            return _heartbeatCorrelations.Remove(message.CorrelationId);
+        }
     }
 
     private async Task ReplayPendingApplicationMessagesAsync(
@@ -691,6 +763,14 @@ public sealed class RealtimeClient : IDisposable
         lock (_stateLock)
         {
             QueueStateChangeLocked(state);
+        }
+    }
+
+    private void StopAcceptingSends()
+    {
+        lock (_stateLock)
+        {
+            _acceptingSends = false;
         }
     }
 

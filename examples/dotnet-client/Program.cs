@@ -19,17 +19,17 @@ Console.CancelKeyPress += (_, eventArgs) =>
 using var client = new RealtimeClient(
     new RealtimeClientOptions { Endpoint = endpoint },
     new EnvironmentAuthenticationProvider());
-await client.ConnectAsync(stopping.Token);
-
-var orders = RealtimeRoute.ForTopic("orders");
-await client.SubscribeAsync(orders, cancellationToken: stopping.Token);
-await client.PublishAsync(
-    orders,
-    JsonSerializer.SerializeToElement(new { source = "dotnet-client-example" }),
-    cancellationToken: stopping.Token);
-
 try
 {
+    await client.ConnectAsync(stopping.Token);
+
+    var orders = RealtimeRoute.ForTopic("orders");
+    await client.SubscribeAsync(orders, cancellationToken: stopping.Token);
+    await client.PublishAsync(
+        orders,
+        JsonSerializer.SerializeToElement(new { source = "dotnet-client-example" }),
+        cancellationToken: stopping.Token);
+
     while (!stopping.IsCancellationRequested)
     {
         var message = await client.ReceiveAsync(stopping.Token);

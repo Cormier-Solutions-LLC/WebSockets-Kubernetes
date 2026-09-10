@@ -1,0 +1,112 @@
+{
+  "protocolVersion": "1.0",
+  "subprotocol": "cormier.realtime.v1",
+  "validClientEnvelopes": [
+    {
+      "version": "1.0",
+      "type": "ping",
+      "correlationId": "fixture-ping-1",
+      "timestamp": "2026-08-30T17:00:00.000Z",
+      "route": "system/heartbeat",
+      "payload": null
+    },
+    {
+      "version": "1.0",
+      "type": "subscribe",
+      "correlationId": "fixture-subscribe-1",
+      "timestamp": "2026-08-30T17:00:00.000Z",
+      "route": "topics/orders",
+      "payload": null
+    },
+    {
+      "version": "1.0",
+      "type": "publish",
+      "correlationId": "fixture-publish-1",
+      "timestamp": "2026-08-30T17:00:00.000Z",
+      "route": "users/user-1/topics/orders",
+      "payload": {
+        "value": 42
+      }
+    }
+  ],
+  "validServerEnvelopes": [
+    {
+      "version": "1.0",
+      "type": "ack",
+      "correlationId": "fixture-publish-1",
+      "timestamp": "2026-08-30T17:00:00.100Z",
+      "route": "users/user-1/topics/orders"
+    },
+    {
+      "version": "1.0",
+      "type": "error",
+      "correlationId": "fixture-invalid-1",
+      "timestamp": "2026-08-30T17:00:00.100Z",
+      "route": "topics/orders",
+      "error": {
+        "code": "invalid_envelope",
+        "message": "The message envelope is invalid."
+      }
+    },
+    {
+      "version": "1.0",
+      "type": "service.restart",
+      "correlationId": "fixture-restart-1",
+      "timestamp": "2026-08-30T17:00:00.100Z",
+      "route": "system/restart",
+      "reconnect": {
+        "initialDelayMilliseconds": 500,
+        "maximumDelayMilliseconds": 30000,
+        "jitterRatio": 0.2,
+        "reauthenticate": true
+      }
+    }
+  ],
+  "invalidEnvelopes": [
+    {
+      "name": "unsupported version",
+      "value": {
+        "version": "2.0",
+        "type": "ping",
+        "correlationId": "fixture-invalid-version",
+        "timestamp": "2026-08-30T17:00:00.000Z",
+        "route": "system/heartbeat"
+      },
+      "errorCode": "unsupported_version"
+    },
+    {
+      "name": "unsupported type",
+      "value": {
+        "version": "1.0",
+        "type": "unknown",
+        "correlationId": "fixture-invalid-type",
+        "timestamp": "2026-08-30T17:00:00.000Z",
+        "route": "topics/orders"
+      },
+      "errorCode": "unsupported_type"
+    },
+    {
+      "name": "missing correlation",
+      "value": {
+        "version": "1.0",
+        "type": "subscribe",
+        "correlationId": "",
+        "timestamp": "2026-08-30T17:00:00.000Z",
+        "route": "topics/orders"
+      },
+      "errorCode": "invalid_envelope"
+    },
+    {
+      "name": "null publish payload",
+      "value": {
+        "version": "1.0",
+        "type": "publish",
+        "correlationId": "fixture-null-payload",
+        "timestamp": "2026-08-30T17:00:00.000Z",
+        "route": "topics/orders",
+        "payload": null
+      },
+      "errorCode": "invalid_envelope"
+    }
+  ]
+}

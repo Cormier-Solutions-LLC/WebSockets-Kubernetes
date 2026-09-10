@@ -55,3 +55,5 @@ Redis Streams are optional and apply only when `eventClass` exactly matches `Rea
 Version `1.0` is matched exactly. Additive optional payload fields may be introduced within 1.x, but required envelope changes, type semantic changes, and field removals require a new protocol version and subprotocol. Unsupported versions and message types receive structured errors. Clients must ignore unknown optional server fields.
 
 Metrics and traces include operation, outcome, correlation, close code, and aggregate counters. They must never include cookies, tickets, payloads, tenant IDs, or user IDs. Structured logs follow the same restriction.
+
+Language-neutral fixtures in `protocol/fixtures/v1/envelopes.json` are consumed by both the .NET contract suite and `@cormier/realtime`. A fixture or protocol constant change that is not understood by either implementation fails CI. Later .NET consumer SDKs must consume the same fixtures; full cross-SDK live conformance is exercised by the packaged-consumer application after those SDKs are available.

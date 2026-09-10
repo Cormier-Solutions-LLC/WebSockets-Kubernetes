@@ -10,13 +10,16 @@ An independently deployable .NET 10 Native AOT foundation for the Cormier realti
 - `tests` — unit, integration, Kubernetes, and load-test projects.
 - `helm` and `cluster` — deployment assets developed by PBV7-487/PBV7-488.
 - `observability` — dashboard and alert assets developed by PBV7-489.
+- `sdk/typescript` — typed client and deterministic ESM/IIFE browser artifacts.
+- `protocol/fixtures` — language-neutral wire-compatibility fixtures.
+- `examples/browser` — plain HTML/direct-script consumer example.
 - `scripts` — PowerShell 7 bootstrap and lifecycle automation.
 - `docs` — architecture and developer guidance.
 - `refs` — source Jira exports and governing scripting standard.
 
 ## Quick start
 
-Prerequisites are PowerShell 7, the .NET 10 SDK, Git, and optionally Docker for OCI verification.
+Prerequisites are PowerShell 7, the .NET 10 SDK, Git, Node.js 22 or newer for the browser SDK, and optionally Docker for OCI verification.
 
 ```powershell
 pwsh ./scripts/Bootstrap-Realtime.ps1
@@ -60,3 +63,7 @@ dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r $runtimeIdentifier -
 ```
 
 Linux CI publishes a `linux-x64` Native AOT executable and an OCI archive from the .NET SDK. Versions begin at `0.1.0` and are controlled centrally by `Directory.Build.props`.
+
+## Browser SDK
+
+The strict TypeScript client under `sdk/typescript` produces readable and minified ESM and direct-browser IIFE artifacts. It supports same-origin sessions, single-use tickets, bounded command handling, heartbeats, reconnect with fresh authentication, and duplicate-free subscription restoration. See [the TypeScript SDK guide](docs/typescript-sdk.md) for the API, browser matrix, CSP and edge requirements, compatibility policy, and verification commands.

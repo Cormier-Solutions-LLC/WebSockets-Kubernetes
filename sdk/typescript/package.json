@@ -1,0 +1,44 @@
+{
+  "name": "@cormier/realtime",
+  "version": "0.1.0",
+  "description": "Browser and TypeScript client for Cormier.Realtime",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/cormier-realtime.js",
+  "module": "./dist/cormier-realtime.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/cormier-realtime.js",
+      "default": "./dist/cormier-realtime.js"
+    },
+    "./browser": "./dist/cormier-realtime.iife.js"
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "build:check": "node ./scripts/check-reproducible.mjs",
+    "check": "npm run typecheck && npm run test && npm run build:check",
+    "test": "npm run build --silent && node --test --enable-source-maps ./test/*.test.mjs",
+    "test:browser": "npm run build --silent && playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.2",
+    "esbuild": "0.28.2",
+    "redis": "6.2.1",
+    "typescript": "7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

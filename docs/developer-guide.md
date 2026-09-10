@@ -2,7 +2,7 @@
 
 ## Supported development platforms
 
-The repository supports Windows, Linux, and macOS development with PowerShell 7 and .NET SDK 10.0.303 or a later compatible .NET 10 feature band. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification.
+The repository supports Windows, Linux, and macOS development with PowerShell 7, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, and Node.js 22 or newer for browser SDK work. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.
 
 ## Bootstrap
 
@@ -29,6 +29,21 @@ dotnet build ./Cormier.Realtime.sln -c Release --no-restore
 dotnet test ./Cormier.Realtime.sln -c Release --no-build
 dotnet run --project ./src/Cormier.Realtime.Gateway
 ```
+
+The TypeScript and browser validation is independently locked with `package-lock.json`:
+
+```powershell
+dotnet build ./Cormier.Realtime.sln -c Release
+Push-Location ./sdk/typescript
+npm ci
+npm run check
+npx playwright install chromium firefox webkit
+npm run test:browser
+npm pack --dry-run
+Pop-Location
+```
+
+The browser suite starts two gateway processes plus an ordinary round-robin WebSocket proxy. It requires Redis at `REDIS_TEST_ENDPOINT` (default `127.0.0.1:6379`) and uses configurable loopback test ports. Details and troubleshooting are in [typescript-sdk.md](typescript-sdk.md).
 
 Configuration uses normal ASP.NET Core providers. Environment variables use double underscores, for example `Gateway__ShutdownDrainSeconds=30` and `Redis__Endpoint=redis:6379`. Never commit Redis credentials or put secrets in command arguments.
 

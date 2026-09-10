@@ -24,4 +24,8 @@
     <ProjectReference Include="..\..\src\Cormier.Realtime.Redis\Cormier.Realtime.Redis.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\protocol\fixtures\v1\envelopes.json" Link="protocol\fixtures\v1\envelopes.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

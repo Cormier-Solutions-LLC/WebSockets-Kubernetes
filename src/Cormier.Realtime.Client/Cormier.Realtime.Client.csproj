@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <VersionPrefix>$(DotNetClientVersion)</VersionPrefix>
+    <ContractsCompatibilityUpperBound Condition="'$(ContractsCompatibilityUpperBound)' == ''">0.2.0</ContractsCompatibilityUpperBound>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -41,7 +42,7 @@
     <ItemGroup>
       <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
                                       Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Cormier.Realtime.Contracts'">
-        <ProjectVersion>[$(ContractsVersion),0.2.0)</ProjectVersion>
+        <ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>
       </_ProjectReferencesWithVersions>
     </ItemGroup>
   </Target>

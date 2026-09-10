@@ -28,6 +28,8 @@ public sealed class RealtimeClientOptions
 
     public int CloseTimeoutSeconds { get; set; } = 5;
 
+    public bool AllowInsecureCredentialTransport { get; set; }
+
     internal RealtimeClientOptions Snapshot() => new()
     {
         Endpoint = Endpoint,
@@ -43,6 +45,7 @@ public sealed class RealtimeClientOptions
         MaximumReconnectDelayMilliseconds = MaximumReconnectDelayMilliseconds,
         ReconnectJitterRatio = ReconnectJitterRatio,
         CloseTimeoutSeconds = CloseTimeoutSeconds,
+        AllowInsecureCredentialTransport = AllowInsecureCredentialTransport,
     };
 
     internal void Validate()

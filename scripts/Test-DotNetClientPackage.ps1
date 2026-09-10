@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$DotNetClientVersion = '0.1.0',
+    [string]$ContractsVersion = '0.1.0'
+)
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -7,6 +10,8 @@ $scratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cormier-realtime-cl
 $feedPath = Join-Path $scratchRoot 'feed'
 $packagesPath = Join-Path $scratchRoot 'packages'
 $nugetConfigPath = Join-Path $scratchRoot 'NuGet.Config'
+$contractsCoreVersion = [version](($ContractsVersion -split '-', 2)[0])
+$contractsUpperBound = "{0}.{1}.0" -f $contractsCoreVersion.Major, ($contractsCoreVersion.Minor + 1)
 
 try {
     New-Item -ItemType Directory -Path $feedPath -Force | Out-Null
@@ -28,14 +33,16 @@ try {
         'src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj',
         'src/Cormier.Realtime.Client/Cormier.Realtime.Client.csproj'
     )) {
-        dotnet pack (Join-Path $repositoryRoot $project) --configuration Release --no-build --output $feedPath
+        dotnet pack (Join-Path $repositoryRoot $project) --configuration Release --no-build --output $feedPath `
+            -p:DotNetClientVersion=$DotNetClientVersion -p:ContractsVersion=$ContractsVersion `
+            -p:ContractsCompatibilityUpperBound=$contractsUpperBound
         if ($LASTEXITCODE -ne 0) { throw "Packing failed for $project." }
     }
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $contractsPackage = Join-Path $feedPath 'Cormier.Realtime.Contracts.0.1.0.nupkg'
-    $clientPackage = Join-Path $feedPath 'Cormier.Realtime.Client.0.1.0.nupkg'
-    $symbolsPackage = Join-Path $feedPath 'Cormier.Realtime.Client.0.1.0.snupkg'
+    $contractsPackage = Join-Path $feedPath "Cormier.Realtime.Contracts.$ContractsVersion.nupkg"
+    $clientPackage = Join-Path $feedPath "Cormier.Realtime.Client.$DotNetClientVersion.nupkg"
+    $symbolsPackage = Join-Path $feedPath "Cormier.Realtime.Client.$DotNetClientVersion.snupkg"
     foreach ($requiredPackage in @($contractsPackage, $clientPackage, $symbolsPackage)) {
         if (-not (Test-Path -LiteralPath $requiredPackage)) {
             throw "Expected package artifact was not produced: $requiredPackage"
@@ -83,7 +90,9 @@ try {
         finally {
             $reader.Dispose()
         }
-        if ($nuspec -notmatch 'Cormier\.Realtime\.Contracts" version="\[0\.1\.0, 0\.2\.0\)"') {
+        $expectedDependency = [regex]::Escape(
+            "Cormier.Realtime.Contracts`" version=`"[$ContractsVersion, $contractsUpperBound)`"")
+        if ($nuspec -notmatch $expectedDependency) {
             throw 'The client package does not constrain its contracts dependency to the compatible minor line.'
         }
         if ($nuspec -match 'Microsoft\.AspNetCore') {
@@ -106,7 +115,7 @@ try {
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Cormier.Realtime.Client" Version="0.1.0" />
+    <PackageReference Include="Cormier.Realtime.Client" Version="$DotNetClientVersion" />
   </ItemGroup>
 </Project>
 "@ | Set-Content -LiteralPath (Join-Path $consumerPath 'Consumer.csproj') -Encoding utf8NoBOM

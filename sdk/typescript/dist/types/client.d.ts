@@ -62,6 +62,7 @@ export declare class RealtimeClient {
     private socket;
     private stateValue;
     private connectPromise;
+    private connectAbortController;
     private reconnectTimer;
     private heartbeatTimer;
     private reconnectAttempt;
@@ -88,6 +89,8 @@ export declare class RealtimeClient {
     private establishSubscription;
     private transmitQueuedCommand;
     private transmitEnvelope;
+    private assertOpenGeneration;
+    private waitForAbort;
     private waitForSubscription;
     private startHeartbeat;
     private stopHeartbeat;

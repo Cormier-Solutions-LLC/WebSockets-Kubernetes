@@ -105,6 +105,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isJsonValue(value: unknown, ancestors = new Set<object>()): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return true;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+  if (typeof value !== "object") {
+    return false;
+  }
+  if (ancestors.has(value)) {
+    return false;
+  }
+  ancestors.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((item) => isJsonValue(item, ancestors))
+    : Object.values(value).every((item) => isJsonValue(item, ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
 function hasEnvelopeStrings(value: Record<string, unknown>): boolean {
   return typeof value.correlationId === "string"
     && value.correlationId.trim().length > 0
@@ -133,6 +154,9 @@ export function validateClientEnvelope(value: unknown, now = new Date()): Valida
   if (value.type === messageTypes.publish && (value.payload === null || value.payload === undefined)) {
     return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "Publish payload is required." };
   }
+  if ("payload" in value && value.payload !== undefined && !isJsonValue(value.payload)) {
+    return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "Payload must contain only finite JSON values." };
+  }
   return { valid: true, value: value as unknown as MessageEnvelope };
 }
 
@@ -145,6 +169,9 @@ export function validateServerEnvelope(value: unknown): ValidationResult<ServerM
   }
   if (typeof value.type !== "string" || !serverTypes.has(value.type)) {
     return { valid: false, errorCode: protocolErrorCodes.unsupportedType, message: "The server message type is not supported." };
+  }
+  if ("payload" in value && value.payload !== undefined && !isJsonValue(value.payload)) {
+    return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "Payload must contain only finite JSON values." };
   }
   if (value.type === messageTypes.error && (!isRecord(value.error)
     || typeof value.error.code !== "string"

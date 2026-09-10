@@ -88,6 +88,10 @@ interface QueuedCommand {
   removeAbortListener?: () => void;
 }
 
+interface SubscriptionRegistration {
+  readonly listener: (event: ServerMessageEnvelope) => void;
+}
+
 const OPEN = 1;
 const CONNECTING = 0;
 const defaultReconnect: Required<ReconnectOptions> = {
@@ -106,11 +110,12 @@ export class RealtimeClient {
   private readonly listeners = new Map<keyof RealtimeClientEvents, Set<(event: never) => void>>();
   private readonly pending = new Map<string, PendingCommand>();
   private readonly queued: QueuedCommand[] = [];
-  private readonly subscriptions = new Map<string, Set<(event: ServerMessageEnvelope) => void>>();
+  private readonly subscriptions = new Map<string, Set<SubscriptionRegistration>>();
   private readonly subscriptionCommands = new Map<string, Promise<void>>();
   private socket: WebSocketLike | undefined;
   private stateValue: RealtimeClientState = "idle";
   private connectPromise: Promise<void> | undefined;
+  private connectAbortController: AbortController | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private reconnectAttempt = 0;
@@ -168,7 +173,7 @@ export class RealtimeClient {
   }
 
   public async connect(signal?: AbortSignal): Promise<void> {
-    if (this.stateValue === "open") {
+    if (this.stateValue === "open" && this.socket?.readyState === OPEN) {
       return;
     }
     if (this.connectPromise !== undefined) {
@@ -176,16 +181,31 @@ export class RealtimeClient {
     }
     this.intentionalClose = false;
     this.clearReconnectTimer();
-    this.connectPromise = this.openSocket(signal, false)
+    this.connectAbortController?.abort(new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded"));
+    const controller = new AbortController();
+    this.connectAbortController = controller;
+    const connectionSignal = signal === undefined
+      ? controller.signal
+      : AbortSignal.any([signal, controller.signal]);
+    let connection: Promise<void>;
+    connection = this.openSocket(connectionSignal, false)
       .catch((error: unknown) => {
-        this.setState("closed");
-        this.rejectQueued(error instanceof Error ? error : this.normalizeError(error));
+        if (this.connectPromise === connection) {
+          this.setState("closed");
+          this.rejectQueued(error instanceof Error ? error : this.normalizeError(error));
+        }
         throw error;
       })
       .finally(() => {
-        this.connectPromise = undefined;
+        if (this.connectPromise === connection) {
+          this.connectPromise = undefined;
+        }
+        if (this.connectAbortController === controller) {
+          this.connectAbortController = undefined;
+        }
       });
-    return this.connectPromise;
+    this.connectPromise = connection;
+    return connection;
   }
 
   public async disconnect(code: number = closeCodes.normal, reason = "client_disconnect"): Promise<void> {
@@ -197,6 +217,9 @@ export class RealtimeClient {
     }
     this.intentionalClose = true;
     this.generation += 1;
+    this.connectAbortController?.abort(new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded"));
+    this.connectAbortController = undefined;
+    this.connectPromise = undefined;
     this.clearReconnectTimer();
     this.stopHeartbeat();
     this.setState("closing");
@@ -225,7 +248,8 @@ export class RealtimeClient {
       routeListeners = new Set();
       this.subscriptions.set(route, routeListeners);
     }
-    routeListeners.add(listener);
+    const registration: SubscriptionRegistration = { listener };
+    routeListeners.add(registration);
     try {
       let subscriptionCommand = this.subscriptionCommands.get(route);
       if (isNewRoute) {
@@ -233,26 +257,41 @@ export class RealtimeClient {
       }
       await this.waitForSubscription(subscriptionCommand, signal);
     } catch (error: unknown) {
-      routeListeners.delete(listener);
+      routeListeners.delete(registration);
       if (routeListeners.size === 0) {
         this.subscriptions.delete(route);
       }
       throw error;
     }
     let active = true;
-    return async () => {
+    let unsubscribePromise: Promise<void> | undefined;
+    return () => {
       if (!active) {
-        return;
+        return Promise.resolve();
       }
-      active = false;
-      const current = this.subscriptions.get(route);
-      current?.delete(listener);
-      if (current !== undefined && current.size === 0) {
-        this.subscriptions.delete(route);
-        if (this.stateValue === "open") {
-          await this.sendCommand(createEnvelope(messageTypes.unsubscribe, route));
-        }
+      if (unsubscribePromise === undefined) {
+        unsubscribePromise = (async () => {
+          const current = this.subscriptions.get(route);
+          current?.delete(registration);
+          if (current !== undefined && current.size === 0) {
+            this.subscriptions.delete(route);
+            if (this.stateValue === "open") {
+              try {
+                await this.sendCommand(createEnvelope(messageTypes.unsubscribe, route));
+              } catch (error: unknown) {
+                current.add(registration);
+                this.subscriptions.set(route, current);
+                this.socket?.close(4000, "unsubscribe_failed");
+                throw error;
+              }
+            }
+          }
+          active = false;
+        })().finally(() => {
+          unsubscribePromise = undefined;
+        });
       }
+      return unsubscribePromise;
     };
   }
 
@@ -276,6 +315,7 @@ export class RealtimeClient {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let connectionEstablished = false;
       const abort = () => {
         if (!settled) {
           settled = true;
@@ -290,15 +330,19 @@ export class RealtimeClient {
           return;
         }
         signal?.removeEventListener("abort", abort);
-        void this.restoreSubscriptionsAndFlush().then(() => {
+        void this.restoreSubscriptionsAndFlush(generation).then(() => {
           if (generation !== this.generation || this.intentionalClose) {
             throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
           }
-          settled = true;
           this.reconnectAttempt = 0;
           this.serverReconnectAdvice = undefined;
+          connectionEstablished = true;
           this.setState("open");
+          if (generation !== this.generation || this.intentionalClose || socket.readyState !== OPEN) {
+            throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
+          }
           this.startHeartbeat();
+          settled = true;
           resolve();
         }).catch((error: unknown) => {
           if (!settled) {
@@ -326,7 +370,7 @@ export class RealtimeClient {
           settled = true;
           reject(new RealtimeConnectionError(`The WebSocket closed during connection (${event.code}).`));
         }
-        this.handleClose(event, generation);
+        this.handleClose(event, generation, connectionEstablished || reconnecting);
       };
     });
   }
@@ -349,16 +393,16 @@ export class RealtimeClient {
       if (fetcher === undefined) {
         throw new RealtimeConnectionError("Ticket authentication requires the Fetch API.", "ticket_unavailable");
       }
-      const response = await fetcher(endpoint, {
+      const response = await this.waitForAbort(fetcher(endpoint, {
         method: "POST",
         credentials: "include",
         headers: { Accept: "application/json" },
         ...(signal === undefined ? {} : { signal }),
-      });
+      }), signal);
       if (!response.ok) {
         throw new RealtimeConnectionError(`Connection ticket request failed (${response.status}).`, "ticket_rejected");
       }
-      const value: unknown = await response.json();
+      const value: unknown = await this.waitForAbort(response.json(), signal);
       if (!this.isTicketResponse(value)) {
         throw new RealtimeConnectionError("Connection ticket response was invalid.", "ticket_invalid");
       }
@@ -406,7 +450,7 @@ export class RealtimeClient {
     });
   }
 
-  private transmit(command: QueuedCommand): void {
+  private transmit(command: QueuedCommand, queueWhenUnavailable = true): void {
     command.removeAbortListener?.();
     delete command.removeAbortListener;
     if (command.signal?.aborted) {
@@ -419,7 +463,9 @@ export class RealtimeClient {
     }
     const socket = this.socket;
     if (socket?.readyState !== OPEN) {
-      if (this.queued.length >= this.options.maximumQueuedCommands) {
+      if (!queueWhenUnavailable) {
+        command.reject(new RealtimeConnectionError("The connection closed before the command could be sent.", "connection_closed"));
+      } else if (this.queued.length >= this.options.maximumQueuedCommands) {
         command.reject(new RealtimeQueueError());
       } else {
         this.queued.push(command);
@@ -476,8 +522,8 @@ export class RealtimeClient {
     }
     if (envelope.type === messageTypes.event) {
       this.emit("event", envelope);
-      for (const listener of this.subscriptions.get(envelope.route) ?? []) {
-        this.invokeListener(listener, envelope);
+      for (const registration of this.subscriptions.get(envelope.route) ?? []) {
+        this.invokeListener(registration.listener, envelope);
       }
       return;
     }
@@ -497,7 +543,7 @@ export class RealtimeClient {
     }
   }
 
-  private handleClose(event: CloseEvent, generation: number): void {
+  private handleClose(event: CloseEvent, generation: number, allowReconnect: boolean): void {
     if (generation !== this.generation) {
       return;
     }
@@ -505,9 +551,9 @@ export class RealtimeClient {
     this.socket = undefined;
     const expected = this.intentionalClose || event.code === closeCodes.normal;
     this.rejectPending(new RealtimeConnectionError(`The WebSocket closed (${event.code}).`, "connection_closed"));
+    this.setState("closed");
     this.emit("close", { code: event.code, reason: event.reason, expected });
-    if (expected || !this.reconnectOptions.enabled) {
-      this.setState("closed");
+    if (expected || !allowReconnect || !this.reconnectOptions.enabled || generation !== this.generation) {
       return;
     }
     this.scheduleReconnect();
@@ -535,17 +581,24 @@ export class RealtimeClient {
     this.reconnectAttempt += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
-      void this.openSocket(undefined, true).catch((error: unknown) => {
+      const controller = new AbortController();
+      this.connectAbortController?.abort(new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded"));
+      this.connectAbortController = controller;
+      void this.openSocket(controller.signal, true).catch((error: unknown) => {
         const normalized = this.normalizeError(error);
         if (normalized.code !== "connection_superseded") {
           this.emit("error", normalized);
           this.scheduleReconnect();
         }
+      }).finally(() => {
+        if (this.connectAbortController === controller) {
+          this.connectAbortController = undefined;
+        }
       });
     }, delay);
   }
 
-  private async restoreSubscriptionsAndFlush(): Promise<void> {
+  private async restoreSubscriptionsAndFlush(generation: number): Promise<void> {
     const queuedSubscriptions = new Map<string, QueuedCommand>();
     for (let index = this.queued.length - 1; index >= 0; index -= 1) {
       const command = this.queued[index];
@@ -559,14 +612,16 @@ export class RealtimeClient {
     const failures: RealtimeError[] = [];
     for (const route of routes) {
       try {
+        this.assertOpenGeneration(generation);
         const queued = queuedSubscriptions.get(route);
         if (queued === undefined) {
-          await this.transmitEnvelope(createEnvelope(messageTypes.subscribe, route));
+          await this.transmitEnvelope(createEnvelope(messageTypes.subscribe, route), false);
         } else {
-          await this.transmitQueuedCommand(queued);
+          await this.transmitQueuedCommand(queued, false);
         }
         if (!this.subscriptions.has(route)) {
-          await this.transmitEnvelope(createEnvelope(messageTypes.unsubscribe, route));
+          this.assertOpenGeneration(generation);
+          await this.transmitEnvelope(createEnvelope(messageTypes.unsubscribe, route), false);
         }
       } catch (error: unknown) {
         const normalized = this.normalizeError(error);
@@ -578,6 +633,7 @@ export class RealtimeClient {
       throw new RealtimeConnectionError("One or more subscriptions could not be restored.", "subscription_restore_failed");
     }
 
+    this.assertOpenGeneration(generation);
     while (this.queued.length > 0) {
       const command = this.queued.shift();
       if (command !== undefined) {
@@ -605,7 +661,7 @@ export class RealtimeClient {
     }
   }
 
-  private transmitQueuedCommand(command: QueuedCommand): Promise<ServerMessageEnvelope> {
+  private transmitQueuedCommand(command: QueuedCommand, queueWhenUnavailable = true): Promise<ServerMessageEnvelope> {
     return new Promise<ServerMessageEnvelope>((resolve, reject) => {
       this.transmit({
         ...command,
@@ -617,13 +673,31 @@ export class RealtimeClient {
           command.reject(error);
           reject(error);
         },
-      });
+      }, queueWhenUnavailable);
     });
   }
 
-  private transmitEnvelope(envelope: MessageEnvelope): Promise<ServerMessageEnvelope> {
+  private transmitEnvelope(envelope: MessageEnvelope, queueWhenUnavailable = true): Promise<ServerMessageEnvelope> {
     return new Promise<ServerMessageEnvelope>((resolve, reject) => {
-      this.transmit({ envelope, resolve, reject });
+      this.transmit({ envelope, resolve, reject }, queueWhenUnavailable);
+    });
+  }
+
+  private assertOpenGeneration(generation: number): void {
+    if (generation !== this.generation || this.socket?.readyState !== OPEN) {
+      throw new RealtimeConnectionError("The connection closed during subscription restoration.", "connection_closed");
+    }
+  }
+
+  private async waitForAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
+    if (signal === undefined) {
+      return operation;
+    }
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => reject(this.abortError(signal));
+      signal.addEventListener("abort", abort, { once: true });
+      void operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
     });
   }
 

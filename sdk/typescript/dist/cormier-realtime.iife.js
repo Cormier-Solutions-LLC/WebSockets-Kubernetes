@@ -86,6 +86,24 @@ var CormierRealtime = (() => {
   function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
+  function isJsonValue(value, ancestors = /* @__PURE__ */ new Set()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") {
+      return true;
+    }
+    if (typeof value === "number") {
+      return Number.isFinite(value);
+    }
+    if (typeof value !== "object") {
+      return false;
+    }
+    if (ancestors.has(value)) {
+      return false;
+    }
+    ancestors.add(value);
+    const valid = Array.isArray(value) ? value.every((item) => isJsonValue(item, ancestors)) : Object.values(value).every((item) => isJsonValue(item, ancestors));
+    ancestors.delete(value);
+    return valid;
+  }
   function hasEnvelopeStrings(value) {
     return typeof value.correlationId === "string" && value.correlationId.trim().length > 0 && value.correlationId.length <= 128 && typeof value.timestamp === "string" && !Number.isNaN(Date.parse(value.timestamp)) && typeof value.route === "string" && value.route.trim().length > 0 && value.route.length <= 256;
   }
@@ -106,6 +124,9 @@ var CormierRealtime = (() => {
     if (value.type === messageTypes.publish && (value.payload === null || value.payload === void 0)) {
       return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "Publish payload is required." };
     }
+    if ("payload" in value && value.payload !== void 0 && !isJsonValue(value.payload)) {
+      return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "Payload must contain only finite JSON values." };
+    }
     return { valid: true, value };
   }
   function validateServerEnvelope(value) {
@@ -117,6 +138,9 @@ var CormierRealtime = (() => {
     }
     if (typeof value.type !== "string" || !serverTypes.has(value.type)) {
       return { valid: false, errorCode: protocolErrorCodes.unsupportedType, message: "The server message type is not supported." };
+    }
+    if ("payload" in value && value.payload !== void 0 && !isJsonValue(value.payload)) {
+      return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "Payload must contain only finite JSON values." };
     }
     if (value.type === messageTypes.error && (!isRecord(value.error) || typeof value.error.code !== "string" || typeof value.error.message !== "string")) {
       return { valid: false, errorCode: protocolErrorCodes.invalidEnvelope, message: "The error payload is invalid." };
@@ -198,6 +222,7 @@ var CormierRealtime = (() => {
     socket;
     stateValue = "idle";
     connectPromise;
+    connectAbortController;
     reconnectTimer;
     heartbeatTimer;
     reconnectAttempt = 0;
@@ -248,7 +273,7 @@ var CormierRealtime = (() => {
       return () => listeners?.delete(listener);
     }
     async connect(signal) {
-      if (this.stateValue === "open") {
+      if (this.stateValue === "open" && this.socket?.readyState === OPEN) {
         return;
       }
       if (this.connectPromise !== void 0) {
@@ -256,14 +281,27 @@ var CormierRealtime = (() => {
       }
       this.intentionalClose = false;
       this.clearReconnectTimer();
-      this.connectPromise = this.openSocket(signal, false).catch((error) => {
-        this.setState("closed");
-        this.rejectQueued(error instanceof Error ? error : this.normalizeError(error));
+      this.connectAbortController?.abort(new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded"));
+      const controller = new AbortController();
+      this.connectAbortController = controller;
+      const connectionSignal = signal === void 0 ? controller.signal : AbortSignal.any([signal, controller.signal]);
+      let connection;
+      connection = this.openSocket(connectionSignal, false).catch((error) => {
+        if (this.connectPromise === connection) {
+          this.setState("closed");
+          this.rejectQueued(error instanceof Error ? error : this.normalizeError(error));
+        }
         throw error;
       }).finally(() => {
-        this.connectPromise = void 0;
+        if (this.connectPromise === connection) {
+          this.connectPromise = void 0;
+        }
+        if (this.connectAbortController === controller) {
+          this.connectAbortController = void 0;
+        }
       });
-      return this.connectPromise;
+      this.connectPromise = connection;
+      return connection;
     }
     async disconnect(code = closeCodes.normal, reason = "client_disconnect") {
       if (!Number.isInteger(code) || code !== closeCodes.normal && (code < 3e3 || code > 4999)) {
@@ -274,6 +312,9 @@ var CormierRealtime = (() => {
       }
       this.intentionalClose = true;
       this.generation += 1;
+      this.connectAbortController?.abort(new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded"));
+      this.connectAbortController = void 0;
+      this.connectPromise = void 0;
       this.clearReconnectTimer();
       this.stopHeartbeat();
       this.setState("closing");
@@ -296,7 +337,8 @@ var CormierRealtime = (() => {
         routeListeners = /* @__PURE__ */ new Set();
         this.subscriptions.set(route, routeListeners);
       }
-      routeListeners.add(listener);
+      const registration = { listener };
+      routeListeners.add(registration);
       try {
         let subscriptionCommand = this.subscriptionCommands.get(route);
         if (isNewRoute) {
@@ -304,26 +346,41 @@ var CormierRealtime = (() => {
         }
         await this.waitForSubscription(subscriptionCommand, signal);
       } catch (error) {
-        routeListeners.delete(listener);
+        routeListeners.delete(registration);
         if (routeListeners.size === 0) {
           this.subscriptions.delete(route);
         }
         throw error;
       }
       let active = true;
-      return async () => {
+      let unsubscribePromise;
+      return () => {
         if (!active) {
-          return;
+          return Promise.resolve();
         }
-        active = false;
-        const current = this.subscriptions.get(route);
-        current?.delete(listener);
-        if (current !== void 0 && current.size === 0) {
-          this.subscriptions.delete(route);
-          if (this.stateValue === "open") {
-            await this.sendCommand(createEnvelope(messageTypes.unsubscribe, route));
-          }
+        if (unsubscribePromise === void 0) {
+          unsubscribePromise = (async () => {
+            const current = this.subscriptions.get(route);
+            current?.delete(registration);
+            if (current !== void 0 && current.size === 0) {
+              this.subscriptions.delete(route);
+              if (this.stateValue === "open") {
+                try {
+                  await this.sendCommand(createEnvelope(messageTypes.unsubscribe, route));
+                } catch (error) {
+                  current.add(registration);
+                  this.subscriptions.set(route, current);
+                  this.socket?.close(4e3, "unsubscribe_failed");
+                  throw error;
+                }
+              }
+            }
+            active = false;
+          })().finally(() => {
+            unsubscribePromise = void 0;
+          });
         }
+        return unsubscribePromise;
       };
     }
     ping(signal) {
@@ -344,6 +401,7 @@ var CormierRealtime = (() => {
       this.socket = socket;
       await new Promise((resolve, reject) => {
         let settled = false;
+        let connectionEstablished = false;
         const abort = () => {
           if (!settled) {
             settled = true;
@@ -358,15 +416,19 @@ var CormierRealtime = (() => {
             return;
           }
           signal?.removeEventListener("abort", abort);
-          void this.restoreSubscriptionsAndFlush().then(() => {
+          void this.restoreSubscriptionsAndFlush(generation).then(() => {
             if (generation !== this.generation || this.intentionalClose) {
               throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
             }
-            settled = true;
             this.reconnectAttempt = 0;
             this.serverReconnectAdvice = void 0;
+            connectionEstablished = true;
             this.setState("open");
+            if (generation !== this.generation || this.intentionalClose || socket.readyState !== OPEN) {
+              throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
+            }
             this.startHeartbeat();
+            settled = true;
             resolve();
           }).catch((error) => {
             if (!settled) {
@@ -394,7 +456,7 @@ var CormierRealtime = (() => {
             settled = true;
             reject(new RealtimeConnectionError(`The WebSocket closed during connection (${event.code}).`));
           }
-          this.handleClose(event, generation);
+          this.handleClose(event, generation, connectionEstablished || reconnecting);
         };
       });
     }
@@ -416,16 +478,16 @@ var CormierRealtime = (() => {
         if (fetcher === void 0) {
           throw new RealtimeConnectionError("Ticket authentication requires the Fetch API.", "ticket_unavailable");
         }
-        const response = await fetcher(endpoint, {
+        const response = await this.waitForAbort(fetcher(endpoint, {
           method: "POST",
           credentials: "include",
           headers: { Accept: "application/json" },
           ...signal === void 0 ? {} : { signal }
-        });
+        }), signal);
         if (!response.ok) {
           throw new RealtimeConnectionError(`Connection ticket request failed (${response.status}).`, "ticket_rejected");
         }
-        const value = await response.json();
+        const value = await this.waitForAbort(response.json(), signal);
         if (!this.isTicketResponse(value)) {
           throw new RealtimeConnectionError("Connection ticket response was invalid.", "ticket_invalid");
         }
@@ -469,7 +531,7 @@ var CormierRealtime = (() => {
         }
       });
     }
-    transmit(command) {
+    transmit(command, queueWhenUnavailable = true) {
       command.removeAbortListener?.();
       delete command.removeAbortListener;
       if (command.signal?.aborted) {
@@ -482,7 +544,9 @@ var CormierRealtime = (() => {
       }
       const socket = this.socket;
       if (socket?.readyState !== OPEN) {
-        if (this.queued.length >= this.options.maximumQueuedCommands) {
+        if (!queueWhenUnavailable) {
+          command.reject(new RealtimeConnectionError("The connection closed before the command could be sent.", "connection_closed"));
+        } else if (this.queued.length >= this.options.maximumQueuedCommands) {
           command.reject(new RealtimeQueueError());
         } else {
           this.queued.push(command);
@@ -538,8 +602,8 @@ var CormierRealtime = (() => {
       }
       if (envelope.type === messageTypes.event) {
         this.emit("event", envelope);
-        for (const listener of this.subscriptions.get(envelope.route) ?? []) {
-          this.invokeListener(listener, envelope);
+        for (const registration of this.subscriptions.get(envelope.route) ?? []) {
+          this.invokeListener(registration.listener, envelope);
         }
         return;
       }
@@ -558,7 +622,7 @@ var CormierRealtime = (() => {
         pending.resolve(envelope);
       }
     }
-    handleClose(event, generation) {
+    handleClose(event, generation, allowReconnect) {
       if (generation !== this.generation) {
         return;
       }
@@ -566,9 +630,9 @@ var CormierRealtime = (() => {
       this.socket = void 0;
       const expected = this.intentionalClose || event.code === closeCodes.normal;
       this.rejectPending(new RealtimeConnectionError(`The WebSocket closed (${event.code}).`, "connection_closed"));
+      this.setState("closed");
       this.emit("close", { code: event.code, reason: event.reason, expected });
-      if (expected || !this.reconnectOptions.enabled) {
-        this.setState("closed");
+      if (expected || !allowReconnect || !this.reconnectOptions.enabled || generation !== this.generation) {
         return;
       }
       this.scheduleReconnect();
@@ -595,16 +659,23 @@ var CormierRealtime = (() => {
       this.reconnectAttempt += 1;
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = void 0;
-        void this.openSocket(void 0, true).catch((error) => {
+        const controller = new AbortController();
+        this.connectAbortController?.abort(new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded"));
+        this.connectAbortController = controller;
+        void this.openSocket(controller.signal, true).catch((error) => {
           const normalized = this.normalizeError(error);
           if (normalized.code !== "connection_superseded") {
             this.emit("error", normalized);
             this.scheduleReconnect();
           }
+        }).finally(() => {
+          if (this.connectAbortController === controller) {
+            this.connectAbortController = void 0;
+          }
         });
       }, delay);
     }
-    async restoreSubscriptionsAndFlush() {
+    async restoreSubscriptionsAndFlush(generation) {
       const queuedSubscriptions = /* @__PURE__ */ new Map();
       for (let index = this.queued.length - 1; index >= 0; index -= 1) {
         const command = this.queued[index];
@@ -617,14 +688,16 @@ var CormierRealtime = (() => {
       const failures = [];
       for (const route of routes) {
         try {
+          this.assertOpenGeneration(generation);
           const queued = queuedSubscriptions.get(route);
           if (queued === void 0) {
-            await this.transmitEnvelope(createEnvelope(messageTypes.subscribe, route));
+            await this.transmitEnvelope(createEnvelope(messageTypes.subscribe, route), false);
           } else {
-            await this.transmitQueuedCommand(queued);
+            await this.transmitQueuedCommand(queued, false);
           }
           if (!this.subscriptions.has(route)) {
-            await this.transmitEnvelope(createEnvelope(messageTypes.unsubscribe, route));
+            this.assertOpenGeneration(generation);
+            await this.transmitEnvelope(createEnvelope(messageTypes.unsubscribe, route), false);
           }
         } catch (error) {
           const normalized = this.normalizeError(error);
@@ -635,6 +708,7 @@ var CormierRealtime = (() => {
       if (failures.length > 0) {
         throw new RealtimeConnectionError("One or more subscriptions could not be restored.", "subscription_restore_failed");
       }
+      this.assertOpenGeneration(generation);
       while (this.queued.length > 0) {
         const command = this.queued.shift();
         if (command !== void 0) {
@@ -660,7 +734,7 @@ var CormierRealtime = (() => {
         }
       }
     }
-    transmitQueuedCommand(command) {
+    transmitQueuedCommand(command, queueWhenUnavailable = true) {
       return new Promise((resolve, reject) => {
         this.transmit({
           ...command,
@@ -672,12 +746,28 @@ var CormierRealtime = (() => {
             command.reject(error);
             reject(error);
           }
-        });
+        }, queueWhenUnavailable);
       });
     }
-    transmitEnvelope(envelope) {
+    transmitEnvelope(envelope, queueWhenUnavailable = true) {
       return new Promise((resolve, reject) => {
-        this.transmit({ envelope, resolve, reject });
+        this.transmit({ envelope, resolve, reject }, queueWhenUnavailable);
+      });
+    }
+    assertOpenGeneration(generation) {
+      if (generation !== this.generation || this.socket?.readyState !== OPEN) {
+        throw new RealtimeConnectionError("The connection closed during subscription restoration.", "connection_closed");
+      }
+    }
+    async waitForAbort(operation, signal) {
+      signal?.throwIfAborted();
+      if (signal === void 0) {
+        return operation;
+      }
+      return new Promise((resolve, reject) => {
+        const abort = () => reject(this.abortError(signal));
+        signal.addEventListener("abort", abort, { once: true });
+        void operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
       });
     }
     async waitForSubscription(command, signal) {

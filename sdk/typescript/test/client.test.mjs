@@ -148,6 +148,83 @@ test("subscriptions are unique, dispatch events, and unsubscribe once", async ()
   await client.disconnect();
 });
 
+test("identical listener function registrations remain independent", async () => {
+  let socket;
+  let deliveries = 0;
+  const listener = () => { deliveries += 1; };
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    webSocketFactory: (url, protocol) => (socket = new FakeSocket(url, protocol)),
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+  await client.connect();
+  const first = client.subscribe("topics/orders", listener);
+  const second = client.subscribe("topics/orders", listener);
+  await waitUntil(() => socket.sent.length === 1, "subscribe command was not sent");
+  socket.serverMessage(acknowledgement(JSON.parse(socket.sent[0])));
+  const unsubscribeFirst = await first;
+  const unsubscribeSecond = await second;
+  const event = {
+    version: PROTOCOL_VERSION,
+    type: "event",
+    correlationId: "same-listener-event",
+    timestamp: new Date().toISOString(),
+    route: "topics/orders",
+    payload: { value: 42 },
+  };
+  socket.serverMessage(event);
+  assert.equal(deliveries, 2);
+  await unsubscribeFirst();
+  assert.equal(socket.sent.length, 1);
+  socket.serverMessage(event);
+  assert.equal(deliveries, 3);
+  const finalUnsubscribe = unsubscribeSecond();
+  await waitUntil(() => socket.sent.length === 2, "unsubscribe command was not sent");
+  socket.serverMessage(acknowledgement(JSON.parse(socket.sent[1])));
+  await finalUnsubscribe;
+  await client.disconnect();
+});
+
+test("a failed final unsubscribe retains a retryable desired subscription", async () => {
+  const sockets = [];
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { enabled: false },
+    webSocketFactory: (url, protocol) => {
+      const socket = new FakeSocket(url, protocol);
+      sockets.push(socket);
+      return socket;
+    },
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+  await client.connect();
+  const subscription = client.subscribe("topics/orders", () => undefined);
+  await waitUntil(() => sockets[0].sent.length === 1, "subscribe command was not sent");
+  sockets[0].serverMessage(acknowledgement(JSON.parse(sockets[0].sent[0])));
+  const unsubscribe = await subscription;
+  const failedUnsubscribe = unsubscribe();
+  await waitUntil(() => sockets[0].sent.length === 2, "unsubscribe command was not sent");
+  sockets[0].serverMessage({
+    ...acknowledgement(JSON.parse(sockets[0].sent[1])),
+    type: "error",
+    error: { code: "service_draining", message: "Try again later." },
+  });
+  await assert.rejects(failedUnsubscribe, (error) => error instanceof RealtimeError && error.code === "service_draining");
+  await waitUntil(() => client.state === "closed", "failed unsubscribe did not reset the connection");
+  assert.deepEqual(client.desiredSubscriptions, ["topics/orders"]);
+
+  const reconnection = client.connect();
+  await waitUntil(() => sockets.length === 2 && sockets[1].sent.length === 1, "subscription was not restored");
+  sockets[1].serverMessage(acknowledgement(JSON.parse(sockets[1].sent[0])));
+  await reconnection;
+  const retry = unsubscribe();
+  await waitUntil(() => sockets[1].sent.length === 2, "unsubscribe retry was not sent");
+  sockets[1].serverMessage(acknowledgement(JSON.parse(sockets[1].sent[1])));
+  await retry;
+  assert.deepEqual(client.desiredSubscriptions, []);
+  await client.disconnect();
+});
+
 test("duplicate subscribers share a failed in-flight subscription", async () => {
   let socket;
   const client = new RealtimeClient({
@@ -325,6 +402,39 @@ test("a failed subscription restoration reconciles every route and rejects queue
   await client.disconnect();
 });
 
+test("a closed restoration socket cannot queue commands into the next generation", async () => {
+  const sockets = [];
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 1, jitterRatio: 0, maximumAttempts: 3 },
+    heartbeatIntervalMilliseconds: 60_000,
+    webSocketFactory: (url, protocol) => {
+      const socket = new FakeSocket(url, protocol);
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  await client.connect();
+  for (const route of ["topics/orders", "topics/customers"]) {
+    const subscription = client.subscribe(route, () => undefined);
+    await waitUntil(() => sockets[0].sent.some((item) => JSON.parse(item).route === route), `subscribe for ${route} was not sent`);
+    const command = sockets[0].sent.map((item) => JSON.parse(item)).find((item) => item.route === route);
+    sockets[0].serverMessage(acknowledgement(command));
+    await subscription;
+  }
+  sockets[0].serverClose();
+  await waitUntil(() => sockets.length === 2 && sockets[1].sent.length === 1, "restoration did not start");
+  sockets[1].serverClose();
+  await waitUntil(() => sockets.length === 3 && sockets[2].sent.length === 1, "next restoration did not start");
+  assert.equal(sockets[1].sent.length, 1, "closed socket attempted another restoration command");
+  sockets[2].serverMessage(acknowledgement(JSON.parse(sockets[2].sent[0])));
+  await waitUntil(() => sockets[2].sent.length === 2, "second route was not restored");
+  sockets[2].serverMessage(acknowledgement(JSON.parse(sockets[2].sent[1])));
+  await waitUntil(() => client.state === "open", "client did not recover");
+  assert.equal(sockets[2].sent.length, 2, "stale restoration duplicated a subscription");
+  await client.disconnect();
+});
+
 test("open is emitted only after subscriptions are restored", async () => {
   const sockets = [];
   let publishAfterOpen;
@@ -417,15 +527,24 @@ test("an explicit connection failure rejects commands queued behind it", async (
   await assert.rejects(publish, /ticket service unavailable/i);
 });
 
-test("disconnect invalidates an outstanding ticket request before socket creation", async () => {
-  let resolveTicketRequest;
-  const ticketRequest = new Promise((resolve) => {
-    resolveTicketRequest = resolve;
-  });
+test("disconnect immediately cancels an outstanding ticket request and permits reconnect", async () => {
+  const ticketRequest = new Promise(() => undefined);
+  let ticketRequests = 0;
   const sockets = [];
   const client = new RealtimeClient({
     url: "wss://gateway.example/realtime/ws",
-    authentication: { kind: "ticket", fetch: () => ticketRequest },
+    authentication: {
+      kind: "ticket",
+      fetch: () => {
+        ticketRequests += 1;
+        return ticketRequests === 1
+          ? ticketRequest
+          : Promise.resolve(new Response(JSON.stringify({
+            ticket: "replacement-ticket-12345678901234567890",
+            expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      },
+    },
     webSocketFactory: (url, protocol) => {
       const socket = new FakeSocket(url, protocol);
       sockets.push(socket);
@@ -434,13 +553,58 @@ test("disconnect invalidates an outstanding ticket request before socket creatio
   });
   const connection = client.connect();
   await client.disconnect();
-  resolveTicketRequest(new Response(JSON.stringify({
-    ticket: "superseded-ticket-12345678901234567890",
-    expiresAt: new Date(Date.now() + 30_000).toISOString(),
-  }), { status: 200, headers: { "Content-Type": "application/json" } }));
   await assert.rejects(connection, (error) => error instanceof RealtimeError && error.code === "connection_superseded");
   assert.equal(sockets.length, 0);
   assert.equal(client.state, "closed");
+  await client.connect();
+  assert.equal(sockets.length, 1);
+  assert.equal(client.state, "open");
+  await client.disconnect();
+});
+
+test("an explicit handshake failure does not schedule an automatic reconnect", async () => {
+  const sockets = [];
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 1, jitterRatio: 0, maximumAttempts: 3 },
+    webSocketFactory: (url, protocol) => {
+      const socket = new FakeSocket(url, protocol, false);
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  const connection = client.connect();
+  await waitUntil(() => sockets.length === 1, "connection socket was not created");
+  sockets[0].serverClose();
+  await assert.rejects(connection, /closed during connection/i);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(sockets.length, 1);
+  assert.equal(client.state, "closed");
+});
+
+test("close listeners observe closed state and can reconnect manually", async () => {
+  const sockets = [];
+  let manualConnection;
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { enabled: false },
+    webSocketFactory: (url, protocol) => {
+      const socket = new FakeSocket(url, protocol);
+      sockets.push(socket);
+      return socket;
+    },
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+  await client.connect();
+  client.on("close", () => {
+    assert.equal(client.state, "closed");
+    manualConnection = client.connect();
+  });
+  sockets[0].serverClose();
+  await waitUntil(() => sockets.length === 2, "close listener did not reconnect");
+  await manualConnection;
+  assert.equal(client.state, "open");
+  await client.disconnect();
 });
 
 test("a manual connection supersedes an in-flight automatic reconnect", async () => {

@@ -6,6 +6,7 @@ import {
   PROTOCOL_VERSION,
   SDK_VERSION,
   WEBSOCKET_SUBPROTOCOL,
+  createEnvelope,
   validateClientEnvelope,
   validateServerEnvelope,
 } from "../dist/cormier-realtime.js";
@@ -58,4 +59,17 @@ test("malformed reconnect advice is rejected", () => {
     assert.equal(result.valid, false);
     assert.equal(result.errorCode, "invalid_envelope");
   }
+});
+
+test("non-finite and cyclic publish payloads are rejected before serialization", () => {
+  for (const payload of [
+    { value: Number.NaN },
+    { values: [Number.POSITIVE_INFINITY] },
+    { nested: { value: Number.NEGATIVE_INFINITY } },
+  ]) {
+    assert.throws(() => createEnvelope("publish", "topics/orders", payload), TypeError);
+  }
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(() => createEnvelope("publish", "topics/orders", cyclic), TypeError);
 });

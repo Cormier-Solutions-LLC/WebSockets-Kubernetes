@@ -493,6 +493,9 @@ export class RealtimeClient {
       this.pending.delete(correlationId);
       removeAbortListener();
       command.reject(this.normalizeError(error));
+      if (this.socket === socket) {
+        socket.close(closeCodes.heartbeatTimeout, "send_failed");
+      }
     }
   }
 
@@ -575,7 +578,11 @@ export class RealtimeClient {
     const initial = advice?.initialDelayMilliseconds ?? this.reconnectOptions.initialDelayMilliseconds;
     const maximum = advice?.maximumDelayMilliseconds ?? this.reconnectOptions.maximumDelayMilliseconds;
     const jitter = advice?.jitterRatio ?? this.reconnectOptions.jitterRatio;
-    const exponential = Math.min(maximum, initial * (2 ** this.reconnectAttempt));
+    const exponentialBase = initial === 0 ? 1 : initial;
+    const attemptDelay = this.reconnectAttempt === 0
+      ? initial
+      : exponentialBase * (2 ** (this.reconnectAttempt - 1));
+    const exponential = Math.min(maximum, attemptDelay);
     const random = this.options.random?.() ?? Math.random();
     const delay = Math.max(0, Math.round(exponential * (1 - jitter + (2 * jitter * random))));
     this.reconnectAttempt += 1;

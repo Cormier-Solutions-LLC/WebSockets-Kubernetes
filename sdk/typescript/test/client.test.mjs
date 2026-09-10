@@ -654,6 +654,74 @@ test("a manual connection supersedes an in-flight automatic reconnect", async ()
   await client.disconnect();
 });
 
+test("a synchronous send failure closes the broken socket and reconnects", async () => {
+  const sockets = [];
+  const client = new RealtimeClient({
+    url: "ws://gateway.example/realtime/ws",
+    reconnect: { initialDelayMilliseconds: 1, maximumDelayMilliseconds: 1, jitterRatio: 0, maximumAttempts: 2 },
+    heartbeatIntervalMilliseconds: 60_000,
+    webSocketFactory: (url, protocol) => {
+      const socket = new FakeSocket(url, protocol);
+      if (sockets.length === 0) {
+        socket.send = () => {
+          throw new Error("send failed");
+        };
+      }
+      sockets.push(socket);
+      return socket;
+    },
+  });
+
+  await client.connect();
+  await assert.rejects(client.publish("topics/orders", { value: 1 }), /send failed/i);
+  await waitUntil(() => sockets.length === 2 && client.state === "open", "client did not reconnect after send failure");
+  const publish = client.publish("topics/orders", { value: 2 });
+  await waitUntil(() => sockets[1].sent.length === 1, "publish was not retried on the recovered socket");
+  sockets[1].serverMessage(acknowledgement(JSON.parse(sockets[1].sent[0])));
+  await publish;
+  await client.disconnect();
+});
+
+test("reconnect backoff advances after an immediate retry", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays = [];
+  globalThis.setTimeout = (handler, delay = 0, ...args) => {
+    delays.push(delay);
+    return originalSetTimeout(handler, 0, ...args);
+  };
+
+  try {
+    const sockets = [];
+    const client = new RealtimeClient({
+      url: "wss://gateway.example/realtime/ws",
+      reconnect: { initialDelayMilliseconds: 0, maximumDelayMilliseconds: 4, jitterRatio: 0, maximumAttempts: 3 },
+      heartbeatIntervalMilliseconds: 60_000,
+      authentication: {
+        kind: "ticket",
+        fetch: async () => new Response(JSON.stringify({
+          ticket: `reconnect-ticket-${String(sockets.length + 1).padStart(32, "0")}`,
+          expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      },
+      webSocketFactory: (url, protocol) => {
+        const socket = new FakeSocket(url, protocol, sockets.length === 0);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    await client.connect();
+    sockets[0].serverClose();
+    await waitUntil(() => sockets.length === 2, "first reconnect attempt was not started");
+    sockets[1].serverClose();
+    await waitUntil(() => delays.includes(1), "second reconnect delay was not scheduled");
+    assert.ok(delays.includes(0), "initial immediate reconnect delay was not scheduled");
+    await client.disconnect();
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
 test("invalid close arguments do not tear down an open client", async () => {
   let socket;
   const client = new RealtimeClient({

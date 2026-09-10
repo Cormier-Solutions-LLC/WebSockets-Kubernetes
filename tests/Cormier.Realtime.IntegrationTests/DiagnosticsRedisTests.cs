@@ -11,6 +11,100 @@ public sealed class DiagnosticsRedisTests
         Environment.GetEnvironmentVariable("REDIS_TEST_ENDPOINT") ?? "host.docker.internal:16379";
 
     [Fact]
+    public async Task ReplicaWideOverridesAreReservedAtomicallyAndPeriodicallyReconciled()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = Endpoint,
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 1000,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var firstRedis = new RedisConnectionProvider(redisOptions);
+        await using var secondRedis = new RedisConnectionProvider(redisOptions);
+        var first = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("reservation-first"));
+        var second = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("reservation-second"));
+        var firstCoordination = new DiagnosticsCoordinationService(
+            first, firstRedis, redisOptions, diagnostics, NullLogger<DiagnosticsCoordinationService>.Instance);
+        var secondCoordination = new DiagnosticsCoordinationService(
+            second, secondRedis, redisOptions, diagnostics, NullLogger<DiagnosticsCoordinationService>.Instance);
+        var firstControl = new DiagnosticsControlService(first, firstRedis, redisOptions, diagnostics);
+        var secondControl = new DiagnosticsControlService(second, secondRedis, redisOptions, diagnostics);
+
+        await firstCoordination.StartAsync(CancellationToken.None);
+        await secondCoordination.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => firstRedis.CurrentConnection?.IsConnected == true &&
+                secondRedis.CurrentConnection?.IsConnected == true);
+            var request = new LogLevelChangeRequest(
+                "Cormier.Realtime.Redis", "Debug", 30, "concurrent reservation verification", "all");
+            var outcomes = await Task.WhenAll(
+                firstControl.ApplyAsync(request, "operator-one", CancellationToken.None).AsTask(),
+                secondControl.ApplyAsync(request, "operator-two", CancellationToken.None).AsTask());
+            var winner = Assert.Single(outcomes, outcome => outcome.Succeeded);
+            Assert.Single(outcomes, outcome => !outcome.Succeeded);
+            Assert.NotNull(winner.Result);
+            await WaitUntilAsync(() => first.Contains(winner.Result.Id) && second.Contains(winner.Result.Id));
+
+            var database = firstRedis.CurrentConnection!.GetDatabase();
+            var activeKey = $"{redisOptions.InstancePrefix}:{{diagnostics}}:{diagnostics.Value.CoordinationChannel}:active:{winner.Result.Id}";
+            var indexKey = $"{redisOptions.InstancePrefix}:{{diagnostics}}:{diagnostics.Value.CoordinationChannel}:active-index";
+            await database.KeyDeleteAsync(activeKey);
+            await database.SortedSetRemoveAsync(indexKey, winner.Result.Id);
+
+            await WaitUntilAsync(() => !first.Contains(winner.Result.Id) && !second.Contains(winner.Result.Id));
+        }
+        finally
+        {
+            await firstCoordination.StopAsync(CancellationToken.None);
+            await secondCoordination.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task AuditPersistenceRemovesEntriesIndividuallyByAge()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = Endpoint,
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 1000,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+            AuditRetentionDays = 1,
+        });
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        _ = await redis.GetConnectionAsync(CancellationToken.None);
+        var controller = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("retention-instance"));
+        using var control = new DiagnosticsControlService(controller, redis, redisOptions, diagnostics);
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.Redis", "Debug", 1, "retention verification", "instance"),
+            "retention-operator",
+            out var applied,
+            out _,
+            startedAt: DateTimeOffset.UtcNow.AddDays(-2)));
+
+        _ = await control.GetAuditAsync(0, 10, CancellationToken.None);
+        var audit = await control.GetAuditAsync(0, 10, CancellationToken.None);
+
+        Assert.NotNull(applied);
+        Assert.DoesNotContain(audit.Items, item => item.Id == applied.Id && item.Outcome == "applied");
+        Assert.Contains(audit.Items, item => item.Id == applied.Id && item.Outcome == "expired");
+    }
+
+    [Fact]
     public async Task LogLevelChangesCoordinateAuditAndRollbackAcrossInstances()
     {
         var redisOptions = new RedisOptions
@@ -125,7 +219,7 @@ public sealed class DiagnosticsRedisTests
 
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < 200; attempt++)
         {
             if (predicate())
             {

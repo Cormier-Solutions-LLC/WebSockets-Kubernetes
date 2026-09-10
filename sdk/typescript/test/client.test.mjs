@@ -110,6 +110,13 @@ test("ticket authentication connects without surfacing credential material", asy
   await client.disconnect();
 });
 
+test("reserved reconnect context cannot be supplied by callers", () => {
+  assert.throws(
+    () => new RealtimeClient({ url: "wss://gateway.example/realtime/ws?reconnect=true" }),
+    /reserved reconnect query parameter/,
+  );
+});
+
 test("subscriptions are unique, dispatch events, and unsubscribe once", async () => {
   let socket;
   const client = new RealtimeClient({
@@ -314,6 +321,8 @@ test("reconnect uses a fresh ticket and restores each intended subscription once
   sockets[0].serverClose(1012, "service_restart");
   await waitUntil(() => sockets.length === 2 && sockets[1].sent.length === 1, "subscription was not restored");
   assert.equal(ticketRequests, 2);
+  assert.equal(new URL(sockets[0].url).searchParams.has("reconnect"), false);
+  assert.equal(new URL(sockets[1].url).searchParams.get("reconnect"), "true");
   assert.equal(JSON.parse(sockets[1].sent[0]).type, "subscribe");
   assert.equal(sockets[1].sent.length, 1);
   sockets[1].serverMessage(acknowledgement(JSON.parse(sockets[1].sent[0])));

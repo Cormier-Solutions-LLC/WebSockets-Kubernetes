@@ -128,6 +128,8 @@ public sealed class RealtimeClientTests
         Assert.Equal(ProtocolMessageTypes.Subscribe, replayEnvelope?.Type);
         Assert.Equal("topics/orders", replayEnvelope?.Route);
         Assert.Equal(2, authentication.CallCount);
+        Assert.False(factory.Endpoints[0].Query.Contains("reconnect", StringComparison.Ordinal));
+        Assert.Contains("reconnect=true", factory.Endpoints[1].Query, StringComparison.Ordinal);
         Assert.Equal(1, second.SentCount);
     }
 
@@ -888,7 +890,8 @@ public sealed class RealtimeClientTests
     [Theory]
     [InlineData("ws://gateway.example/realtime/ws?ticket=sensitive-ticket")]
     [InlineData("wss://gateway.example/realtime/ws?TICKET=sensitive-ticket")]
-    public void EndpointTicketQueryIsRejected(string endpoint)
+    [InlineData("wss://gateway.example/realtime/ws?reconnect=true")]
+    public void ReservedAuthenticationQueryParametersAreRejected(string endpoint)
     {
         var options = Options();
         options.Endpoint = new Uri(endpoint);
@@ -1687,6 +1690,8 @@ public sealed class RealtimeClientTests
     {
         private int _index;
 
+        public List<Uri> Endpoints { get; } = [];
+
         public int ConnectionCount => Volatile.Read(ref _index);
 
         public Task<IRealtimeTransport> ConnectAsync(
@@ -1697,6 +1702,7 @@ public sealed class RealtimeClientTests
             int maximumMessageBytes,
             CancellationToken cancellationToken)
         {
+            Endpoints.Add(endpoint);
             var index = Interlocked.Increment(ref _index) - 1;
             if (index >= transports.Length)
             {

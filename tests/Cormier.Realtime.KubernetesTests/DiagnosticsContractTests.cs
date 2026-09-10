@@ -96,7 +96,7 @@ public sealed class DiagnosticsContractTests
         Assert.Contains("secretKeyRef", deployment, StringComparison.Ordinal);
         Assert.DoesNotContain("OTEL_EXPORTER_OTLP_HEADERS:", config, StringComparison.Ordinal);
         Assert.DoesNotContain("Diagnostics__OperatorToken", config, StringComparison.Ordinal);
-        Assert.Contains(".Values.observability.serviceMonitor.path", monitor, StringComparison.Ordinal);
+        Assert.Contains(".Values.metrics.path", monitor, StringComparison.Ordinal);
         Assert.Contains("CORMIER_REALTIME_INSTANCE_ID", deployment, StringComparison.Ordinal);
     }
 

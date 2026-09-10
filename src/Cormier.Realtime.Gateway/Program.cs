@@ -17,16 +17,24 @@ builder.Logging.AddJsonConsole(options =>
 
 builder.Services.AddRealtimeGateway(builder.Configuration);
 var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
-if (diagnosticsEnabled)
+var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
+var metricsPolicy = builder.Configuration["Metrics:AuthorizationPolicy"];
+var protectedMetricsEnabled = builder.Configuration.GetValue<bool>("Metrics:Enabled") &&
+    !string.IsNullOrWhiteSpace(metricsPolicy);
+if (diagnosticsEnabled || protectedMetricsEnabled)
 {
-    var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
     var diagnosticsToken = builder.Configuration["Diagnostics:OperatorToken"];
-    if (string.IsNullOrWhiteSpace(diagnosticsPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
+    var primaryPolicy = diagnosticsEnabled ? diagnosticsPolicy : metricsPolicy;
+    if (string.IsNullOrWhiteSpace(primaryPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
     {
         throw new InvalidOperationException(
-            "Enabled standalone diagnostics require Diagnostics:AuthorizationPolicy and a Secret-backed Diagnostics:OperatorToken.");
+            "Protected standalone diagnostics or metrics require an authorization policy and a Secret-backed Diagnostics:OperatorToken.");
     }
-    builder.Services.AddRealtimeDiagnosticsBearer(diagnosticsPolicy, diagnosticsToken);
+    var additionalPolicies = diagnosticsEnabled && protectedMetricsEnabled &&
+        !string.Equals(diagnosticsPolicy, metricsPolicy, StringComparison.Ordinal)
+        ? new[] { metricsPolicy! }
+        : [];
+    builder.Services.AddRealtimeDiagnosticsBearer(primaryPolicy, diagnosticsToken, additionalPolicies);
 }
 
 builder.Configuration.AddCommandLine(args);
@@ -57,7 +65,7 @@ app.Lifetime.ApplicationStopping.Register(() =>
 });
 
 app.UseRealtimeGateway();
-if (diagnosticsEnabled)
+if (diagnosticsEnabled || protectedMetricsEnabled)
 {
     app.UseAuthentication();
     app.UseAuthorization();

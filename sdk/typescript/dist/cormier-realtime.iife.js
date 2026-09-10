@@ -234,6 +234,10 @@ var CormierRealtime = (() => {
       if (options.url.toString().trim().length === 0) {
         throw new TypeError("A WebSocket URL is required.");
       }
+      const configuredUrl = new URL(options.url.toString(), "http://localhost");
+      if ([...configuredUrl.searchParams.keys()].some((key) => key.toLowerCase() === "reconnect")) {
+        throw new TypeError("The realtime URL must not contain the reserved reconnect query parameter.");
+      }
       this.options = {
         maximumQueuedCommands: 128,
         maximumPendingCommands: 128,
@@ -391,7 +395,7 @@ var CormierRealtime = (() => {
       signal?.throwIfAborted();
       const generation = ++this.generation;
       this.setState(reconnecting ? "reconnecting" : "connecting");
-      const connectionUrl = await this.createConnectionUrl(signal);
+      const connectionUrl = await this.createConnectionUrl(reconnecting, signal);
       signal?.throwIfAborted();
       if (generation !== this.generation || this.intentionalClose) {
         throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
@@ -461,7 +465,7 @@ var CormierRealtime = (() => {
         };
       });
     }
-    async createConnectionUrl(signal) {
+    async createConnectionUrl(reconnecting, signal) {
       const url = new URL(this.options.url.toString(), globalThis.location?.href);
       const authentication = this.options.authentication ?? { kind: "session" };
       if (authentication.kind === "ticket") {
@@ -501,6 +505,9 @@ var CormierRealtime = (() => {
       }
       if (url.protocol !== "ws:" && url.protocol !== "wss:") {
         throw new TypeError("The realtime URL must use ws, wss, http, or https.");
+      }
+      if (reconnecting) {
+        url.searchParams.set("reconnect", "true");
       }
       return url.toString();
     }

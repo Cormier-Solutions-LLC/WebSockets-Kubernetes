@@ -40,7 +40,7 @@ public sealed class RealtimeAuthenticator(
                 metrics.RecordAuthentication(false, "ticket");
                 throw;
             }
-            metrics.RecordAuthentication(identity is not null, "ticket");
+            metrics.RecordAuthentication(identity is not null, "ticket", IsReconnectRequest(request));
             return identity is null
                 ? new AuthenticationResult(null, "invalid_ticket")
                 : new AuthenticationResult(identity, null);
@@ -145,6 +145,9 @@ public sealed class RealtimeAuthenticator(
             string.Equals(candidate.Host, request.Host.Host, StringComparison.OrdinalIgnoreCase) &&
             candidate.Port == requestPort;
     }
+
+    private static bool IsReconnectRequest(HttpRequest request) =>
+        bool.TryParse(request.Query["reconnect"].ToString(), out var reconnecting) && reconnecting;
 }
 
 public readonly record struct AuthorizedRoute(string Topic, string? UserId)

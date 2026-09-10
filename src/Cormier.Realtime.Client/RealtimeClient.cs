@@ -468,7 +468,7 @@ public sealed class RealtimeClient : IDisposable
                     .ConfigureAwait(false);
                 EnsureSecureCredentialTransport(authentication);
                 transport = await _transportFactory.ConnectAsync(
-                    _options.Endpoint!,
+                    WithReconnectContext(_options.Endpoint!, reconnectAttempt > 0),
                     authentication,
                     _options.SubProtocol,
                     _options.MaximumFrameBytes,
@@ -655,6 +655,19 @@ public sealed class RealtimeClient : IDisposable
         }
         _firstConnection.TrySetCanceled(CancellationToken.None);
         Log(RealtimeClientLogLevel.Information, DisconnectedEventId, "Realtime connection is stopped.");
+    }
+
+    private static Uri WithReconnectContext(Uri endpoint, bool reconnecting)
+    {
+        if (!reconnecting)
+        {
+            return endpoint;
+        }
+        var builder = new UriBuilder(endpoint);
+        builder.Query = string.IsNullOrEmpty(builder.Query)
+            ? "reconnect=true"
+            : $"{builder.Query.TrimStart('?')}&reconnect=true";
+        return builder.Uri;
     }
 
     private async Task SendLoopAsync(IRealtimeTransport transport, CancellationToken cancellationToken)

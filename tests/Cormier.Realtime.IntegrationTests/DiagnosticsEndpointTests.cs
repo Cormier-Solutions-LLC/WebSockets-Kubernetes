@@ -27,11 +27,12 @@ public sealed class DiagnosticsEndpointTests
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddRealtimeDiagnosticsBearer("diagnostics-operator", token);
+        builder.Services.AddRealtimeDiagnosticsBearer("diagnostics-operator", token, "metrics-operator");
         await using var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapGet("/secured-diagnostics", () => Results.Ok()).RequireAuthorization("diagnostics-operator");
+        app.MapGet("/secured-metrics", () => Results.Ok()).RequireAuthorization("metrics-operator");
         await app.StartAsync();
         using var client = app.GetTestClient();
 
@@ -47,6 +48,11 @@ public sealed class DiagnosticsEndpointTests
         validRequest.Headers.Authorization = new("Bearer", token);
         using var valid = await client.SendAsync(validRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+
+        using var metricsRequest = new HttpRequestMessage(HttpMethod.Get, "/secured-metrics");
+        metricsRequest.Headers.Authorization = new("Bearer", token);
+        using var metrics = await client.SendAsync(metricsRequest, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.OK, metrics.StatusCode);
     }
 
     [Fact]
@@ -67,6 +73,7 @@ public sealed class DiagnosticsEndpointTests
         allowedRequest.Headers.Add("Origin", "https://operator.example");
         using var allowed = await client.SendAsync(allowedRequest, CancellationToken.None);
         Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.Equal("https://operator.example", allowed.Headers.GetValues("Access-Control-Allow-Origin").Single());
         var snapshot = await allowed.Content.ReadFromJsonAsync(
             DiagnosticsJsonSerializerContext.Default.DiagnosticsSnapshotResponse,
             CancellationToken.None);
@@ -74,6 +81,48 @@ public sealed class DiagnosticsEndpointTests
         Assert.NotNull(snapshot);
         Assert.Equal("1.0", snapshot.ContractVersion);
         Assert.DoesNotContain("tenant", await allowed.Content.ReadAsStringAsync(CancellationToken.None), StringComparison.OrdinalIgnoreCase);
+
+    }
+
+    [Fact]
+    public async Task AllowedBrowserOriginCanCompleteBearerPreflightWithoutAuthentication()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development,
+        });
+        builder.WebHost.UseTestServer();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Diagnostics:Enabled"] = "true",
+            ["Diagnostics:AuthorizationPolicy"] = "diagnostics-operator",
+            ["Diagnostics:AllowedOrigins:0"] = "https://operator.example",
+            ["Realtime:AllowedOrigins:0"] = "http://localhost",
+            ["Redis:Endpoint"] = "redis.invalid:6379",
+        });
+        builder.Services.AddRealtimeGateway(builder.Configuration);
+        builder.Services.AddAuthentication("test")
+            .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("test", _ => { });
+        builder.Services.AddAuthorization(options => options.AddPolicy(
+            "diagnostics-operator",
+            policy => policy.RequireAuthenticatedUser()));
+        await using var app = builder.Build();
+        app.UseRealtimeGateway();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapRealtimeDiagnostics();
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/diagnostics/v1/snapshot");
+        request.Headers.Add("Origin", "https://operator.example");
+        request.Headers.Add("Access-Control-Request-Method", "GET");
+        request.Headers.Add("Access-Control-Request-Headers", "Authorization");
+
+        using var response = await client.SendAsync(request, CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("https://operator.example", response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        Assert.Contains("Authorization", response.Headers.GetValues("Access-Control-Allow-Headers").Single(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -124,6 +173,48 @@ public sealed class DiagnosticsEndpointTests
         Assert.NotNull(audit);
         Assert.Contains(audit.Items, item => item.Id == applied.Id && item.Outcome == "applied");
         Assert.Contains(audit.Items, item => item.Id == applied.Id && item.Outcome == "reverted");
+    }
+
+    [Fact]
+    public async Task RuntimeOverrideTakesPrecedenceOverCategorySpecificLoggingRule()
+    {
+        await using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["Logging:LogLevel:Cormier.Realtime"] = "Warning",
+        });
+        using var client = factory.CreateClient();
+        using var apply = OperatorRequest(HttpMethod.Post, "/diagnostics/v1/logging/overrides");
+        apply.Content = JsonContent.Create(
+            new LogLevelChangeRequest("Cormier.Realtime", "Debug", 30, "capture category debug output", "instance"),
+            DiagnosticsJsonSerializerContext.Default.LogLevelChangeRequest);
+        using var applied = await client.SendAsync(apply, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.Created, applied.StatusCode);
+
+        using var tail = OperatorRequest(
+            HttpMethod.Get,
+            "/diagnostics/v1/logs/tail?level=Debug&category=Cormier.Realtime&durationSeconds=2");
+        var responseTask = client.SendAsync(tail, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
+        var logger = factory.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Cormier.Realtime.OverrideFixture");
+        var loggingOptions = factory.Services.GetRequiredService<IOptions<LoggerFilterOptions>>().Value;
+        var rules = string.Join(";", loggingOptions.Rules.Select(rule =>
+            $"{rule.ProviderName ?? "*"}|{rule.CategoryName ?? "*"}|{rule.LogLevel}|{rule.Filter is not null}"));
+        Assert.True(logger.IsEnabled(LogLevel.Debug), rules);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await Task.Delay(100);
+            logger.Log(
+                LogLevel.Debug,
+                new EventId(9010, "OverrideFixture"),
+                "category override marker",
+                null,
+                static (state, _) => state);
+        }
+
+        using var response = await responseTask;
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var content = await response.Content.ReadAsStringAsync(timeout.Token);
+        Assert.Contains("category override marker", content, StringComparison.Ordinal);
     }
 
     [Fact]

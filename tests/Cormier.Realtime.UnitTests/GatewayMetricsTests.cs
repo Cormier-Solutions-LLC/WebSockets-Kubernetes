@@ -111,4 +111,16 @@ public sealed class GatewayMetricsTests
         Assert.DoesNotContain("code=\"3999\"", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("code=\"4000\"", rendered, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ReconnectMetricRequiresExplicitReconnectContext()
+    {
+        using var metrics = new GatewayMetrics();
+
+        metrics.RecordAuthentication(true, "ticket");
+        metrics.RecordAuthentication(true, "ticket", reconnecting: true);
+
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_reconnect_authentications_total 1", rendered, StringComparison.Ordinal);
+    }
 }

@@ -159,6 +159,7 @@ public sealed class GatewayMetrics : IDisposable
         InitializeCounter("cormier_realtime_abnormal_websocket_closes_total");
         InitializeCounter("cormier_realtime_handler_cancellations_total");
         InitializeCounter("cormier_realtime_reconnect_authentications_total");
+        InitializeCounter("cormier_realtime_drain_transitions_total");
         foreach (var reason in ConnectionCloseReasons)
         {
             InitializeCounter("cormier_realtime_connections_closed_total", ("reason", reason));
@@ -266,7 +267,7 @@ public sealed class GatewayMetrics : IDisposable
         PublishOperational("message.throughput");
     }
 
-    public void RecordAuthentication(bool succeeded, string method)
+    public void RecordAuthentication(bool succeeded, string method, bool reconnecting = false)
     {
         if (!succeeded)
         {
@@ -274,7 +275,7 @@ public sealed class GatewayMetrics : IDisposable
         }
 
         method = AuthenticationMethods.Contains(method) ? method : "other";
-        if (succeeded && method == "ticket")
+        if (succeeded && reconnecting)
         {
             Interlocked.Increment(ref _reconnectCount);
             Increment("cormier_realtime_reconnect_authentications_total");
@@ -438,6 +439,7 @@ public sealed class GatewayMetrics : IDisposable
     public void RecordDrainStarted()
     {
         Interlocked.Exchange(ref _draining, 1);
+        Increment("cormier_realtime_drain_transitions_total");
         _drainTransitions.Add(1);
         PublishOperational("drain.state");
     }
@@ -472,6 +474,7 @@ public sealed class GatewayMetrics : IDisposable
             "cormier_realtime_abnormal_websocket_closes_total",
             "cormier_realtime_handler_cancellations_total",
             "cormier_realtime_reconnect_authentications_total",
+            "cormier_realtime_drain_transitions_total",
         })
         {
             AppendType(builder, counter, "counter");
@@ -548,12 +551,18 @@ public sealed class GatewayMetrics : IDisposable
             return;
         }
         var now = Stopwatch.GetTimestamp();
-        var previous = _lastDiagnosticEvent.GetOrAdd(kind, 0);
-        if (previous != 0 && Stopwatch.GetElapsedTime(previous, now) < TimeSpan.FromMilliseconds(100))
+        while (true)
         {
-            return;
+            var previous = _lastDiagnosticEvent.GetOrAdd(kind, 0);
+            if (previous != 0 && Stopwatch.GetElapsedTime(previous, now) < TimeSpan.FromMilliseconds(100))
+            {
+                return;
+            }
+            if (_lastDiagnosticEvent.TryUpdate(kind, now, previous))
+            {
+                break;
+            }
         }
-        _lastDiagnosticEvent[kind] = now;
         _diagnosticEvents.Publish(new DiagnosticOperationalEvent(
             "1.0",
             _diagnosticEvents.NextEventSequence(),

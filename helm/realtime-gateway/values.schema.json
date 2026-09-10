@@ -3,6 +3,33 @@
   "type": "object",
   "required": ["image", "service", "deploymentStrategy", "gateway", "redis", "resources"],
   "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "required": ["metrics"],
+        "properties": {
+          "metrics": {
+            "required": ["authorizationPolicy"],
+            "properties": { "authorizationPolicy": { "minLength": 1 } }
+          }
+        }
+      },
+      "then": {
+        "required": ["diagnostics"],
+        "properties": {
+          "diagnostics": {
+            "required": ["operatorTokenSecret"],
+            "properties": {
+              "operatorTokenSecret": {
+                "required": ["name"],
+                "properties": { "name": { "minLength": 1 } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "replicaCount": { "type": "integer", "minimum": 2 },
     "deploymentStrategy": {
@@ -151,7 +178,7 @@
         "platformMetrics": { "type": "object", "required": ["certificateName", "metalLbAdvertisementMode", "metalLbNamespace", "metalLbAddress", "traefikNamespace", "traefikServicePattern", "redisNamespace", "redisInstance"], "properties": { "certificateName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }, "metalLbAdvertisementMode": { "type": "string", "enum": ["l2", "bgp"] }, "metalLbNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }, "metalLbAddress": { "type": "string", "pattern": "^[A-Fa-f0-9:.]+$", "maxLength": 64 }, "traefikNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }, "traefikServicePattern": { "type": "string", "pattern": "^[A-Za-z0-9._@*|:-]*$", "maxLength": 253 }, "redisNamespace": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }, "redisInstance": { "type": "string", "pattern": "^[A-Za-z0-9._:-]*$", "maxLength": 253 } } },
         "alertThresholds": { "type": "object", "required": ["queueDepth", "handlerLatencySeconds", "redisLatencySeconds", "reconnectRatio"], "properties": { "queueDepth": { "type": "integer", "minimum": 1 }, "handlerLatencySeconds": { "type": "number", "exclusiveMinimum": 0 }, "redisLatencySeconds": { "type": "number", "exclusiveMinimum": 0 }, "reconnectRatio": { "type": "number", "exclusiveMinimum": 0 } } },
         "links": { "type": "object", "required": ["logsUrl", "tracesUrl", "kubernetesUrl", "runbookBaseUrl"], "properties": { "logsUrl": { "type": "string", "format": "uri" }, "tracesUrl": { "type": "string", "format": "uri" }, "kubernetesUrl": { "type": "string", "format": "uri" }, "runbookBaseUrl": { "type": "string", "format": "uri" } } },
-        "serviceMonitor": { "type": "object", "required": ["enabled", "path", "interval", "scrapeTimeout"], "properties": { "enabled": { "type": "boolean" }, "path": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]+$" }, "interval": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" }, "scrapeTimeout": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" } } },
+        "serviceMonitor": { "type": "object", "required": ["enabled", "interval", "scrapeTimeout"], "properties": { "enabled": { "type": "boolean" }, "interval": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" }, "scrapeTimeout": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" } } },
         "otlp": { "type": "object", "required": ["enabled", "endpoint", "protocol", "headersSecret"], "properties": { "enabled": { "type": "boolean" }, "endpoint": { "type": "string", "pattern": "^$|^https?://" }, "protocol": { "type": "string", "enum": ["http/protobuf", "grpc"] }, "headersSecret": { "type": "object", "required": ["name", "key"], "properties": { "name": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" }, "key": { "type": "string", "minLength": 1 } } } } },
         "grafanaDashboard": { "type": "object", "required": ["enabled", "label", "labelValue"], "properties": { "enabled": { "type": "boolean" }, "label": { "type": "string", "minLength": 1 }, "labelValue": { "type": "string", "minLength": 1 } } },
         "prometheusRule": { "type": "object", "required": ["enabled", "routingLabels"], "properties": { "enabled": { "type": "boolean" }, "routingLabels": { "type": "object", "required": ["service"], "properties": { "service": { "type": "string" } }, "additionalProperties": { "type": "string", "minLength": 1 } } } },

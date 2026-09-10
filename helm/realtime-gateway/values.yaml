@@ -59,7 +59,6 @@ observability:
     runbookBaseUrl: https://docs.example.com/runbooks
   serviceMonitor:
     enabled: true
-    path: /metrics
     interval: 30s
     scrapeTimeout: 10s
     additionalLabels: {}

@@ -20,7 +20,8 @@ public static class DiagnosticsAuthenticationExtensions
     public static IServiceCollection AddRealtimeDiagnosticsBearer(
         this IServiceCollection services,
         string authorizationPolicy,
-        string token)
+        string token,
+        params string[] additionalAuthorizationPolicies)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(authorizationPolicy);
@@ -29,6 +30,15 @@ public static class DiagnosticsAuthenticationExtensions
         {
             throw new ArgumentOutOfRangeException(nameof(authorizationPolicy));
         }
+        if (additionalAuthorizationPolicies is null || additionalAuthorizationPolicies.Any(
+            policy => string.IsNullOrWhiteSpace(policy) || policy.Length > 128))
+        {
+            throw new ArgumentOutOfRangeException(nameof(additionalAuthorizationPolicies));
+        }
+        var policies = new[] { authorizationPolicy }
+            .Concat(additionalAuthorizationPolicies)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         if (token.Length is < 32 or > 4096)
         {
             throw new ArgumentOutOfRangeException(nameof(token), "The diagnostics bearer token must contain between 32 and 4096 characters.");
@@ -39,11 +49,15 @@ public static class DiagnosticsAuthenticationExtensions
             .AddScheme<DiagnosticsBearerOptions, DiagnosticsBearerAuthenticationHandler>(
                 BearerScheme,
                 options => options.TokenHash = tokenHash);
-        services.AddAuthorizationBuilder().AddPolicy(
-            authorizationPolicy,
-            policy => policy
-                .AddAuthenticationSchemes(BearerScheme)
-                .RequireAuthenticatedUser());
+        var authorization = services.AddAuthorizationBuilder();
+        foreach (var policyName in policies)
+        {
+            authorization.AddPolicy(
+                policyName,
+                policy => policy
+                    .AddAuthenticationSchemes(BearerScheme)
+                    .RequireAuthenticatedUser());
+        }
         return services;
     }
 }

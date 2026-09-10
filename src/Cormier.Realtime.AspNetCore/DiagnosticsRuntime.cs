@@ -98,7 +98,7 @@ public static partial class DiagnosticRedactor
     [GeneratedRegex("(?i)(authorization|cookie|set-cookie|password|secret|token|ticket)[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
     private static partial Regex SecretPattern();
 
-    [GeneratedRegex("(?i)(tenant|user|session)(?:id)?[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?i)(tenant|user|session)(?:[-_.]?id)?[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
     private static partial Regex PrivateIdentityPattern();
 
     [GeneratedRegex("(?i)bearer\\s+[A-Za-z0-9._~+/-]+=*", RegexOptions.CultureInvariant)]
@@ -131,6 +131,7 @@ public sealed class RuntimeLogLevelController(
 {
     private readonly ConcurrentDictionary<string, ActiveLogLevelOverride> _overrides = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<LogLevelAuditEntry> _audit = new();
+    private readonly ConcurrentQueue<LogLevelAuditEntry> _pendingAudit = new();
     private readonly DiagnosticsOptions _options = options.Value;
     private readonly KeyValuePair<string, LogLevel>[] _baselineLevels = ReadBaselineLevels(configuration);
 
@@ -139,6 +140,14 @@ public sealed class RuntimeLogLevelController(
         var now = DateTimeOffset.UtcNow;
         RemoveExpired(now);
         return EffectiveLevelCore(category, now);
+    }
+
+    public bool HasOverride(string category)
+    {
+        var now = DateTimeOffset.UtcNow;
+        RemoveExpired(now);
+        return _overrides.Values.Any(item => item.ExpiresAt > now &&
+            (item.Category == "*" || category.StartsWith(item.Category, StringComparison.Ordinal)));
     }
 
     private LogLevel EffectiveLevelCore(string category, DateTimeOffset now)
@@ -167,6 +176,10 @@ public sealed class RuntimeLogLevelController(
         .ToArray();
 
     public int AuditCount => _audit.Count;
+
+    internal bool TryPeekPendingAudit(out LogLevelAuditEntry? entry) => _pendingAudit.TryPeek(out entry);
+
+    internal void MarkPendingAuditPersisted() => _pendingAudit.TryDequeue(out _);
 
     public bool Contains(string id)
     {
@@ -200,7 +213,9 @@ public sealed class RuntimeLogLevelController(
             error = "The requested category is not in the diagnostics allowlist.";
             return false;
         }
-        if (!Enum.TryParse<LogLevel>(request.Level, true, out var level) || level is LogLevel.None)
+        if (!Enum.TryParse<LogLevel>(request.Level, true, out var level) ||
+            !Enum.IsDefined(level) ||
+            level is LogLevel.None)
         {
             error = "The requested log level is invalid.";
             return false;
@@ -313,9 +328,14 @@ public sealed class RuntimeLogLevelController(
     private void AddAudit(LogLevelAuditEntry entry)
     {
         _audit.Enqueue(entry);
+        _pendingAudit.Enqueue(entry);
         while (_audit.Count > _options.AuditCapacity)
         {
             _audit.TryDequeue(out _);
+        }
+        while (_pendingAudit.Count > _options.AuditCapacity)
+        {
+            _pendingAudit.TryDequeue(out _);
         }
     }
 

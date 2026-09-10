@@ -64,6 +64,7 @@ public static class DiagnosticsEndpointExtensions
         }
 
         var group = endpoints.MapGroup(options.BasePath)
+            .RequireCors(RealtimeGatewayHostingExtensions.DiagnosticsCorsPolicy)
             .RequireAuthorization(options.AuthorizationPolicy);
         group.MapGet("/snapshot", HandleSnapshotAsync);
         group.MapGet("/connections", HandleConnectionsAsync);

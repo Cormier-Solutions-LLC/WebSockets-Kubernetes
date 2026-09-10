@@ -14,6 +14,7 @@ namespace Cormier.Realtime.AspNetCore;
 
 public static class RealtimeGatewayHostingExtensions
 {
+    internal const string DiagnosticsCorsPolicy = "Cormier.Realtime.DiagnosticsOrigins";
     private static readonly ConditionalWeakTable<IEndpointRouteBuilder, object> MappedEndpoints = new();
 
     public static IServiceCollection AddRealtimeGateway(
@@ -159,6 +160,16 @@ public static class RealtimeGatewayHostingExtensions
             options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
                 ["application/openmetrics-text", "text/event-stream"]);
         });
+        services.AddCors(options => options.AddPolicy(DiagnosticsCorsPolicy, policy =>
+        {
+            var origins = configuration.GetSection($"{DiagnosticsOptions.SectionName}:AllowedOrigins").Get<string[]>() ?? [];
+            if (origins.Length > 0)
+            {
+                policy.WithOrigins(origins)
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
+            }
+        }));
 
         if (configuration.GetValue<bool>($"{MetricsOptions.SectionName}:OtlpEnabled"))
         {
@@ -213,16 +224,30 @@ public static class RealtimeGatewayHostingExtensions
         services.TryAddSingleton<DiagnosticsRequestLimiter>();
         services.TryAddSingleton<DiagnosticsControlService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, DiagnosticsLoggerProvider>());
-        if (configuration.GetValue<bool>($"{DiagnosticsOptions.SectionName}:Enabled"))
-        {
-            services.AddOptions<LoggerFilterOptions>()
-                .PostConfigure<RuntimeLogLevelController>((logging, controller) =>
+        services.AddOptions<LoggerFilterOptions>()
+            .PostConfigure<RuntimeLogLevelController>((logging, controller) =>
+            {
+                var baselineMinimum = logging.MinLevel;
+                var baselineRules = logging.Rules.ToArray();
+                foreach (var rule in baselineRules)
+                {
                     logging.Rules.Add(new LoggerFilterRule(
-                        providerName: null,
-                        categoryName: null,
+                        rule.ProviderName,
+                        rule.CategoryName,
                         logLevel: LogLevel.Trace,
-                        filter: (_, category, level) => level >= controller.EffectiveLevel(category ?? string.Empty))));
-        }
+                        filter: (provider, category, level) => controller.HasOverride(category ?? string.Empty)
+                            ? level >= controller.EffectiveLevel(category ?? string.Empty)
+                            : level >= (rule.LogLevel ?? LogLevel.Trace) &&
+                                (rule.Filter?.Invoke(provider, category, level) ?? true)));
+                }
+                logging.Rules.Add(new LoggerFilterRule(
+                    providerName: null,
+                    categoryName: null,
+                    logLevel: LogLevel.Trace,
+                    filter: (_, category, level) => controller.HasOverride(category ?? string.Empty)
+                        ? level >= controller.EffectiveLevel(category ?? string.Empty)
+                        : level >= baselineMinimum));
+            });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, RedisSubscriberService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, GatewayDrainService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, RealtimeGatewayStartupService>());
@@ -238,8 +263,35 @@ public static class RealtimeGatewayHostingExtensions
         var options = app.ApplicationServices.GetRequiredService<RealtimeOptions>();
         app.UseForwardedHeaders();
         app.UseResponseCompression();
+        app.Use(HandleDiagnosticsPreflightAsync);
+        app.UseCors();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(options.HeartbeatSeconds) });
         return app;
+    }
+
+    private static async Task HandleDiagnosticsPreflightAsync(HttpContext context, RequestDelegate next)
+    {
+        var options = context.RequestServices.GetRequiredService<IOptions<DiagnosticsOptions>>().Value;
+        var origin = context.Request.Headers.Origin.ToString();
+        var requestedMethod = context.Request.Headers.AccessControlRequestMethod.ToString();
+        if (options.Enabled &&
+            HttpMethods.IsOptions(context.Request.Method) &&
+            context.Request.Path.StartsWithSegments(options.BasePath) &&
+            requestedMethod.Length > 0 &&
+            options.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status204NoContent;
+            context.Response.Headers.AccessControlAllowOrigin = origin;
+            context.Response.Headers.AccessControlAllowMethods = requestedMethod;
+            var requestedHeaders = context.Request.Headers.AccessControlRequestHeaders.ToString();
+            if (requestedHeaders.Length > 0)
+            {
+                context.Response.Headers.AccessControlAllowHeaders = requestedHeaders;
+            }
+            context.Response.Headers.Append("Vary", "Origin");
+            return;
+        }
+        await next(context);
     }
 
     public static IEndpointConventionBuilder MapRealtimeGateway(this IEndpointRouteBuilder endpoints)

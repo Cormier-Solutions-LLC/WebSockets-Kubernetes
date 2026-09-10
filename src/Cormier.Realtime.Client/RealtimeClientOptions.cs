@@ -61,6 +61,12 @@ public sealed class RealtimeClientOptions
                 "Endpoint must not contain a ticket query parameter; use an authentication provider.",
                 nameof(Endpoint));
         }
+        if (EndpointHasQueryParameter(Endpoint, "reconnect"))
+        {
+            throw new ArgumentException(
+                "Endpoint must not contain the reserved reconnect query parameter.",
+                nameof(Endpoint));
+        }
         if (string.IsNullOrWhiteSpace(SubProtocol) ||
             SubProtocol.Length > 128 ||
             !SubProtocol.All(IsWebSocketTokenCharacter))

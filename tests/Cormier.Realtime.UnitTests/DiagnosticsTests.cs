@@ -11,14 +11,17 @@ public sealed class DiagnosticsTests
     [Fact]
     public void RedactorRemovesCredentialsAndPrivateIdentityValues()
     {
-        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a user=user-a password=hunter2 {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}";
+        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b password=hunter2 {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}";
 
         var output = DiagnosticRedactor.Redact(input);
 
         Assert.DoesNotContain("abc.def", output, StringComparison.Ordinal);
         Assert.DoesNotContain("session-value", output, StringComparison.Ordinal);
         Assert.DoesNotContain("tenant-a", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("tenant-b", output, StringComparison.Ordinal);
         Assert.DoesNotContain("user-a", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("user-b", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("session-b", output, StringComparison.Ordinal);
         Assert.DoesNotContain("hunter2", output, StringComparison.Ordinal);
         Assert.DoesNotContain("json-secret", output, StringComparison.Ordinal);
         Assert.DoesNotContain("json-session", output, StringComparison.Ordinal);
@@ -55,6 +58,16 @@ public sealed class DiagnosticsTests
             out _));
         Assert.False(controller.TryApply(
             new LogLevelChangeRequest("Cormier.Realtime", "None", 10, "investigate"),
+            "operator",
+            out _,
+            out _));
+        Assert.False(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime", "-1", 10, "investigate"),
+            "operator",
+            out _,
+            out _));
+        Assert.False(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime", "7", 10, "investigate"),
             "operator",
             out _,
             out _));
@@ -182,10 +195,7 @@ public sealed class DiagnosticsTests
         await using var subscription = hub.SubscribeEvents(8);
         using var metrics = new GatewayMetrics(new GatewayOptions(), hub, new DiagnosticsIdentity());
 
-        for (var index = 0; index < 100; index++)
-        {
-            metrics.RecordMessage("inbound", "accepted");
-        }
+        Parallel.For(0, 100, _ => metrics.RecordMessage("inbound", "accepted"));
 
         var events = new List<DiagnosticOperationalEvent>();
         while (subscription.Reader.TryRead(out var item))

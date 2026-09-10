@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using Cormier.Realtime.Redis;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
@@ -9,9 +12,10 @@ public sealed class DiagnosticsControlService(
     RuntimeLogLevelController controller,
     RedisConnectionProvider redis,
     RedisOptions redisOptions,
-    IOptions<DiagnosticsOptions> options)
+    IOptions<DiagnosticsOptions> options) : IDisposable
 {
     private readonly DiagnosticsOptions _options = options.Value;
+    private readonly SemaphoreSlim _auditFlush = new(1, 1);
 
     public async ValueTask<(bool Succeeded, LogLevelOverrideResponse? Result, string Error)> ApplyAsync(
         LogLevelChangeRequest request,
@@ -50,11 +54,22 @@ public sealed class DiagnosticsControlService(
                     message,
                     DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
                 key = ActiveKey(id);
-                await database.StringSetAsync(key, payload, TimeSpan.FromSeconds(request.DurationSeconds));
-                await database.SortedSetAddAsync(
-                    ActiveIndexKey(),
-                    id,
-                    startedAt.AddSeconds(request.DurationSeconds).ToUnixTimeMilliseconds());
+                var reservationKey = ReservationKey(request.Category);
+                var lifetime = TimeSpan.FromSeconds(request.DurationSeconds);
+                var transaction = database.CreateTransaction();
+                transaction.AddCondition(Condition.KeyNotExists(reservationKey));
+                var activeWrite = transaction.StringSetAsync(key, payload, lifetime);
+                var reservationWrite = transaction.StringSetAsync(reservationKey, id, lifetime);
+                var indexWrite = transaction.SortedSetAddAsync(
+                    ActiveIndexKey(), id, startedAt.Add(lifetime).ToUnixTimeMilliseconds());
+                if (!await transaction.ExecuteAsync())
+                {
+                    controller.Revert(id, "system", "coordination conflict rollback");
+                    return (false, null, "An active replica-wide override already exists for the requested category.");
+                }
+                await activeWrite;
+                await reservationWrite;
+                await indexWrite;
                 await connection.GetSubscriber().PublishAsync(
                     RedisChannel.Literal($"{redisOptions.InstancePrefix}:{_options.CoordinationChannel}"),
                     payload);
@@ -63,7 +78,7 @@ public sealed class DiagnosticsControlService(
             {
                 if (database is not null && key is not null)
                 {
-                    await RemoveActiveAsync(database, id, key);
+                    await RemoveActiveAsync(database, id, key, ReservationKey(request.Category));
                 }
                 controller.Revert(id, "system", "cancelled coordination rollback");
                 throw;
@@ -74,7 +89,7 @@ public sealed class DiagnosticsControlService(
                 {
                     try
                     {
-                        await RemoveActiveAsync(database, id, key);
+                        await RemoveActiveAsync(database, id, key, ReservationKey(request.Category));
                     }
                     catch (RedisException)
                     {
@@ -112,7 +127,7 @@ public sealed class DiagnosticsControlService(
                 var payload = JsonSerializer.Serialize(
                     message,
                     DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
-                await RemoveActiveAsync(database, id, ActiveKey(id));
+                await RemoveActiveAsync(database, id, ActiveKey(id), ReservationKey(active.Category));
                 await connection.GetSubscriber().PublishAsync(
                     RedisChannel.Literal($"{redisOptions.InstancePrefix}:{_options.CoordinationChannel}"),
                     payload);
@@ -142,7 +157,8 @@ public sealed class DiagnosticsControlService(
             {
                 return LocalAuditPage(offset, limit);
             }
-            var values = await connection.GetDatabase().ListRangeAsync(AuditKey(), offset, offset + limit - 1);
+            var values = await connection.GetDatabase().SortedSetRangeByRankAsync(
+                AuditKey(), offset, offset + limit - 1, Order.Descending);
             var items = values
                 .Select(value =>
                 {
@@ -160,7 +176,7 @@ public sealed class DiagnosticsControlService(
                 .Where(item => item is not null)
                 .Cast<LogLevelAuditEntry>()
                 .ToArray();
-            var total = (int)Math.Min(int.MaxValue, await connection.GetDatabase().ListLengthAsync(AuditKey()));
+            var total = (int)Math.Min(int.MaxValue, await connection.GetDatabase().SortedSetLengthAsync(AuditKey()));
             return new LogLevelAuditPage(DateTimeOffset.UtcNow, offset, limit, total, items);
         }
         catch (RedisException)
@@ -172,6 +188,10 @@ public sealed class DiagnosticsControlService(
     internal async ValueTask FlushLocalAuditAsync(CancellationToken cancellationToken)
     {
         _ = controller.GetActive();
+        if (!await _auditFlush.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
         try
         {
             var connection = redis.CurrentConnection;
@@ -185,35 +205,38 @@ public sealed class DiagnosticsControlService(
                 ActiveIndexKey(),
                 double.NegativeInfinity,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            foreach (var entry in controller.GetAudit(0, _options.AuditCapacity).Reverse())
+            var auditCutoff = DateTimeOffset.UtcNow.Subtract(retention).ToUnixTimeMilliseconds();
+            await database.SortedSetRemoveRangeByScoreAsync(AuditKey(), double.NegativeInfinity, auditCutoff);
+            while (controller.TryPeekPendingAudit(out var entry) && entry is not null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var payload = JsonSerializer.Serialize(
                     entry,
                     DiagnosticsJsonSerializerContext.Default.LogLevelAuditEntry);
-                var transaction = database.CreateTransaction();
-                transaction.AddCondition(Condition.KeyNotExists(AuditDedupeKey(entry)));
-                var mark = transaction.StringSetAsync(AuditDedupeKey(entry), "1", retention);
-                var push = transaction.ListLeftPushAsync(AuditKey(), payload);
-                var trim = transaction.ListTrimAsync(AuditKey(), 0, _options.AuditCapacity - 1);
-                var expire = transaction.KeyExpireAsync(AuditKey(), retention);
-                if (await transaction.ExecuteAsync())
-                {
-                    await Task.WhenAll(mark, push, trim, expire);
-                }
+                await database.ScriptEvaluateAsync(
+                    "redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2]); " +
+                    "redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[3]); " +
+                    "local count = redis.call('ZCARD', KEYS[1]); " +
+                    "local capacity = tonumber(ARGV[4]); " +
+                    "if count > capacity then redis.call('ZREMRANGEBYRANK', KEYS[1], 0, count - capacity - 1); end; " +
+                    "return 1;",
+                    [AuditKey()],
+                    [entry.Timestamp.ToUnixTimeMilliseconds(), payload, auditCutoff, _options.AuditCapacity]);
+                controller.MarkPendingAuditPersisted();
             }
         }
         catch (RedisException)
         {
             // The bounded in-memory audit remains available during a Redis interruption.
         }
+        finally
+        {
+            _auditFlush.Release();
+        }
     }
 
     private string AuditKey() =>
         $"{redisOptions.InstancePrefix}:{{diagnostics}}:{_options.CoordinationChannel}:audit";
-
-    private string AuditDedupeKey(LogLevelAuditEntry entry) =>
-        $"{AuditKey()}:entry:{entry.Id}:{entry.Timestamp.UtcTicks}:{entry.Outcome}:{entry.InstanceId}";
 
     private string ActiveKey(string id) =>
         $"{redisOptions.InstancePrefix}:{{diagnostics}}:{_options.CoordinationChannel}:active:{id}";
@@ -221,10 +244,19 @@ public sealed class DiagnosticsControlService(
     private string ActiveIndexKey() =>
         $"{redisOptions.InstancePrefix}:{{diagnostics}}:{_options.CoordinationChannel}:active-index";
 
-    private async Task RemoveActiveAsync(IDatabase database, string id, string key)
+    private string ReservationKey(string category)
     {
-        await database.KeyDeleteAsync(key);
-        await database.SortedSetRemoveAsync(ActiveIndexKey(), id);
+        var categoryHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(category)));
+        return $"{redisOptions.InstancePrefix}:{{diagnostics}}:{_options.CoordinationChannel}:reservation:{categoryHash}";
+    }
+
+    private async Task RemoveActiveAsync(IDatabase database, string id, string key, string reservationKey)
+    {
+        await database.ScriptEvaluateAsync(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('DEL', KEYS[1]); end; " +
+            "redis.call('DEL', KEYS[2]); redis.call('ZREM', KEYS[3], ARGV[1]); return 1;",
+            [reservationKey, key, ActiveIndexKey()],
+            [id]);
     }
 
     private LogLevelAuditPage LocalAuditPage(int offset, int limit) => new(
@@ -233,6 +265,8 @@ public sealed class DiagnosticsControlService(
         limit,
         controller.AuditCount,
         controller.GetAudit(offset, limit));
+
+    public void Dispose() => _auditFlush.Dispose();
 }
 
 public sealed class DiagnosticsAuditPersistenceService(
@@ -284,13 +318,38 @@ public sealed class DiagnosticsCoordinationService(
         var channel = RedisChannel.Literal($"{redisOptions.InstancePrefix}:{options.Value.CoordinationChannel}");
         while (!stoppingToken.IsCancellationRequested)
         {
+            ISubscriber? subscriber = null;
+            IConnectionMultiplexer? connection = null;
+            Task? periodicReconciliation = null;
+            using var cycleCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            var work = Channel.CreateBounded<CoordinationWork>(new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest,
+            });
+            EventHandler<ConnectionFailedEventArgs> restored = (_, _) =>
+                work.Writer.TryWrite(new CoordinationWork(default, true));
             try
             {
-                var connection = await redis.GetConnectionAsync(stoppingToken);
-                var subscriber = connection.GetSubscriber();
-                await RestoreActiveAsync(connection.GetDatabase(), stoppingToken);
-                await subscriber.SubscribeAsync(channel, (_, value) => ApplyMessage(value));
-                await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+                connection = await redis.GetConnectionAsync(stoppingToken);
+                subscriber = connection.GetSubscriber();
+                connection.ConnectionRestored += restored;
+                await subscriber.SubscribeAsync(channel, (_, value) =>
+                    work.Writer.TryWrite(new CoordinationWork(value, false)));
+                work.Writer.TryWrite(new CoordinationWork(default, true));
+                periodicReconciliation = QueuePeriodicReconciliationAsync(work.Writer, cycleCancellation.Token);
+                await foreach (var item in work.Reader.ReadAllAsync(stoppingToken))
+                {
+                    if (item.Reconcile)
+                    {
+                        await ReconcileActiveAsync(connection.GetDatabase(), stoppingToken);
+                    }
+                    else
+                    {
+                        ApplyMessage(item.Message);
+                    }
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -301,27 +360,79 @@ public sealed class DiagnosticsCoordinationService(
                 LogUnavailable(logger, exception);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
+            finally
+            {
+                cycleCancellation.Cancel();
+                if (connection is not null)
+                {
+                    connection.ConnectionRestored -= restored;
+                }
+                if (subscriber is not null)
+                {
+                    try
+                    {
+                        await subscriber.UnsubscribeAsync(channel);
+                    }
+                    catch (RedisException)
+                    {
+                        // The next cycle establishes a fresh subscription.
+                    }
+                }
+                if (periodicReconciliation is not null)
+                {
+                    try
+                    {
+                        await periodicReconciliation;
+                    }
+                    catch (OperationCanceledException) when (cycleCancellation.IsCancellationRequested)
+                    {
+                        // Cycle cancellation terminates the periodic producer.
+                    }
+                }
+            }
         }
     }
 
-    private async Task RestoreActiveAsync(IDatabase database, CancellationToken cancellationToken)
+    private async Task ReconcileActiveAsync(IDatabase database, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var indexKey = ActiveIndexKey();
         await database.SortedSetRemoveRangeByScoreAsync(indexKey, double.NegativeInfinity, now);
         var ids = await database.SortedSetRangeByScoreAsync(indexKey, now, double.PositiveInfinity);
+        var activeMessages = new List<RedisValue>(ids.Length);
+        var activeIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var id in ids)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var value = await database.StringGetAsync(ActiveKey(id.ToString()));
             if (value.HasValue)
             {
-                ApplyMessage(value);
+                activeMessages.Add(value);
+                activeIds.Add(id.ToString());
             }
             else
             {
                 await database.SortedSetRemoveAsync(indexKey, id);
             }
+        }
+        foreach (var local in controller.GetActive().Where(item => item.Scope == "all" && !activeIds.Contains(item.Id)))
+        {
+            controller.Revert(local.Id, "system", "coordination reconciliation");
+        }
+        foreach (var value in activeMessages)
+        {
+            ApplyMessage(value);
+        }
+    }
+
+    private static async Task QueuePeriodicReconciliationAsync(
+        ChannelWriter<CoordinationWork> writer,
+        CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            writer.TryWrite(new CoordinationWork(default, true));
         }
     }
 
@@ -365,4 +476,6 @@ public sealed class DiagnosticsCoordinationService(
             LogInvalidMessage(logger, exception);
         }
     }
+
+    private readonly record struct CoordinationWork(RedisValue Message, bool Reconcile);
 }

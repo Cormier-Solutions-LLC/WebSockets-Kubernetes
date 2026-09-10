@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "RESPite": {
+        "type": "Transitive",
+        "resolved": "3.1.31",
+        "contentHash": "u+MFK6FzGWngKaY3wJ/V9vQSVe/NSqpk0IYYw6ACwmlPq5eTnsyZGlzEa3YMifJGVs3omrl5MkgigB1jZYNnGg=="
+      },
+      "StackExchange.Redis": {
+        "type": "Transitive",
+        "resolved": "3.1.31",
+        "contentHash": "QillloeZxgw9+IWmnowTrjrn+JV7JIMVzr1JiUpCa7pJQI48rtcqG9yy6u5UBRiTuCiKU5909aRu67Ch6gWVMg==",
+        "dependencies": {
+          "RESPite": "3.1.31",
+          "System.IO.Hashing": "10.0.5"
+        }
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.5",
+        "contentHash": "8IBJWcCT9+e4Bmevm4T7+fQEiAh133KGiz4oiVTgJckd3Q76OFdR1falgn9lpz7+C4HJvogCDJeAa2QmvbeVtg=="
+      },
+      "cormier.realtime.contracts": {
+        "type": "Project"
+      },
+      "cormier.realtime.redis": {
+        "type": "Project",
+        "dependencies": {
+          "Cormier.Realtime.Contracts": "[0.1.0, )",
+          "StackExchange.Redis": "[3.1.31, )"
+        }
+      }
+    },
+    "net10.0/linux-x64": {}
+  }
+}

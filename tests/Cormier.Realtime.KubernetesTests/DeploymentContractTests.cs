@@ -385,20 +385,20 @@ public sealed class DeploymentContractTests
         Assert.Contains("cormier_realtime_active_connections", hpa, StringComparison.Ordinal);
         Assert.Contains("cormier_realtime_queue_depth", hpa, StringComparison.Ordinal);
 
-        var handler = Read("src/Cormier.Realtime.Gateway/RealtimeWebSocketHandler.cs");
+        var handler = Read("src/Cormier.Realtime.AspNetCore/RealtimeWebSocketHandler.cs");
         Assert.Contains("closeReason = await heartbeat ?? \"cancelled\"", handler, StringComparison.Ordinal);
         Assert.Contains("heartbeatCloseReason.Task.IsCompletedSuccessfully", handler, StringComparison.Ordinal);
         Assert.Contains("closeReason.TrySetResult(\"slow_consumer\")", handler, StringComparison.Ordinal);
         Assert.Contains("return \"heartbeat_timeout\"", handler, StringComparison.Ordinal);
         Assert.Contains("return \"slow_consumer\"", handler, StringComparison.Ordinal);
 
-        var connection = Read("src/Cormier.Realtime.Gateway/RealtimeConnection.cs");
+        var connection = Read("src/Cormier.Realtime.AspNetCore/RealtimeConnection.cs");
         Assert.Contains("RemoveQueuedMessage()", connection, StringComparison.Ordinal);
         Assert.Contains("lock (_queueAccountingLock)", connection, StringComparison.Ordinal);
         Assert.Contains("Volatile.Write(ref _disposing, 1)", connection, StringComparison.Ordinal);
         Assert.Contains("Interlocked.CompareExchange(ref _queuedMessages, queued - 1, queued)", connection, StringComparison.Ordinal);
 
-        var dispatcher = Read("src/Cormier.Realtime.Gateway/RealtimeDispatcher.cs");
+        var dispatcher = Read("src/Cormier.Realtime.AspNetCore/RealtimeDispatcher.cs");
         Assert.Contains("catch (OperationCanceledException)", dispatcher, StringComparison.Ordinal);
         Assert.Contains("outcome = \"cancelled\"", dispatcher, StringComparison.Ordinal);
         Assert.Contains("messageOutcome = \"rejected\"", dispatcher, StringComparison.Ordinal);
@@ -406,7 +406,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("RecordMessage(\"inbound\", messageOutcome)", dispatcher, StringComparison.Ordinal);
         Assert.Contains("catch\n        {\n            outcome = \"failure\"", dispatcher.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
 
-        var subscriber = Read("src/Cormier.Realtime.Gateway/RedisSubscriberService.cs");
+        var subscriber = Read("src/Cormier.Realtime.AspNetCore/RedisSubscriberService.cs");
         Assert.Contains("ConnectionFailed +=", subscriber, StringComparison.Ordinal);
         Assert.Contains("ConnectionRestored +=", subscriber, StringComparison.Ordinal);
         Assert.Contains("eventArgs.ConnectionType == ConnectionType.Subscription", subscriber, StringComparison.Ordinal);
@@ -423,7 +423,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("replace \"__METALLB_NAMESPACE__\"", dashboardTemplate, StringComparison.Ordinal);
         Assert.Contains("replace \"__METALLB_ADDRESS__\"", dashboardTemplate, StringComparison.Ordinal);
 
-        var authentication = Read("src/Cormier.Realtime.Gateway/RealtimeAuthentication.cs");
+        var authentication = Read("src/Cormier.Realtime.AspNetCore/RealtimeAuthentication.cs");
         Assert.Contains("ObserveRedisAsync", authentication, StringComparison.Ordinal);
         Assert.Contains("RecordAuthentication(true, \"origin\")", authentication, StringComparison.Ordinal);
         Assert.Contains("\"session_read\"", authentication, StringComparison.Ordinal);

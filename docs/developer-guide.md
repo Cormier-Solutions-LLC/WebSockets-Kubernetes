@@ -1,5 +1,13 @@
 # Developer guide
 
+## ASP.NET Core hosting package
+
+`Cormier.Realtime.AspNetCore` exposes `AddRealtimeGateway`, `UseRealtimeGateway`, and `MapRealtimeGateway` for applications that need the realtime gateway inside an existing ASP.NET Core host. The package binds and validates the same `Gateway`, `Redis`, `Proxy`, and `Realtime` configuration sections used by the standalone gateway.
+
+For standard ASP.NET Core session integration, configure `Realtime:SessionSource` as `AspNetCoreSession`, register session services, and place `UseSession` before the mapped endpoints execute. The configured session identifier is revalidated through `IRealtimeSessionStore` on initial connection and during the connection lifetime, so expiration, logout/revocation, tenant scope, and multi-instance reconnect retain the Redis contract.
+
+The runnable example is under `examples/aspnet-core`. `scripts/Test-AspNetCorePackage.ps1` packs the package and its project dependencies into a temporary local feed, then restores and compiles a clean consumer outside the repository tree.
+
 ## Supported development platforms
 
 The repository supports Windows, Linux, and macOS development with PowerShell 7, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, and Node.js 22 or newer for browser SDK work. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.

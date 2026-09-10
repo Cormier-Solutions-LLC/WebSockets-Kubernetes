@@ -48,7 +48,7 @@ public sealed class RealtimeWebSocketHandler(
         }
 
         var authentication = await authenticator.AuthenticateAsync(
-            context.Request,
+            context,
             context.RequestAborted);
         if (!authentication.Succeeded)
         {

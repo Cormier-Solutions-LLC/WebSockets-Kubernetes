@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <VersionPrefix>$(AspNetCoreIntegrationVersion)</VersionPrefix>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Cormier.Realtime.AspNetCore</PackageId>
+    <Authors>Cormier</Authors>
+    <Description>Plug-and-play ASP.NET Core hosting integration for Cormier.Realtime.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>websocket;realtime;aspnetcore;redis</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cormier.Realtime.Contracts\Cormier.Realtime.Contracts.csproj" />
+    <ProjectReference Include="..\Cormier.Realtime.Redis\Cormier.Realtime.Redis.csproj" />
+  </ItemGroup>
+
+</Project>

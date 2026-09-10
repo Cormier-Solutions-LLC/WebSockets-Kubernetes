@@ -21,8 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Cormier.Realtime.Contracts\Cormier.Realtime.Contracts.csproj" />
-    <ProjectReference Include="..\Cormier.Realtime.Redis\Cormier.Realtime.Redis.csproj" />
+    <ProjectReference Include="..\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
   </ItemGroup>
   
 </Project>

@@ -4,6 +4,7 @@
     <ContainerVersion Condition="'$(ContainerVersion)' == ''">0.1.0</ContainerVersion>
     <ContractsVersion Condition="'$(ContractsVersion)' == ''">0.1.0</ContractsVersion>
     <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">0.1.0</RedisAdapterVersion>
+    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">0.1.0</AspNetCoreIntegrationVersion>
     <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">0.1.0</HelmChartVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>

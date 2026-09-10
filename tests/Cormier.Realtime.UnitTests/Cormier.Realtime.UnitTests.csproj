@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -20,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cormier.Realtime.Contracts\Cormier.Realtime.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Cormier.Realtime.Gateway\Cormier.Realtime.Gateway.csproj" />
     <ProjectReference Include="..\..\src\Cormier.Realtime.Redis\Cormier.Realtime.Redis.csproj" />
   </ItemGroup>

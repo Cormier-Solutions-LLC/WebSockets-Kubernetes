@@ -14,15 +14,16 @@ public sealed record AuthenticationResult(
 }
 
 public sealed class RealtimeAuthenticator(
-    IRealtimeSessionStore sessionStore,
+    IRealtimeSessionResolver sessionResolver,
     IConnectionTicketStore ticketStore,
     RealtimeOptions options,
     GatewayMetrics metrics)
 {
     public async ValueTask<AuthenticationResult> AuthenticateAsync(
-        HttpRequest request,
+        HttpContext context,
         CancellationToken cancellationToken)
     {
+        var request = context.Request;
         var audience = request.Host.Value ?? string.Empty;
         var ticket = request.Query["ticket"].ToString();
         if (!string.IsNullOrWhiteSpace(ticket))
@@ -45,13 +46,14 @@ public sealed class RealtimeAuthenticator(
                 : new AuthenticationResult(identity, null);
         }
 
-        return await AuthenticateSessionAsync(request, cancellationToken);
+        return await AuthenticateSessionAsync(context, cancellationToken);
     }
 
     public async ValueTask<AuthenticationResult> AuthenticateSessionAsync(
-        HttpRequest request,
+        HttpContext context,
         CancellationToken cancellationToken)
     {
+        var request = context.Request;
         var origin = request.Headers.Origin.ToString();
         if (!IsAllowedOrigin(origin) || !IsSameOrigin(request, origin))
         {
@@ -60,35 +62,28 @@ public sealed class RealtimeAuthenticator(
         }
         metrics.RecordAuthentication(true, "origin");
 
-        if (!request.Cookies.TryGetValue(options.SessionCookieName, out var sessionId) ||
-            string.IsNullOrWhiteSpace(sessionId))
-        {
-            metrics.RecordAuthentication(false, "session");
-            return new AuthenticationResult(null, "session_missing");
-        }
-
-        RealtimeIdentity? sessionIdentity;
+        RealtimeSessionResolution? session;
         try
         {
-            sessionIdentity = await ObserveRedisAsync(
+            session = await ObserveRedisAsync(
                 "session_read",
-                () => sessionStore.ValidateAsync(sessionId, cancellationToken));
+                () => sessionResolver.ResolveAsync(context, cancellationToken));
         }
         catch (RedisException)
         {
             metrics.RecordAuthentication(false, "session");
             throw;
         }
-        metrics.RecordAuthentication(sessionIdentity is not null, "session");
-        return sessionIdentity is null
+        metrics.RecordAuthentication(session is not null, "session");
+        return session is null
             ? new AuthenticationResult(null, "session_invalid")
-            : new AuthenticationResult(sessionIdentity, null, sessionId);
+            : new AuthenticationResult(session.Identity, null, session.SessionId);
     }
 
     public ValueTask<RealtimeIdentity?> RevalidateSessionAsync(
         string sessionId,
         CancellationToken cancellationToken) =>
-        ObserveRedisAsync("session_read", () => sessionStore.ValidateAsync(sessionId, cancellationToken));
+        ObserveRedisAsync("session_read", () => sessionResolver.RevalidateAsync(sessionId, cancellationToken));
 
     public ValueTask<string> IssueTicketAsync(
         RealtimeIdentity identity,

@@ -90,7 +90,9 @@ public sealed class RealtimeClientOptions
         {
             throw new ArgumentOutOfRangeException(nameof(MaximumReconnectDelayMilliseconds));
         }
-        if (ReconnectJitterRatio < 0 || ReconnectJitterRatio > 1)
+        if (double.IsNaN(ReconnectJitterRatio) ||
+            ReconnectJitterRatio < 0 ||
+            ReconnectJitterRatio > 1)
         {
             throw new ArgumentOutOfRangeException(nameof(ReconnectJitterRatio));
         }

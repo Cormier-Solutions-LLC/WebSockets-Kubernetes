@@ -195,6 +195,7 @@ public sealed class RealtimeClient : IDisposable
         await _subscriptionOrderGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureConnectedForSubscriptionChange();
             await ChangeSubscriptionAsync(route, correlationId, subscribe: true, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -219,6 +220,7 @@ public sealed class RealtimeClient : IDisposable
         await _subscriptionOrderGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            EnsureConnectedForSubscriptionChange();
             await ChangeSubscriptionAsync(route, correlationId, subscribe: false, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -589,7 +591,9 @@ public sealed class RealtimeClient : IDisposable
             }
             if (received.Payload is null)
             {
-                throw new RealtimeProtocolException("The server returned an empty transport message.");
+                throw new RealtimeProtocolException(
+                    "The server returned an empty transport message.",
+                    RealtimeCloseCodes.InvalidPayloadData);
             }
 
             ServerMessageEnvelope? envelope;
@@ -601,12 +605,16 @@ public sealed class RealtimeClient : IDisposable
             }
             catch (JsonException)
             {
-                throw new RealtimeProtocolException("The server returned malformed protocol JSON.");
+                throw new RealtimeProtocolException(
+                    "The server returned malformed protocol JSON.",
+                    RealtimeCloseCodes.InvalidPayloadData);
             }
             var validation = ProtocolValidator.Validate(envelope);
             if (!validation.IsValid)
             {
-                throw new RealtimeProtocolException("The server returned an invalid protocol envelope.");
+                throw new RealtimeProtocolException(
+                    "The server returned an invalid protocol envelope.",
+                    RealtimeCloseCodes.InvalidPayloadData);
             }
 
             if (string.Equals(envelope!.Type, ProtocolMessageTypes.ServiceRestart, StringComparison.Ordinal))
@@ -667,12 +675,20 @@ public sealed class RealtimeClient : IDisposable
             {
                 routes = _subscriptions.OrderBy(route => route, StringComparer.Ordinal).ToArray();
             }
-            foreach (var route in routes)
+            try
             {
-                await SendDirectAsync(
-                    transport,
-                    CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, null),
-                    cancellationToken).ConfigureAwait(false);
+                foreach (var route in routes)
+                {
+                    await SendDirectAsync(
+                        transport,
+                        CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, null),
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+                RetainPendingMessages(pending, 0);
+                throw;
             }
             await ReplayPendingApplicationMessagesAsync(transport, pending, cancellationToken)
                 .ConfigureAwait(false);
@@ -752,14 +768,19 @@ public sealed class RealtimeClient : IDisposable
             }
             catch
             {
-                lock (_replayBacklog)
-                {
-                    for (var unsent = index; unsent < pending.Count; unsent++)
-                    {
-                        _replayBacklog.Enqueue(pending[unsent]);
-                    }
-                }
+                RetainPendingMessages(pending, index);
                 throw;
+            }
+        }
+    }
+
+    private void RetainPendingMessages(List<MessageEnvelope> pending, int startIndex)
+    {
+        lock (_replayBacklog)
+        {
+            for (var index = startIndex; index < pending.Count; index++)
+            {
+                _replayBacklog.Enqueue(pending[index]);
             }
         }
     }

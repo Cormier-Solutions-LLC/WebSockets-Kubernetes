@@ -183,6 +183,15 @@ public sealed class RealtimeClientTests
         Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), policy.GetDelay(1, null));
     }
 
+    [Fact]
+    public void OptionsRejectNaNReconnectJitter()
+    {
+        var options = Options();
+        options.ReconnectJitterRatio = double.NaN;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RealtimeClient(options));
+    }
+
     [Theory]
     [InlineData(1, 0)]
     [InlineData(2, 1)]
@@ -511,6 +520,22 @@ public sealed class RealtimeClientTests
     }
 
     [Fact]
+    public async Task DisconnectedSubscriptionChangeDoesNotWaitForQueueCapacity()
+    {
+        using var client = new RealtimeClient(Options(sendQueueCapacity: 1));
+        await client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "queued-publish");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SubscribeAsync(
+            "topics/orders",
+            "invalid-subscribe",
+            cancellation.Token));
+    }
+
+    [Fact]
     public async Task ReplayBacklogSharesTheConfiguredSendCapacity()
     {
         var first = new FakeTransport { FailOnSendNumber = 1 };
@@ -678,6 +703,47 @@ public sealed class RealtimeClientTests
         Assert.Single(replayed, message => message.Type == ProtocolMessageTypes.Subscribe);
         Assert.Single(replayed, message => message.Type == ProtocolMessageTypes.Publish);
         Assert.Equal(2, second.SentCount);
+    }
+
+    [Fact]
+    public async Task FailedSubscriptionReplayRetainsPendingApplicationMessages()
+    {
+        var first = new FakeTransport();
+        var second = new FakeTransport { FailOnSendNumber = 1 };
+        var third = new FakeTransport();
+        var factory = new FakeTransportFactory(first, second, third);
+        using var client = new RealtimeClient(
+            Options(),
+            transportFactory: factory,
+            clock: new ImmediateClock(),
+            retryPolicy: new FixedRetryPolicy());
+        await client.ConnectAsync(CancellationToken.None);
+        await client.SubscribeAsync("topics/orders", "initial-subscribe");
+        _ = await first.WaitForSentAsync();
+        first.BlockSends = true;
+        await client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "pending-publish");
+        await first.SendStarted.Task;
+
+        await first.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Closed(
+            RealtimeCloseCodes.GoingAway,
+            "network_interruption",
+            clean: false));
+        await WaitUntilAsync(() => factory.ConnectionCount == 3 && client.State == RealtimeClientState.Connected);
+        var replayed = new[]
+        {
+            JsonSerializer.Deserialize(
+                await third.WaitForSentAsync(),
+                RealtimeJsonSerializerContext.Default.MessageEnvelope)!,
+            JsonSerializer.Deserialize(
+                await third.WaitForSentAsync(),
+                RealtimeJsonSerializerContext.Default.MessageEnvelope)!,
+        };
+
+        Assert.Single(replayed, message => message.Type == ProtocolMessageTypes.Subscribe);
+        Assert.Single(replayed, message => message.CorrelationId == "pending-publish");
     }
 
     [Fact]
@@ -914,8 +980,37 @@ public sealed class RealtimeClientTests
             Encoding.UTF8.GetBytes("{\"version\":\"99\",\"type\":\"event\"}")));
 
         await WaitUntilAsync(() => client.State == RealtimeClientState.Faulted);
+        await transport.CloseStarted.Task;
 
         Assert.Equal(RealtimeClientState.Faulted, client.State);
+        Assert.Equal(RealtimeCloseCodes.InvalidPayloadData, transport.LastCloseCode);
+    }
+
+    [Fact]
+    public async Task MalformedServerJsonUsesTheInvalidPayloadCloseCode()
+    {
+        var transport = new FakeTransport();
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+
+        await transport.ReceiveWriter.WriteAsync(RealtimeTransportReceiveResult.Message(
+            Encoding.UTF8.GetBytes("{")));
+        await transport.CloseStarted.Task;
+
+        Assert.Equal(RealtimeCloseCodes.InvalidPayloadData, transport.LastCloseCode);
+    }
+
+    [Fact]
+    public async Task EmptyServerMessageUsesTheInvalidPayloadCloseCode()
+    {
+        var transport = new FakeTransport();
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+
+        await transport.ReceiveWriter.WriteAsync(new RealtimeTransportReceiveResult(null, null));
+        await transport.CloseStarted.Task;
+
+        Assert.Equal(RealtimeCloseCodes.InvalidPayloadData, transport.LastCloseCode);
     }
 
     private static RealtimeClientOptions Options(

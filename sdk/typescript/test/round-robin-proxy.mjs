@@ -73,6 +73,16 @@ const server = createServer((request, response) => {
   request.pipe(upstream);
 });
 
+server.on("connection", (socket) => {
+  // The reconnect test deliberately resets proxied connections. Consume the
+  // resulting socket error so one expected reset cannot terminate the proxy.
+  socket.on("error", (error) => {
+    if (error.code !== "ECONNRESET" && error.code !== "EPIPE") {
+      console.error("Proxy client socket failed.", error);
+    }
+  });
+});
+
 server.on("upgrade", (request, socket, head) => {
   const target = backends[websocketIndex++ % backends.length];
   stats.websocketBackends.push(target.port);

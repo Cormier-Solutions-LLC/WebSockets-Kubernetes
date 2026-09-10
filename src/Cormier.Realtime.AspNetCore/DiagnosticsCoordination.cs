@@ -22,6 +22,10 @@ public sealed class DiagnosticsControlService(
         string actor,
         CancellationToken cancellationToken)
     {
+        if (request.Category?.Length > 128)
+        {
+            return (false, null, "The requested category cannot exceed 128 characters.");
+        }
         actor = DiagnosticRedactor.RedactBounded(actor, 128);
         request = request with
         {
@@ -104,13 +108,16 @@ public sealed class DiagnosticsControlService(
         return (true, result, string.Empty);
     }
 
-    public async ValueTask<bool> RevertAsync(string id, string actor, CancellationToken cancellationToken)
+    public async ValueTask<(bool Found, bool Succeeded, string Error)> RevertAsync(
+        string id,
+        string actor,
+        CancellationToken cancellationToken)
     {
         actor = DiagnosticRedactor.RedactBounded(actor, 128);
         var active = controller.GetActive().FirstOrDefault(item => item.Id == id);
         if (active is null)
         {
-            return false;
+            return (false, false, string.Empty);
         }
         var coordinationPublished = false;
         if (active.Scope == "all")
@@ -120,7 +127,7 @@ public sealed class DiagnosticsControlService(
                 var connection = await redis.GetConnectionAsync(cancellationToken);
                 if (!connection.IsConnected)
                 {
-                    return false;
+                    return (true, false, "Replica-wide rollback requires an available Redis coordination service.");
                 }
                 var database = connection.GetDatabase();
                 var message = new DiagnosticsCoordinationMessage("revert", id, null, actor, DateTimeOffset.UtcNow);
@@ -135,7 +142,7 @@ public sealed class DiagnosticsControlService(
             }
             catch (RedisException)
             {
-                return false;
+                return (true, false, "Replica-wide rollback requires an available Redis coordination service.");
             }
         }
         // The local subscriber can process the published rollback before this call.
@@ -144,7 +151,7 @@ public sealed class DiagnosticsControlService(
         {
             await FlushLocalAuditAsync(cancellationToken);
         }
-        return reverted;
+        return (true, reverted, reverted ? string.Empty : "The override could not be reverted.");
     }
 
     public async ValueTask<LogLevelAuditPage> GetAuditAsync(int offset, int limit, CancellationToken cancellationToken)

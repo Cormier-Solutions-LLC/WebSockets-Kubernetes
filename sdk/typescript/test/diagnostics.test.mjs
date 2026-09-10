@@ -37,19 +37,60 @@ test("diagnostics client uses explicit operator headers and bounded control payl
   assert.equal(JSON.parse(requests[0].init.body).scope, "all");
 });
 
-test("diagnostics streams expose an explicit disconnect function", () => {
-  let source;
-  class FakeEventSource {
-    closed = false;
-    onmessage;
-    constructor(url) { this.url = url; source = this; }
-    close() { this.closed = true; }
+test("diagnostics streams carry authentication and stop on server disconnect", async () => {
+  const requests = [];
+  const events = [];
+  const fetch = async (url, init) => {
+    requests.push({ url, init });
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"sequence":1,"message":"bounded"}\n\nevent: disconnect\ndata: {"reason":"rate_limit"}\n\n'));
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  const client = new DiagnosticsClient({ headers: { authorization: "Bearer opaque" }, fetch });
+
+  const disconnect = client.tailLogs({ level: "Warning", category: "Cormier.Realtime" }, (event) => events.push(event));
+  for (let attempt = 0; attempt < 20 && !requests[0]?.init.signal.aborted; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
   }
-  const client = new DiagnosticsClient({ eventSourceFactory: (url) => new FakeEventSource(url) });
 
-  const disconnect = client.tailLogs({ level: "Warning", category: "Cormier.Realtime" }, () => {});
-
-  assert.match(source.url, /^\/diagnostics\/v1\/logs\/tail\?/);
+  assert.match(requests[0].url, /^\/diagnostics\/v1\/logs\/tail\?/);
+  assert.equal(requests[0].init.headers.authorization, "Bearer opaque");
+  assert.equal(events[0].message, "bounded");
+  assert.equal(requests[0].init.signal.aborted, true);
   disconnect();
-  assert.equal(source.closed, true);
+});
+
+test("diagnostics streams retry ordinary interruptions with authentication", async () => {
+  const requests = [];
+  const fetch = async (url, init) => {
+    requests.push({ url, init });
+    const body = new ReadableStream({
+      start(controller) {
+        if (requests.length === 2) {
+          controller.enqueue(new TextEncoder().encode('event: disconnect\ndata: {"reason":"complete"}\n\n'));
+        }
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  const client = new DiagnosticsClient({
+    headers: { authorization: "Bearer opaque" },
+    fetch,
+    streamRetryMilliseconds: 100,
+  });
+
+  const disconnect = client.streamEvents(() => undefined);
+  for (let attempt = 0; attempt < 50 && requests.length < 2; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].init.headers.authorization, "Bearer opaque");
+  assert.equal(requests[1].init.signal.aborted, true);
+  disconnect();
 });

@@ -19,6 +19,13 @@ spec:
       path: {{ .Values.metrics.path }}
       interval: {{ .Values.observability.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
+      {{- if .Values.metrics.authorizationPolicy }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ .Values.diagnostics.operatorTokenSecret.name }}
+          key: {{ .Values.diagnostics.operatorTokenSecret.key }}
+      {{- end }}
       relabelings:
         - sourceLabels: [__meta_kubernetes_service_name]
           targetLabel: service

@@ -11,7 +11,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void RedactorRemovesCredentialsAndPrivateIdentityValues()
     {
-        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b password=hunter2 {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}";
+        const string input = "Authorization: Bearer abc.def cookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b password=hunter2 secret structured-secret {\"token\":\"json-secret\",\"sessionId\":\"json-session\"}";
 
         var output = DiagnosticRedactor.Redact(input);
 
@@ -25,6 +25,7 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain("hunter2", output, StringComparison.Ordinal);
         Assert.DoesNotContain("json-secret", output, StringComparison.Ordinal);
         Assert.DoesNotContain("json-session", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("structured-secret", output, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", output, StringComparison.Ordinal);
     }
 
@@ -68,6 +69,11 @@ public sealed class DiagnosticsTests
             out _));
         Assert.False(controller.TryApply(
             new LogLevelChangeRequest("Cormier.Realtime", "7", 10, "investigate"),
+            "operator",
+            out _,
+            out _));
+        Assert.False(controller.TryApply(
+            new LogLevelChangeRequest($"Cormier.Realtime.{new string('x', 129)}", "Debug", 10, "investigate"),
             "operator",
             out _,
             out _));
@@ -225,6 +231,22 @@ public sealed class DiagnosticsTests
 
         Assert.True(rejected.Failed);
         Assert.True(accepted.Succeeded);
+    }
+
+    [Fact]
+    public async Task DisabledDiagnosticsDoNotPublishOperationalEvents()
+    {
+        var hub = new DiagnosticsStreamHub();
+        await using var subscription = hub.SubscribeEvents(4);
+        using var metrics = new GatewayMetrics(
+            new GatewayOptions(),
+            hub,
+            new DiagnosticsIdentity(),
+            diagnosticsEnabled: false);
+
+        metrics.RecordMessage("inbound", "accepted");
+
+        Assert.False(subscription.Reader.TryRead(out _));
     }
 
     private static RuntimeLogLevelController Controller(DiagnosticsOptions options) => new(

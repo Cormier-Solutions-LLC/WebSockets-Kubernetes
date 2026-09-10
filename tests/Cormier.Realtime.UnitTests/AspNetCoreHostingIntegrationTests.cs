@@ -53,6 +53,25 @@ public sealed class AspNetCoreHostingIntegrationTests
         Assert.NotEmpty(exception.Failures);
     }
 
+    [Theory]
+    [InlineData("/realtime/ws", false)]
+    [InlineData("/health/live", false)]
+    [InlineData("/diagnostics/v1/snapshot", true)]
+    public void AddRealtimeGatewayRejectsMetricsRouteCollisions(string metricsPath, bool diagnosticsEnabled)
+    {
+        var values = ValidConfiguration();
+        values["Metrics:Enabled"] = "true";
+        values["Metrics:Path"] = metricsPath;
+        values["Diagnostics:Enabled"] = diagnosticsEnabled.ToString();
+        values["Diagnostics:AuthorizationPolicy"] = "diagnostics-operator";
+        using var provider = CreateServices(values).BuildServiceProvider();
+
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => provider.GetRequiredService<IOptions<MetricsOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("collide", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void AddRealtimeGatewayDoesNotDuplicateHostedInfrastructure()
     {

@@ -2,7 +2,8 @@ export interface DiagnosticsClientOptions {
   baseUrl?: string;
   headers?: Record<string, string>;
   fetch?: typeof globalThis.fetch;
-  eventSourceFactory?: (url: string) => EventSource;
+  onStreamError?: (error: Error) => void;
+  streamRetryMilliseconds?: number;
 }
 
 export interface GatewayMetricSnapshot {
@@ -60,8 +61,11 @@ export interface LogLevelChange {
   scope?: "all" | "instance";
 }
 
-export interface LogLevelOverride extends LogLevelChange {
+export interface LogLevelOverride {
   id: string;
+  category: string;
+  level: LogLevelChange["level"];
+  scope: "all" | "instance";
   startedAt: string;
   expiresAt: string;
   state: string;
@@ -121,13 +125,20 @@ export class DiagnosticsClient {
   readonly #baseUrl: string;
   readonly #headers: Record<string, string>;
   readonly #fetch: typeof globalThis.fetch;
-  readonly #eventSourceFactory: (url: string) => EventSource;
+  readonly #onStreamError: (error: Error) => void;
+  readonly #streamRetryMilliseconds: number;
 
   constructor(options: DiagnosticsClientOptions = {}) {
     this.#baseUrl = (options.baseUrl ?? "/diagnostics/v1").replace(/\/$/, "");
     this.#headers = { ...(options.headers ?? {}) };
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.#eventSourceFactory = options.eventSourceFactory ?? ((url) => new EventSource(url, { withCredentials: true }));
+    this.#onStreamError = options.onStreamError ?? (() => undefined);
+    this.#streamRetryMilliseconds = options.streamRetryMilliseconds ?? 1_000;
+    if (!Number.isSafeInteger(this.#streamRetryMilliseconds)
+      || this.#streamRetryMilliseconds < 100
+      || this.#streamRetryMilliseconds > 60_000) {
+      throw new RangeError("streamRetryMilliseconds must be between 100 and 60000.");
+    }
   }
 
   snapshot(signal?: AbortSignal): Promise<DiagnosticsSnapshot> {
@@ -171,9 +182,90 @@ export class DiagnosticsClient {
     const parameters = new URLSearchParams();
     for (const [name, value] of Object.entries(query)) if (value !== undefined) parameters.set(name, String(value));
     const suffix = parameters.size === 0 ? "" : `?${parameters}`;
-    const source = this.#eventSourceFactory(`${this.#baseUrl}${path}${suffix}`);
-    source.onmessage = (event) => onEvent(JSON.parse(event.data) as T);
-    return () => source.close();
+    const cancellation = new AbortController();
+    void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent);
+    return () => cancellation.abort();
+  }
+
+  async #runStream<T>(url: string, cancellation: AbortController, onEvent: (event: T) => void): Promise<void> {
+    while (!cancellation.signal.aborted) {
+      try {
+        if (await this.#consumeStream(url, cancellation, onEvent)) {
+          return;
+        }
+      } catch (error: unknown) {
+        if (cancellation.signal.aborted) {
+          return;
+        }
+        this.#onStreamError(error instanceof Error ? error : new Error("The diagnostics stream failed."));
+      }
+      await this.#waitForStreamRetry(cancellation.signal);
+    }
+  }
+
+  async #consumeStream<T>(url: string, cancellation: AbortController, onEvent: (event: T) => void): Promise<boolean> {
+    const response = await this.#fetch(url, {
+      credentials: "same-origin",
+      headers: this.#headers,
+      signal: cancellation.signal,
+    });
+    if (!response.ok || response.body === null) {
+      throw new Error(`Diagnostics stream failed with HTTP ${response.status}.`);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (!cancellation.signal.aborted) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        let boundary = buffer.search(/\r?\n\r?\n/);
+        while (boundary >= 0) {
+          const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] ?? "\n\n";
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + separator.length);
+          if (this.#dispatchStreamBlock(block, onEvent)) {
+            cancellation.abort();
+            return true;
+          }
+          boundary = buffer.search(/\r?\n\r?\n/);
+        }
+        if (done) {
+          return false;
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    return false;
+  }
+
+  async #waitForStreamRetry(signal: AbortSignal): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const complete = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", complete);
+        resolve();
+      };
+      const timer = setTimeout(complete, this.#streamRetryMilliseconds);
+      signal.addEventListener("abort", complete, { once: true });
+    });
+  }
+
+  #dispatchStreamBlock<T>(block: string, onEvent: (event: T) => void): boolean {
+    let eventName = "message";
+    const data: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+      if (line.startsWith("data:")) data.push(line.slice("data:".length).trimStart());
+    }
+    if (eventName === "disconnect") {
+      return true;
+    }
+    if (eventName === "message" && data.length > 0) {
+      onEvent(JSON.parse(data.join("\n")) as T);
+    }
+    return false;
   }
 
   async #request<T>(path: string, init: RequestInit = {}): Promise<T> {

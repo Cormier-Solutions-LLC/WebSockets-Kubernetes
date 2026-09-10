@@ -111,17 +111,28 @@ public sealed class GatewayMetrics : IDisposable
     private readonly string _topology;
     private readonly DiagnosticsStreamHub? _diagnosticEvents;
     private readonly DiagnosticsIdentity? _diagnosticsIdentity;
+    private readonly bool _diagnosticsEnabled;
     private readonly ConcurrentDictionary<string, long> _lastDiagnosticEvent = new(StringComparer.Ordinal);
 
     public GatewayMetrics(
         GatewayOptions? options = null,
         DiagnosticsStreamHub? diagnosticEvents = null,
         DiagnosticsIdentity? diagnosticsIdentity = null)
+        : this(options, diagnosticEvents, diagnosticsIdentity, diagnosticEvents is not null)
+    {
+    }
+
+    public GatewayMetrics(
+        GatewayOptions? options,
+        DiagnosticsStreamHub? diagnosticEvents,
+        DiagnosticsIdentity? diagnosticsIdentity,
+        bool diagnosticsEnabled)
     {
         _serviceVersion = typeof(GatewayMetrics).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
         _topology = options?.Topology ?? "unspecified";
         _diagnosticEvents = diagnosticEvents;
         _diagnosticsIdentity = diagnosticsIdentity;
+        _diagnosticsEnabled = diagnosticsEnabled;
         _healthRequests = _meter.CreateCounter<long>("cormier_realtime_health_requests_total", "requests");
         _connectionsOpened = _meter.CreateCounter<long>("cormier_realtime_connections_opened_total", "connections");
         _connectionsClosed = _meter.CreateCounter<long>("cormier_realtime_connections_closed_total", "connections");
@@ -546,7 +557,7 @@ public sealed class GatewayMetrics : IDisposable
 
     private void PublishOperational(string kind)
     {
-        if (_diagnosticEvents is null || _diagnosticsIdentity is null)
+        if (!_diagnosticsEnabled || _diagnosticEvents is null || _diagnosticsIdentity is null)
         {
             return;
         }

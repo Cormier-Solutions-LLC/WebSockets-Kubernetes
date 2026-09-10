@@ -105,6 +105,40 @@ public sealed class DiagnosticsRedisTests
     }
 
     [Fact]
+    public async Task ReplicaWideRevertReportsCoordinationOutageSeparatelyFromUnknownId()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = "redis.invalid:6379",
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 100,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        var controller = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("outage-instance"));
+        using var control = new DiagnosticsControlService(controller, redis, redisOptions, diagnostics);
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.Redis", "Debug", 30, "outage verification", "all"),
+            "operator",
+            out var active,
+            out _));
+
+        var outage = await control.RevertAsync(active!.Id, "operator", CancellationToken.None);
+        var unknown = await control.RevertAsync(new string('a', 32), "operator", CancellationToken.None);
+
+        Assert.True(outage.Found);
+        Assert.False(outage.Succeeded);
+        Assert.Contains("Redis", outage.Error, StringComparison.Ordinal);
+        Assert.False(unknown.Found);
+    }
+
+    [Fact]
     public async Task LogLevelChangesCoordinateAuditAndRollbackAcrossInstances()
     {
         var redisOptions = new RedisOptions
@@ -176,10 +210,11 @@ public sealed class DiagnosticsRedisTests
                 Assert.Contains(restartedAudit.Items, item => item.Id == applied.Result.Id &&
                     item.Outcome == "applied" && item.InstanceId == "diagnostics-restarted");
 
-                Assert.True(await firstControl.RevertAsync(
+                var reverted = await firstControl.RevertAsync(
                     applied.Result.Id,
                     "integration-operator",
-                    CancellationToken.None));
+                    CancellationToken.None);
+                Assert.True(reverted.Succeeded, reverted.Error);
                 await WaitUntilAsync(() => !second.Contains(applied.Result.Id) && !restarted.Contains(applied.Result.Id));
                 Assert.Equal(
                     Microsoft.Extensions.Logging.LogLevel.Information,

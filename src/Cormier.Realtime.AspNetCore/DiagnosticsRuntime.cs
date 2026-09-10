@@ -95,7 +95,7 @@ public static partial class DiagnosticRedactor
 {
     private const string Redacted = "[REDACTED]";
 
-    [GeneratedRegex("(?i)(authorization|cookie|set-cookie|password|secret|token|ticket)[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?i)(authorization|cookie|set-cookie|password|secret|token|ticket)[\"']?(?:\\s*[:=]\\s*|\\s+)[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
     private static partial Regex SecretPattern();
 
     [GeneratedRegex("(?i)(tenant|user|session)(?:[-_.]?id)?[\"']?\\s*[:=]\\s*[\"']?([^\\s,;}\"']+)", RegexOptions.CultureInvariant)]
@@ -207,7 +207,7 @@ public sealed class RuntimeLogLevelController(
         }
 
         var category = request.Category.Trim();
-        if (category.Length == 0 || !_options.LogCategoryAllowlist.Any(allowed =>
+        if (category.Length is 0 or > 128 || !_options.LogCategoryAllowlist.Any(allowed =>
             allowed == "*" || category == allowed || category.StartsWith($"{allowed}.", StringComparison.Ordinal)))
         {
             error = "The requested category is not in the diagnostics allowlist.";

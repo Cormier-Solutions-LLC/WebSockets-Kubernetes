@@ -28,6 +28,9 @@ public sealed class DiagnosticsEndpointTests
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddRealtimeDiagnosticsBearer("diagnostics-operator", token, "metrics-operator");
+        Assert.Throws<ArgumentException>(() => builder.Services.AddRealtimeDiagnosticsBearer(
+            "invalid-token-policy",
+            $"{token}\n"));
         await using var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -173,6 +176,24 @@ public sealed class DiagnosticsEndpointTests
         Assert.NotNull(audit);
         Assert.Contains(audit.Items, item => item.Id == applied.Id && item.Outcome == "applied");
         Assert.Contains(audit.Items, item => item.Id == applied.Id && item.Outcome == "reverted");
+    }
+
+    [Fact]
+    public async Task LogOverridePayloadAndCategoryAreBounded()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        using var categoryRequest = OperatorRequest(HttpMethod.Post, "/diagnostics/v1/logging/overrides");
+        categoryRequest.Content = JsonContent.Create(
+            new LogLevelChangeRequest($"Cormier.Realtime.{new string('x', 129)}", "Debug", 30, "bounded category", "instance"),
+            DiagnosticsJsonSerializerContext.Default.LogLevelChangeRequest);
+        using var categoryResponse = await client.SendAsync(categoryRequest, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.BadRequest, categoryResponse.StatusCode);
+
+        using var payloadRequest = OperatorRequest(HttpMethod.Post, "/diagnostics/v1/logging/overrides");
+        payloadRequest.Content = new StringContent(new string('x', 4097));
+        using var payloadResponse = await client.SendAsync(payloadRequest, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, payloadResponse.StatusCode);
     }
 
     [Fact]

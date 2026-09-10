@@ -101,6 +101,8 @@ public static class RealtimeGatewayHostingExtensions
             .Bind(configuration.GetSection(MetricsOptions.SectionName))
             .Validate(options => !options.Enabled || IsValidRoute(options.Path),
                 "Metrics:Path must be an absolute route without query or fragment.")
+            .Validate(options => !options.Enabled || !MetricsRouteCollides(options.Path, configuration),
+                "Metrics:Path must not collide with a realtime, health, or diagnostics endpoint.")
             .Validate(options => options.AllowedNetworks.All(network => System.Net.IPNetwork.TryParse(network, out _)),
                 "Metrics:AllowedNetworks must contain valid CIDR ranges.")
             .ValidateOnStart();
@@ -213,7 +215,11 @@ public static class RealtimeGatewayHostingExtensions
         services.TryAddSingleton<IRealtimeSessionResolver, RealtimeSessionResolver>();
         services.TryAddSingleton<GatewayState>();
         services.TryAddSingleton<RedisSubscriptionState>();
-        services.TryAddSingleton<GatewayMetrics>();
+        services.TryAddSingleton(serviceProvider => new GatewayMetrics(
+            serviceProvider.GetService<GatewayOptions>(),
+            serviceProvider.GetService<DiagnosticsStreamHub>(),
+            serviceProvider.GetService<DiagnosticsIdentity>(),
+            configuration.GetValue<bool>($"{DiagnosticsOptions.SectionName}:Enabled")));
         services.TryAddSingleton<RealtimeConnectionRegistry>();
         services.TryAddSingleton<RealtimeAuthenticator>();
         services.TryAddSingleton<RealtimeDispatcher>();
@@ -351,7 +357,7 @@ public static class RealtimeGatewayHostingExtensions
             context.RequestAborted);
     }
 
-    private static void EnsureRouteAvailable(IEndpointRouteBuilder endpoints, string route)
+    internal static void EnsureRouteAvailable(IEndpointRouteBuilder endpoints, string route)
     {
         if (endpoints.DataSources.SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
             .Any(endpoint => string.Equals(endpoint.RoutePattern.RawText, route, StringComparison.OrdinalIgnoreCase)))
@@ -376,6 +382,34 @@ public static class RealtimeGatewayHostingExtensions
         {
             return false;
         }
+    }
+
+    private static bool MetricsRouteCollides(string metricsPath, IConfiguration configuration)
+    {
+        var realtimePath = configuration[$"{RealtimeOptions.SectionName}:EndpointPath"] ?? new RealtimeOptions().EndpointPath;
+        var ticketPath = configuration[$"{RealtimeOptions.SectionName}:TicketEndpointPath"] ?? new RealtimeOptions().TicketEndpointPath;
+        var reserved = new List<string>
+        {
+            realtimePath,
+            ticketPath,
+            "/health/startup",
+            "/health/live",
+            "/health/ready",
+        };
+        if (configuration.GetValue<bool>($"{DiagnosticsOptions.SectionName}:Enabled"))
+        {
+            var basePath = configuration[$"{DiagnosticsOptions.SectionName}:BasePath"] ?? new DiagnosticsOptions().BasePath;
+            reserved.AddRange(new[]
+            {
+                $"{basePath}/snapshot",
+                $"{basePath}/connections",
+                $"{basePath}/events",
+                $"{basePath}/logs/tail",
+                $"{basePath}/logging/overrides",
+                $"{basePath}/logging/audit",
+            });
+        }
+        return reserved.Contains(metricsPath, StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool IsAbsoluteOrigin(string value) => Uri.TryCreate(value, UriKind.Absolute, out var origin) &&

@@ -26,6 +26,10 @@ public static class DiagnosticsAuthenticationExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(authorizationPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(token);
+        if (token.Any(char.IsWhiteSpace))
+        {
+            throw new ArgumentException("The diagnostics bearer token cannot contain whitespace.", nameof(token));
+        }
         if (authorizationPolicy.Length > 128)
         {
             throw new ArgumentOutOfRangeException(nameof(authorizationPolicy));

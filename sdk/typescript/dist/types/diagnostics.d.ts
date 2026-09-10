@@ -2,7 +2,8 @@ export interface DiagnosticsClientOptions {
     baseUrl?: string;
     headers?: Record<string, string>;
     fetch?: typeof globalThis.fetch;
-    eventSourceFactory?: (url: string) => EventSource;
+    onStreamError?: (error: Error) => void;
+    streamRetryMilliseconds?: number;
 }
 export interface GatewayMetricSnapshot {
     activeConnections: number;
@@ -56,8 +57,11 @@ export interface LogLevelChange {
     reason: string;
     scope?: "all" | "instance";
 }
-export interface LogLevelOverride extends LogLevelChange {
+export interface LogLevelOverride {
     id: string;
+    category: string;
+    level: LogLevelChange["level"];
+    scope: "all" | "instance";
     startedAt: string;
     expiresAt: string;
     state: string;

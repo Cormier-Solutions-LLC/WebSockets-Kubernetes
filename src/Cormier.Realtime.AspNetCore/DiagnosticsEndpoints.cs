@@ -42,6 +42,7 @@ public sealed class DiagnosticsRequestLimiter : IDisposable
 
 public static class DiagnosticsEndpointExtensions
 {
+    private const int MaximumControlPayloadBytes = 4096;
     private static readonly DateTimeOffset StartedAt = DateTimeOffset.UtcNow;
 
     public static void MapRealtimeDiagnostics(this IEndpointRouteBuilder endpoints)
@@ -50,6 +51,7 @@ public static class DiagnosticsEndpointExtensions
         var metricsOptions = endpoints.ServiceProvider.GetRequiredService<IOptions<MetricsOptions>>().Value;
         if (metricsOptions.Enabled)
         {
+            RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, metricsOptions.Path);
             var metrics = endpoints.MapGet(metricsOptions.Path, HandleMetricsAsync);
             if (!string.IsNullOrWhiteSpace(metricsOptions.AuthorizationPolicy))
             {
@@ -219,12 +221,32 @@ public static class DiagnosticsEndpointExtensions
         using (lease)
         {
             LogLevelChangeRequest? request;
+            if (context.Request.ContentLength is > MaximumControlPayloadBytes)
+            {
+                await WriteErrorAsync(context, StatusCodes.Status413PayloadTooLarge, "payload_too_large", "The request body is too large.");
+                return;
+            }
             try
             {
-                request = await JsonSerializer.DeserializeAsync(
-                    context.Request.Body,
-                    DiagnosticsJsonSerializerContext.Default.LogLevelChangeRequest,
-                    context.RequestAborted);
+                var payload = new byte[MaximumControlPayloadBytes + 1];
+                var length = 0;
+                while (length < payload.Length)
+                {
+                    var read = await context.Request.Body.ReadAsync(payload.AsMemory(length), context.RequestAborted);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+                    length += read;
+                }
+                if (length > MaximumControlPayloadBytes)
+                {
+                    await WriteErrorAsync(context, StatusCodes.Status413PayloadTooLarge, "payload_too_large", "The request body is too large.");
+                    return;
+                }
+                request = JsonSerializer.Deserialize(
+                    payload.AsSpan(0, length),
+                    DiagnosticsJsonSerializerContext.Default.LogLevelChangeRequest);
             }
             catch (JsonException)
             {
@@ -266,9 +288,24 @@ public static class DiagnosticsEndpointExtensions
                 await WriteErrorAsync(context, StatusCodes.Status400BadRequest, "invalid_override", "The override identifier is invalid.");
                 return;
             }
-            var reverted = await context.RequestServices.GetRequiredService<DiagnosticsControlService>()
+            var outcome = await context.RequestServices.GetRequiredService<DiagnosticsControlService>()
                 .RevertAsync(id, Actor(context), context.RequestAborted);
-            context.Response.StatusCode = reverted ? StatusCodes.Status204NoContent : StatusCodes.Status404NotFound;
+            if (outcome.Succeeded)
+            {
+                context.Response.StatusCode = StatusCodes.Status204NoContent;
+            }
+            else if (outcome.Found)
+            {
+                await WriteErrorAsync(
+                    context,
+                    StatusCodes.Status503ServiceUnavailable,
+                    "coordination_unavailable",
+                    outcome.Error);
+            }
+            else
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+            }
         }
     }
 

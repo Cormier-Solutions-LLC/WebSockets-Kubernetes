@@ -4,7 +4,7 @@
 
 ## Operator diagnostics client
 
-`DiagnosticsClient` is an explicit administrative client for the versioned diagnostics API. It is separate from `RealtimeClient`, so ordinary application roles do not invoke operator controls accidentally. Configure an operator-protected base URL and authentication headers, then call `snapshot()`, `activeLogLevels()`, `applyLogLevel()`, or `revertLogLevel()`. `streamEvents()` and `tailLogs()` use same-origin credentialed `EventSource`; call the returned function to disconnect. Cross-origin bearer-authenticated streaming should use a bounded `fetch` reader as demonstrated by the full-circle operator page.
+`DiagnosticsClient` is an explicit administrative client for the versioned diagnostics API. It is separate from `RealtimeClient`, so ordinary application roles do not invoke operator controls accidentally. Configure an operator-protected base URL and authentication headers, then call `snapshot()`, `activeLogLevels()`, `applyLogLevel()`, or `revertLogLevel()`. `streamEvents()` and `tailLogs()` use a credentialed streaming `fetch`, carry the configured headers, retry ordinary interruptions, and stop when the server sends its bounded `disconnect` event; call the returned function to disconnect manually.
 
 Never persist an operator token in browser storage. Server authorization, Origin/network policy, redaction, duration, buffer, and rate limits remain authoritative.
 

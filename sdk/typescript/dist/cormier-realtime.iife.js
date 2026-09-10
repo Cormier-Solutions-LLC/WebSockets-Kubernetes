@@ -899,12 +899,17 @@ var CormierRealtime = (() => {
     #baseUrl;
     #headers;
     #fetch;
-    #eventSourceFactory;
+    #onStreamError;
+    #streamRetryMilliseconds;
     constructor(options = {}) {
       this.#baseUrl = (options.baseUrl ?? "/diagnostics/v1").replace(/\/$/, "");
       this.#headers = { ...options.headers ?? {} };
       this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-      this.#eventSourceFactory = options.eventSourceFactory ?? ((url) => new EventSource(url, { withCredentials: true }));
+      this.#onStreamError = options.onStreamError ?? (() => void 0);
+      this.#streamRetryMilliseconds = options.streamRetryMilliseconds ?? 1e3;
+      if (!Number.isSafeInteger(this.#streamRetryMilliseconds) || this.#streamRetryMilliseconds < 100 || this.#streamRetryMilliseconds > 6e4) {
+        throw new RangeError("streamRetryMilliseconds must be between 100 and 60000.");
+      }
     }
     snapshot(signal) {
       return this.#request("/snapshot", signal ? { signal } : {});
@@ -940,9 +945,86 @@ var CormierRealtime = (() => {
       const parameters = new URLSearchParams();
       for (const [name, value] of Object.entries(query)) if (value !== void 0) parameters.set(name, String(value));
       const suffix = parameters.size === 0 ? "" : `?${parameters}`;
-      const source = this.#eventSourceFactory(`${this.#baseUrl}${path}${suffix}`);
-      source.onmessage = (event) => onEvent(JSON.parse(event.data));
-      return () => source.close();
+      const cancellation = new AbortController();
+      void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent);
+      return () => cancellation.abort();
+    }
+    async #runStream(url, cancellation, onEvent) {
+      while (!cancellation.signal.aborted) {
+        try {
+          if (await this.#consumeStream(url, cancellation, onEvent)) {
+            return;
+          }
+        } catch (error) {
+          if (cancellation.signal.aborted) {
+            return;
+          }
+          this.#onStreamError(error instanceof Error ? error : new Error("The diagnostics stream failed."));
+        }
+        await this.#waitForStreamRetry(cancellation.signal);
+      }
+    }
+    async #consumeStream(url, cancellation, onEvent) {
+      const response = await this.#fetch(url, {
+        credentials: "same-origin",
+        headers: this.#headers,
+        signal: cancellation.signal
+      });
+      if (!response.ok || response.body === null) {
+        throw new Error(`Diagnostics stream failed with HTTP ${response.status}.`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (!cancellation.signal.aborted) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          let boundary = buffer.search(/\r?\n\r?\n/);
+          while (boundary >= 0) {
+            const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] ?? "\n\n";
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + separator.length);
+            if (this.#dispatchStreamBlock(block, onEvent)) {
+              cancellation.abort();
+              return true;
+            }
+            boundary = buffer.search(/\r?\n\r?\n/);
+          }
+          if (done) {
+            return false;
+          }
+        }
+      } finally {
+        await reader.cancel().catch(() => void 0);
+      }
+      return false;
+    }
+    async #waitForStreamRetry(signal) {
+      await new Promise((resolve) => {
+        const complete = () => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", complete);
+          resolve();
+        };
+        const timer = setTimeout(complete, this.#streamRetryMilliseconds);
+        signal.addEventListener("abort", complete, { once: true });
+      });
+    }
+    #dispatchStreamBlock(block, onEvent) {
+      let eventName = "message";
+      const data = [];
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+        if (line.startsWith("data:")) data.push(line.slice("data:".length).trimStart());
+      }
+      if (eventName === "disconnect") {
+        return true;
+      }
+      if (eventName === "message" && data.length > 0) {
+        onEvent(JSON.parse(data.join("\n")));
+      }
+      return false;
     }
     async #request(path, init = {}) {
       const response = await this.#fetch(`${this.#baseUrl}${path}`, {

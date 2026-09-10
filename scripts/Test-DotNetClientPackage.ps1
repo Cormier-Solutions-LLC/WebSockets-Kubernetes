@@ -1,10 +1,14 @@
 [CmdletBinding()]
 param(
+    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
     [string]$DotNetClientVersion = '0.1.0',
+    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
     [string]$ContractsVersion = '0.1.0',
+    [string]$PackageSource,
     [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ([string]::IsNullOrWhiteSpace($UpstreamPackageSource)) {
     throw 'UpstreamPackageSource or NUGET_UPSTREAM_SOURCE must identify the configured upstream NuGet feed.'
@@ -15,6 +19,7 @@ $feedPath = Join-Path $scratchRoot 'feed'
 $packagesPath = Join-Path $scratchRoot 'packages'
 $nugetConfigPath = Join-Path $scratchRoot 'NuGet.Config'
 $contractsPackageVersion = ($ContractsVersion -split '\+', 2)[0]
+$clientPackageVersion = ($DotNetClientVersion -split '\+', 2)[0]
 $contractsCoreVersion = [version](($ContractsVersion -split '[-+]', 2)[0])
 $contractsUpperBound = "{0}.{1}.0" -f $contractsCoreVersion.Major, ($contractsCoreVersion.Minor + 1)
 
@@ -34,19 +39,31 @@ try {
   </packageSources>
 </configuration>
 "@ | Set-Content -LiteralPath $nugetConfigPath -Encoding utf8NoBOM
-    foreach ($project in @(
-        'src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj',
-        'src/Cormier.Realtime.Client/Cormier.Realtime.Client.csproj'
-    )) {
-        dotnet pack (Join-Path $repositoryRoot $project) --configuration Release --no-build --output $feedPath `
-            -p:DotNetClientVersion=$DotNetClientVersion -p:ContractsVersion=$ContractsVersion
-        if ($LASTEXITCODE -ne 0) { throw "Packing failed for $project." }
+    if ([string]::IsNullOrWhiteSpace($PackageSource)) {
+        foreach ($project in @(
+            'src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj',
+            'src/Cormier.Realtime.Client/Cormier.Realtime.Client.csproj'
+        )) {
+            dotnet pack (Join-Path $repositoryRoot $project) --configuration Release --no-build --output $feedPath `
+                -p:DotNetClientVersion=$DotNetClientVersion -p:ContractsVersion=$ContractsVersion
+            if ($LASTEXITCODE -ne 0) { throw "Packing failed for $project." }
+        }
+    }
+    else {
+        $resolvedPackageSource = (Resolve-Path -LiteralPath $PackageSource -ErrorAction Stop).Path
+        foreach ($package in @(
+            "Cormier.Realtime.Contracts.$contractsPackageVersion.nupkg",
+            "Cormier.Realtime.Client.$clientPackageVersion.nupkg",
+            "Cormier.Realtime.Client.$clientPackageVersion.snupkg"
+        )) {
+            Copy-Item -LiteralPath (Join-Path $resolvedPackageSource $package) -Destination $feedPath -ErrorAction Stop
+        }
     }
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $contractsPackage = Join-Path $feedPath "Cormier.Realtime.Contracts.$contractsPackageVersion.nupkg"
-    $clientPackage = Join-Path $feedPath "Cormier.Realtime.Client.$DotNetClientVersion.nupkg"
-    $symbolsPackage = Join-Path $feedPath "Cormier.Realtime.Client.$DotNetClientVersion.snupkg"
+    $clientPackage = Join-Path $feedPath "Cormier.Realtime.Client.$clientPackageVersion.nupkg"
+    $symbolsPackage = Join-Path $feedPath "Cormier.Realtime.Client.$clientPackageVersion.snupkg"
     foreach ($requiredPackage in @($contractsPackage, $clientPackage, $symbolsPackage)) {
         if (-not (Test-Path -LiteralPath $requiredPackage)) {
             throw "Expected package artifact was not produced: $requiredPackage"
@@ -142,6 +159,11 @@ Console.WriteLine(client.State);
 }
 finally {
     if (Test-Path -LiteralPath $scratchRoot) {
-        Remove-Item -LiteralPath $scratchRoot -Recurse -Force
+        $resolvedScratch = (Resolve-Path -LiteralPath $scratchRoot).Path
+        $resolvedTemp = (Resolve-Path -LiteralPath ([System.IO.Path]::GetTempPath())).Path
+        if (-not $resolvedScratch.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to remove temporary path outside the configured temporary directory: $resolvedScratch"
+        }
+        Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
     }
 }

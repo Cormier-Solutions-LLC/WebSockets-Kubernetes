@@ -85,12 +85,19 @@ jobs:
         run: dotnet build Cormier.Realtime.sln --configuration Release --no-restore
       - name: Validate clean ASP.NET Core package consumer
         shell: pwsh
+        env:
+          NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
         run: ./scripts/Test-AspNetCorePackage.ps1
       - name: Validate clean .NET client package consumers
         shell: pwsh
         env:
           NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
         run: ./scripts/Test-DotNetClientPackage.ps1
+      - name: Validate clean browser package consumer
+        shell: pwsh
+        env:
+          NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
+        run: ./scripts/Test-BrowserPackage.ps1
       - name: Test
         env:
           REDIS_TEST_ENDPOINT: localhost:6379

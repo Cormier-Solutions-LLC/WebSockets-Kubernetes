@@ -1,0 +1,195 @@
+name: Package candidate and promotion
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/packages.yml'
+      - 'Directory.Build.*'
+      - 'Cormier.Realtime.sln'
+      - 'src/**'
+      - 'sdk/typescript/**'
+      - 'scripts/*Package*.ps1'
+      - 'docs/package-release.md'
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified candidate after environment approval
+        required: true
+        type: boolean
+        default: false
+      nuget_source:
+        description: Approved HTTPS NuGet v3 push source
+        required: false
+        type: string
+      publish_npm:
+        description: Publish the optional npm artifact after registry ownership approval
+        required: true
+        type: boolean
+        default: false
+      npm_registry:
+        description: Approved HTTPS npm registry
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package-candidate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build and verify immutable package candidate
+        shell: pwsh
+        env:
+          NUGET_UPSTREAM_SOURCE: https://api.nuget.org/v3/index.json
+          REDIS_TEST_ENDPOINT: localhost:6379
+        run: ./scripts/Build-RealtimePackages.ps1
+      - name: Scan package candidate
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: artifacts/packages
+          format: sarif
+          output: artifacts/package-scan.sarif
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          exit-code: '1'
+      - name: Generate package SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: artifacts/packages
+          artifact-name: cormier-realtime-packages-sbom.spdx.json
+          output-file: artifacts/packages.spdx.json
+          format: spdx-json
+      - name: Upload package scan
+        if: ${{ always() && hashFiles('artifacts/package-scan.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: artifacts/package-scan.sarif
+          category: package-candidate
+      - name: Upload immutable candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: cormier-realtime-packages-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            artifacts/packages
+            artifacts/package-test-results
+            artifacts/package-scan.sarif
+            artifacts/packages.spdx.json
+            .logs/package-build-*.log
+
+  attest-candidate:
+    if: github.event_name != 'pull_request'
+    needs: package-candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cormier-realtime-packages-${{ github.sha }}
+          path: artifacts
+      - name: Attest immutable package provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            artifacts/packages/**/*.nupkg
+            artifacts/packages/**/*.snupkg
+            artifacts/packages/**/*.tgz
+
+  publish-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: [package-candidate, attest-candidate]
+    runs-on: ubuntu-latest
+    environment: package-production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        if: inputs.publish_npm
+        with:
+          node-version: 24
+          registry-url: ${{ inputs.npm_registry }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: cormier-realtime-packages-${{ github.sha }}
+          path: artifacts
+      - name: Validate publication inputs
+        shell: pwsh
+        env:
+          INPUT_NUGET_SOURCE: ${{ inputs.nuget_source }}
+          INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          INPUT_NPM_REGISTRY: ${{ inputs.npm_registry }}
+        run: |
+          if ($env:INPUT_NUGET_SOURCE -notmatch '^https://') {
+            throw 'An approved HTTPS nuget_source is required for publication.'
+          }
+          if ($env:INPUT_PUBLISH_NPM -eq 'true' -and $env:INPUT_NPM_REGISTRY -notmatch '^https://') {
+            throw 'An approved HTTPS npm_registry is required when npm publication is enabled.'
+          }
+      - name: Promote exact candidate
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          INPUT_NUGET_SOURCE: ${{ inputs.nuget_source }}
+          INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          INPUT_NPM_REGISTRY: ${{ inputs.npm_registry }}
+        run: |
+          $candidate = Get-ChildItem artifacts/packages -Directory | Select-Object -First 1
+          if ($null -eq $candidate) { throw 'Downloaded candidate directory was not found.' }
+          $arguments = @(
+            '-CandidatePath', $candidate.FullName,
+            '-NuGetSource', $env:INPUT_NUGET_SOURCE,
+            '-Confirm:$false'
+          )
+          if ($env:INPUT_PUBLISH_NPM -eq 'true') {
+            $arguments += @('-PublishNpm', '-NpmRegistry', $env:INPUT_NPM_REGISTRY)
+          }
+          & ./scripts/Publish-RealtimePackages.ps1 @arguments
+      - name: Upload promotion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cormier-realtime-package-promotion-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            artifacts/package-promotion
+            .logs/package-publish-*.log

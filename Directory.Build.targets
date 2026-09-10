@@ -2,4 +2,21 @@
   <PropertyGroup>
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">linux-x64</RuntimeIdentifiers>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.303" PrivateAssets="All" />
+  </ItemGroup>
+
+  <Target Name="BoundInternalPackageDependencies" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
+                                      Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Cormier.Realtime.Contracts'">
+        <ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
+                                      Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Cormier.Realtime.Redis'">
+        <ProjectVersion>[$(RedisAdapterVersion),$(RedisAdapterCompatibilityUpperBound))</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
 </Project>

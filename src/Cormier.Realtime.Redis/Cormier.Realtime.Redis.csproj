@@ -5,6 +5,13 @@
     <VersionPrefix>$(RedisAdapterVersion)</VersionPrefix>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Cormier.Realtime.Redis</PackageId>
+    <Description>Redis messaging and session infrastructure for Cormier.Realtime.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>websocket;realtime;redis;messaging</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,6 +20,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cormier.Realtime.Contracts\Cormier.Realtime.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

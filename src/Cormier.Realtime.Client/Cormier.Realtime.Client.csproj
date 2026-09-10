@@ -3,8 +3,6 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <VersionPrefix>$(DotNetClientVersion)</VersionPrefix>
-    <ContractsVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(ContractsVersion)', '[-+].*$', ''))</ContractsVersionCore>
-    <ContractsCompatibilityUpperBound Condition="'$(ContractsCompatibilityUpperBound)' == ''">$([System.Version]::Parse('$(ContractsVersionCore)').Major).$([MSBuild]::Add($([System.Version]::Parse('$(ContractsVersionCore)').Minor), 1)).0</ContractsCompatibilityUpperBound>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -26,7 +24,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.303" PrivateAssets="All" />
     <PackageReference Include="System.Text.Json" Version="[10.0.12,11.0.0)" />
     <PackageReference Include="System.Threading.Channels" Version="[10.0.12,11.0.0)" />
   </ItemGroup>
@@ -38,14 +35,5 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
-
-  <Target Name="BoundContractsPackageDependency" AfterTargets="_GetProjectReferenceVersions">
-    <ItemGroup>
-      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
-                                      Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Cormier.Realtime.Contracts'">
-        <ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>
-      </_ProjectReferencesWithVersions>
-    </ItemGroup>
-  </Target>
 
 </Project>

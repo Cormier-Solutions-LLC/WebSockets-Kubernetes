@@ -20,6 +20,9 @@ param(
     [string]$BrowserPackageVersion,
     [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE,
     [string]$RedisTestEndpoint = $env:REDIS_TEST_ENDPOINT,
+    [string]$PackageRepositoryUrl = $env:PACKAGE_REPOSITORY_URL,
+    [string]$PackageProjectUrl = $env:PACKAGE_PROJECT_URL,
+    [string]$PackageReleaseNotesUrl = $env:PACKAGE_RELEASE_NOTES_URL,
     [string]$OutputPath = 'artifacts/packages',
     [ValidateRange(60, 7200)]
     [int]$CommandTimeoutSeconds = 1800,
@@ -285,6 +288,11 @@ try {
     if (-not $SkipIntegrationTests -and [string]::IsNullOrWhiteSpace($RedisTestEndpoint)) {
         throw 'INVALID input: RedisTestEndpoint or REDIS_TEST_ENDPOINT is required unless SkipIntegrationTests is explicitly selected.'
     }
+    foreach ($packageUrl in @($PackageRepositoryUrl, $PackageProjectUrl, $PackageReleaseNotesUrl)) {
+        if ([string]::IsNullOrWhiteSpace($packageUrl) -or $packageUrl -notmatch '^https://') {
+            throw 'INVALID input: package repository, project, and release-notes URLs must be supplied as HTTPS release configuration.'
+        }
+    }
     [xml]$centralProperties = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Directory.Build.props') -Raw
     foreach ($versionName in @(
         'ContractsVersion',
@@ -360,13 +368,16 @@ try {
         "-p:DotNetClientVersion=$DotNetClientVersion",
         "-p:RedisAdapterVersion=$RedisAdapterVersion",
         "-p:AspNetCoreIntegrationVersion=$AspNetCoreIntegrationVersion",
-        "-p:BrowserPackageVersion=$BrowserPackageVersion"
+        "-p:BrowserPackageVersion=$BrowserPackageVersion",
+        "-p:PackageRepositoryUrl=$PackageRepositoryUrl",
+        "-p:PackageProjectUrl=$PackageProjectUrl",
+        "-p:PackageReleaseNotesUrl=$PackageReleaseNotesUrl"
     )
 
     $phase = 'Restore and build'
     Invoke-ReleaseTool $npm @('ci') (Join-Path $repositoryRoot 'sdk/typescript')
     Invoke-ReleaseTool $npm @('run', 'check') (Join-Path $repositoryRoot 'sdk/typescript')
-    Invoke-ReleaseTool $dotnet (@('restore', 'Cormier.Realtime.sln', '--runtime', 'linux-x64', '--locked-mode') + $properties)
+    Invoke-ReleaseTool $dotnet (@('restore', 'Cormier.Realtime.sln', '--runtime', 'linux-x64', '--locked-mode', '--source', $UpstreamPackageSource) + $properties)
     Invoke-ReleaseTool $dotnet (@('build', 'Cormier.Realtime.sln', '--configuration', 'Release', '--no-restore') + $properties)
 
     $phase = 'Test'

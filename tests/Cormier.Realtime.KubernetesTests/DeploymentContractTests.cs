@@ -476,6 +476,7 @@ public sealed class DeploymentContractTests
         var ciWorkflow = Read(".github/workflows/ci.yml");
         var build = Read("scripts/Build-RealtimePackages.ps1");
         var publish = Read("scripts/Publish-RealtimePackages.ps1");
+        var props = Read("Directory.Build.props");
         var targets = Read("Directory.Build.targets");
 
         Assert.Contains("--locked-mode", build, StringComparison.Ordinal);
@@ -489,11 +490,16 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("[string]$ContractsVersion = '0.1.0'", build, StringComparison.Ordinal);
         Assert.Contains("<ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
         Assert.Contains("<ProjectVersion>[$(RedisAdapterVersion),$(RedisAdapterCompatibilityUpperBound))</ProjectVersion>", targets, StringComparison.Ordinal);
+        Assert.Contains("$(PackageRepositoryUrl)", props, StringComparison.Ordinal);
+        Assert.Contains("$(PackageReleaseNotesUrl)", props, StringComparison.Ordinal);
+        Assert.DoesNotContain("github.com", props, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains("environment: package-production", workflow, StringComparison.Ordinal);
         Assert.Contains("group: package-promotion-${{ github.repository }}-${{ github.sha }}", workflow, StringComparison.Ordinal);
         Assert.Contains("cancel-in-progress: false", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/attest-build-provenance@", workflow, StringComparison.Ordinal);
+        Assert.Contains("Attest exact immutable package candidate", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("attest-candidate:", workflow, StringComparison.Ordinal);
         Assert.Contains("Generate package SBOM", workflow, StringComparison.Ordinal);
         Assert.Contains("Scan package candidate", workflow, StringComparison.Ordinal);
         Assert.Contains("actions: read", workflow, StringComparison.Ordinal);
@@ -508,8 +514,12 @@ public sealed class DeploymentContractTests
         Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
         Assert.Contains("${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
-        Assert.Contains("overwrite: true", workflow, StringComparison.Ordinal);
-        Assert.DoesNotContain("cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("candidate_artifact_name", workflow, StringComparison.Ordinal);
+        Assert.Contains("steps.resume.outputs.has_state", workflow, StringComparison.Ordinal);
+        Assert.Contains("steps.resume.outputs.candidate_attempt", workflow, StringComparison.Ordinal);
+        Assert.Contains("Download original resumable candidate", workflow, StringComparison.Ordinal);
+        Assert.Contains("PACKAGE_REPOSITORY_URL", workflow, StringComparison.Ordinal);
+        Assert.Contains("'--source', $UpstreamPackageSource", build, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
 
         Assert.Contains("SHA256SUMS disagrees with manifest.json", publish, StringComparison.Ordinal);

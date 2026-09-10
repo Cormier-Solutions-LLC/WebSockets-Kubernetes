@@ -13,15 +13,14 @@
     <Authors>Cormier</Authors>
     <Company>Cormier Solutions LLC</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes</RepositoryUrl>
+    <RepositoryUrl Condition="'$(PackageRepositoryUrl)' != ''">$(PackageRepositoryUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <PackageProjectUrl>https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes</PackageProjectUrl>
-    <PackageReleaseNotes>https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes/releases</PackageReleaseNotes>
+    <PackageReleaseNotes Condition="'$(PackageReleaseNotesUrl)' != ''">$(PackageReleaseNotesUrl)</PackageReleaseNotes>
     <ContractsVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(ContractsVersion)', '[-+].*$', ''))</ContractsVersionCore>
     <ContractsCompatibilityUpperBound Condition="'$(ContractsCompatibilityUpperBound)' == ''">$([System.Version]::Parse('$(ContractsVersionCore)').Major).$([MSBuild]::Add($([System.Version]::Parse('$(ContractsVersionCore)').Minor), 1)).0</ContractsCompatibilityUpperBound>
     <RedisAdapterVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(RedisAdapterVersion)', '[-+].*$', ''))</RedisAdapterVersionCore>

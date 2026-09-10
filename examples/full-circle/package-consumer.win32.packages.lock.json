@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Cormier.Realtime.AspNetCore": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "A6ZHCQ44MAhdGxIkLBGbJRYOMkvMMM10gjpCOouKHRftzfjj9p4rAkJN0QO2WvWc+vRHNJCH2GAC8aJi7RsEXA==",
+        "dependencies": {
+          "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
+          "Cormier.Realtime.Redis": "[0.1.0, 0.2.0)"
+        }
+      },
+      "Cormier.Realtime.Browser": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "R4knSfKxnkT5qggWdbkKw7F62vt0HcipgFdQ63KrdJ9bYzMsKQsStDRWexHdl1V0uH4VRkHI2mvC/Vyo/MLQdw=="
+      },
+      "Cormier.Realtime.Contracts": {
+        "type": "Transitive",
+        "resolved": "0.1.0",
+        "contentHash": "85UTPpyHfGgMBny0aTujUzZTwtqIKO58vpq78NgXlHuZ9JYMeBTcBj3n8GSr1zuPxmHiIIcvy6GfzmEmyRV7bQ=="
+      },
+      "Cormier.Realtime.Redis": {
+        "type": "Transitive",
+        "resolved": "0.1.0",
+        "contentHash": "OqInsFcLe72wlyGSJG95lp5t4ZfIZ6uysseLK2ovTir8gjYtBid3t2buTrT5XeDnSO4b8LG9FGtpWE2LOaQ+kQ==",
+        "dependencies": {
+          "Cormier.Realtime.Contracts": "[0.1.0, 0.2.0)",
+          "StackExchange.Redis": "3.1.31"
+        }
+      },
+      "RESPite": {
+        "type": "Transitive",
+        "resolved": "3.1.31",
+        "contentHash": "u+MFK6FzGWngKaY3wJ/V9vQSVe/NSqpk0IYYw6ACwmlPq5eTnsyZGlzEa3YMifJGVs3omrl5MkgigB1jZYNnGg=="
+      },
+      "StackExchange.Redis": {
+        "type": "Transitive",
+        "resolved": "3.1.31",
+        "contentHash": "QillloeZxgw9+IWmnowTrjrn+JV7JIMVzr1JiUpCa7pJQI48rtcqG9yy6u5UBRiTuCiKU5909aRu67Ch6gWVMg==",
+        "dependencies": {
+          "RESPite": "3.1.31",
+          "System.IO.Hashing": "10.0.5"
+        }
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.5",
+        "contentHash": "8IBJWcCT9+e4Bmevm4T7+fQEiAh133KGiz4oiVTgJckd3Q76OFdR1falgn9lpz7+C4HJvogCDJeAa2QmvbeVtg=="
+      }
+    },
+    "net10.0/linux-x64": {}
+  }
+}

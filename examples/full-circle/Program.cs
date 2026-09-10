@@ -19,12 +19,13 @@ builder.Services.AddOptions<FullCircleOptions>()
     .ValidateOnStart();
 builder.Services.AddRealtimeGateway(builder.Configuration);
 builder.Services.AddSingleton<IDistributedCache, RedisDistributedCache>();
+var sessionLifetimeMinutes = builder.Configuration.GetValue<int?>("FullCircle:SessionLifetimeMinutes") ?? 20;
 builder.Services.AddSession(options =>
 {
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
     options.Cookie.SameSite = SameSiteMode.Strict;
-    options.IdleTimeout = TimeSpan.FromMinutes(20);
+    options.IdleTimeout = TimeSpan.FromMinutes(sessionLifetimeMinutes);
 });
 
 var app = builder.Build();

@@ -56,16 +56,18 @@ async function command(file, args, options = {}) {
       stdio: "inherit",
       shell: process.platform === "win32" && file.endsWith(".cmd"),
     });
-    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`Command exceeded ${plan.timeouts.commandSeconds} seconds.`)); }, commandTimeout);
+    const timer = options.timeout === false
+      ? undefined
+      : setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`Command exceeded ${plan.timeouts.commandSeconds} seconds.`)); }, commandTimeout);
     child.on("error", reject);
-    child.on("exit", code => { clearTimeout(timer); code === 0 ? accept() : reject(new Error(`${file} exited with code ${code}.`)); });
+    child.on("exit", code => { if (timer !== undefined) clearTimeout(timer); code === 0 ? accept() : reject(new Error(`${file} exited with code ${code}.`)); });
   });
 }
 
 async function verifyRedis() {
-  await command("node", ["--input-type=module", "--eval", "import {createClient} from 'redis'; const c=createClient({url:process.env.FULL_CIRCLE_REDIS_URL}); await c.connect(); if(await c.ping()!=='PONG') process.exit(1); await c.quit();"], {
+  await command("node", [resolve(repositoryRoot, "sdk/typescript/scripts/redis-fixtures.mjs"), "ping"], {
     cwd: resolve(repositoryRoot, "sdk/typescript"),
-    env: { FULL_CIRCLE_REDIS_URL: `redis://${redisEndpoint}` },
+    env: { Redis__Endpoint: redisEndpoint },
   });
 }
 
@@ -81,9 +83,9 @@ async function cleanRedisFixtures() {
   if (typeof plan.redis.instancePrefix !== "string" || plan.redis.instancePrefix.length === 0) {
     throw new Error("Redis fixture cleanup requires a non-empty instance prefix.");
   }
-  await command("node", ["--input-type=module", "--eval", "import {createClient} from 'redis'; const c=createClient({url:process.env.FULL_CIRCLE_REDIS_URL}); await c.connect(); const script=\"local c='0' repeat local r=redis.call('SCAN',c,'MATCH',ARGV[1],'COUNT',100); c=r[1]; if #r[2]>0 then redis.call('UNLINK',unpack(r[2])) end until c=='0' return 1\"; await c.sendCommand(['EVAL',script,'0',process.env.FULL_CIRCLE_PATTERN]); await c.quit();"], {
+  await command("node", [resolve(repositoryRoot, "sdk/typescript/scripts/redis-fixtures.mjs"), "cleanup"], {
     cwd: resolve(repositoryRoot, "sdk/typescript"),
-    env: { FULL_CIRCLE_REDIS_URL: `redis://${redisEndpoint}`, FULL_CIRCLE_PATTERN: `${escapeRedisGlob(plan.redis.instancePrefix)}:*` },
+    env: { Redis__Endpoint: redisEndpoint, FULL_CIRCLE_PATTERN: `${escapeRedisGlob(plan.redis.instancePrefix)}:*` },
   });
 }
 
@@ -111,7 +113,6 @@ async function buildPackageConsumer() {
   ]) {
     await command("dotnet", ["pack", project, "--configuration", "Release", "--no-build", "--output", feed]);
   }
-  await command("pwsh", ["-NoLogo", "-NoProfile", "-File", "scripts/Normalize-NuGetPackages.ps1", "-PackageDirectory", feed]);
   const consumerLockGraph = JSON.parse(await readFile(consumerLockTemplate, "utf8"));
   const targetGraph = consumerLockGraph.dependencies?.["net10.0"];
   for (const [packageId, packageFile] of [
@@ -170,8 +171,9 @@ try {
         FullCircle__InstanceName: instance.name,
         Redis__Endpoint: redisEndpoint,
         Redis__InstancePrefix: plan.redis.instancePrefix,
-        Realtime__AllowedOrigins__0: `http://127.0.0.1:${profile.entryPort}`,
+        Realtime__AllowedOrigins__0: `http://127.0.0.1:${instance.port}`,
       },
+      timeout: false,
     });
   } else if (action === "cleanup" || action === "rollback") {
     await cleanRedisFixtures();

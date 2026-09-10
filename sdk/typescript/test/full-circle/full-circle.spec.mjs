@@ -93,7 +93,7 @@ test("HA reconnect selects another instance and restores one subscription", asyn
   const after = await request.get("/test/stats").then(response => response.json());
   expect(after.websocketBackends.length).toBeGreaterThan(before.websocketBackends.length);
   expect(after.websocketBackends.at(-1)).not.toBe(after.websocketBackends.at(-2));
-  expect(after.ticketRequests).toBeGreaterThanOrEqual(2);
+  expect(after.ticketRequests).toBeGreaterThan(before.ticketRequests);
   const eventLines = (await page.locator("#events").textContent()).split("\n")
     .filter(line => line.includes(" event ") && line.includes(marker));
   expect(eventLines).toHaveLength(1);

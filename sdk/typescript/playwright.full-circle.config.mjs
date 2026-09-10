@@ -1,23 +1,36 @@
 import { defineConfig } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const profile = process.env.FULL_CIRCLE_PROFILE;
 if (profile !== "ha" && profile !== "non-ha") throw new Error("FULL_CIRCLE_PROFILE must be ha or non-ha.");
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const plan = JSON.parse(readFileSync(resolve(repositoryRoot, "examples/full-circle/full-circle.plan.json"), "utf8"));
+const selectedPlan = plan.profiles?.[profile];
+if (plan.schemaVersion !== 1 || selectedPlan === undefined) throw new Error("The shared full-circle plan is invalid.");
 const redis = process.env.REDIS_TEST_ENDPOINT ?? "127.0.0.1:6379";
-const instances = profile === "ha"
-  ? [{ name: "app-a", port: 15081 }, { name: "app-b", port: 15082 }]
-  : [{ name: "app-a", port: 15080 }];
-const entryPort = profile === "ha" ? 15083 : 15080;
+const instances = selectedPlan.instances;
+const entryPort = selectedPlan.entryPort;
+const forwardedRedisConfiguration = Object.fromEntries([
+  "Redis__User",
+  "Redis__Password",
+  "Redis__Ssl",
+  "Redis__SentinelServiceName",
+  "Redis__SentinelPassword",
+].flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]]]));
 const appServers = instances.map(instance => ({
   command: "dotnet run --project ../../examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore",
   url: `http://127.0.0.1:${instance.port}/health`,
   timeout: 60_000,
   reuseExistingServer: false,
   env: {
+    ...forwardedRedisConfiguration,
     ASPNETCORE_URLS: `http://127.0.0.1:${instance.port}`,
     FullCircle__Topology: profile,
     FullCircle__InstanceName: instance.name,
     Redis__Endpoint: redis,
-    Redis__InstancePrefix: "cormier:full-circle-tests",
+    Redis__InstancePrefix: plan.redis.instancePrefix,
     Realtime__AllowedOrigins__0: `http://127.0.0.1:${entryPort}`,
   },
 }));

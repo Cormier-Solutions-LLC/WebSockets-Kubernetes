@@ -77,7 +77,8 @@ public sealed class DiagnosticsEndpointTests
     [Fact]
     public void StandaloneRejectsAuthorizationPoliciesThatDifferOnlyByCase()
     {
-        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        using var baseFactory = new WebApplicationFactory<Program>();
+        using var factory = baseFactory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Diagnostics:Enabled", "true");
             builder.UseSetting("Diagnostics:ProductionEnabled", "true");

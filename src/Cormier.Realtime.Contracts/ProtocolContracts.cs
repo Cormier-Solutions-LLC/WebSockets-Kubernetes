@@ -40,6 +40,7 @@ public static class RealtimeCloseCodes
     public const int GoingAway = 1001;
     public const int ProtocolError = 1002;
     public const int InvalidMessageType = 1003;
+    public const int InvalidPayloadData = 1007;
     public const int MessageTooLarge = 1009;
     public const int InternalError = 1011;
     public const int ServiceRestart = 1012;

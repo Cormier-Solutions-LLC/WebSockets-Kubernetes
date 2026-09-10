@@ -193,8 +193,11 @@ public class RealtimeClientException : Exception
 
 public sealed class RealtimeProtocolException : RealtimeClientException
 {
-    public RealtimeProtocolException(string message)
+    public RealtimeProtocolException(string message, int closeCode = RealtimeCloseCodes.ProtocolError)
         : base(message)
     {
+        CloseCode = closeCode;
     }
+
+    public int CloseCode { get; }
 }

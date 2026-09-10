@@ -168,6 +168,36 @@ public sealed class RealtimeClientTests
         Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), delay);
     }
 
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(2, 1)]
+    [InlineData(3, 2)]
+    [InlineData(4, 4)]
+    public void ZeroInitialReconnectDelayOnlyMakesTheFirstRetryImmediate(int attempt, int expectedMilliseconds)
+    {
+        var options = Options();
+        options.InitialReconnectDelayMilliseconds = 0;
+        options.MaximumReconnectDelayMilliseconds = 100;
+        var policy = new ExponentialRealtimeRetryPolicy(options, new FixedRandom(0.5));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), policy.GetDelay(attempt, null));
+    }
+
+    [Fact]
+    public async Task ProtocolFailuresUseTheirWireCloseCode()
+    {
+        var transport = new FakeTransport();
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+
+        transport.FailReceive(new RealtimeProtocolException(
+            "Expected oversized frame.",
+            RealtimeCloseCodes.MessageTooLarge));
+        await transport.CloseStarted.Task;
+
+        Assert.Equal(RealtimeCloseCodes.MessageTooLarge, transport.LastCloseCode);
+    }
+
     [Fact]
     public async Task SuccessfulReconnectResetsTheConsecutiveAttemptLimit()
     {
@@ -356,7 +386,7 @@ public sealed class RealtimeClientTests
             "queued-ping",
             clock.UtcNow,
             "system/heartbeat",
-            JsonSerializer.SerializeToElement<object?>(null)));
+            default));
 
         await client.ConnectAsync(CancellationToken.None);
         var sent = await transport.WaitForSentAsync();
@@ -364,6 +394,27 @@ public sealed class RealtimeClientTests
 
         Assert.Equal(ProtocolMessageTypes.Ping, envelope?.Type);
         Assert.Equal("queued-ping", envelope?.CorrelationId);
+        Assert.Equal(JsonValueKind.Null, envelope?.Payload.ValueKind);
+    }
+
+    [Fact]
+    public void LowLevelSubscriptionCommandsRequireTheStatefulApi()
+    {
+        using var client = new RealtimeClient(Options());
+        var message = new MessageEnvelope(
+            ProtocolVersions.Current,
+            ProtocolMessageTypes.Subscribe,
+            "low-level-subscribe",
+            DateTimeOffset.UtcNow,
+            "topics/orders",
+            default);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+        {
+            _ = client.SendAsync(message);
+        });
+
+        Assert.Contains("SubscribeAsync", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -398,6 +449,24 @@ public sealed class RealtimeClientTests
 
         await Assert.ThrowsAsync<ChannelClosedException>(() => receive);
         Assert.Equal(RealtimeClientState.Disconnected, client.State);
+    }
+
+    [Fact]
+    public async Task SendsAreRejectedAfterDisconnectStarts()
+    {
+        var transport = new FakeTransport { BlockClose = true };
+        using var client = new RealtimeClient(Options(), transportFactory: new FakeTransportFactory(transport));
+        await client.ConnectAsync(CancellationToken.None);
+
+        var disconnect = client.DisconnectAsync(CancellationToken.None);
+        await transport.CloseStarted.Task;
+
+        await Assert.ThrowsAsync<ChannelClosedException>(() => client.PublishAsync(
+            "topics/orders",
+            JsonSerializer.SerializeToElement(new { value = 1 }),
+            "during-stop"));
+        transport.ReleaseClose.TrySetResult(true);
+        await disconnect;
     }
 
     [Fact]
@@ -748,7 +817,7 @@ public sealed class RealtimeClientTests
         private readonly Channel<byte[]> _sent = Channel.CreateUnbounded<byte[]>();
         private readonly Channel<RealtimeTransportReceiveResult> _received =
             Channel.CreateUnbounded<RealtimeTransportReceiveResult>();
-        private readonly TaskCompletionSource<bool> _receiveFailure =
+        private readonly TaskCompletionSource<Exception> _receiveFailure =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _sentCount;
         private int _sendAttempts;
@@ -759,15 +828,26 @@ public sealed class RealtimeClientTests
 
         public int? FailOnSendNumber { get; set; }
 
+        public bool BlockClose { get; set; }
+
         public TaskCompletionSource<bool> SendStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource<bool> ReleaseSends { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource<bool> CloseStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseClose { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public int SentCount => Volatile.Read(ref _sentCount);
 
-        public void FailReceive() => _receiveFailure.TrySetResult(true);
+        public int? LastCloseCode { get; private set; }
+
+        public void FailReceive(Exception? exception = null) =>
+            _receiveFailure.TrySetResult(exception ?? new InvalidOperationException("Expected receive failure."));
 
         public async Task SendAsync(byte[] payload, CancellationToken cancellationToken)
         {
@@ -790,12 +870,20 @@ public sealed class RealtimeClientTests
             var receive = _received.Reader.ReadAsync(cancellationToken).AsTask();
             if (await Task.WhenAny(receive, _receiveFailure.Task) == _receiveFailure.Task)
             {
-                throw new InvalidOperationException("Expected receive failure.");
+                throw await _receiveFailure.Task;
             }
             return await receive;
         }
 
-        public Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken) => Task.CompletedTask;
+        public async Task CloseAsync(int closeCode, string reason, CancellationToken cancellationToken)
+        {
+            LastCloseCode = closeCode;
+            CloseStarted.TrySetResult(true);
+            if (BlockClose)
+            {
+                await ReleaseClose.Task.WaitAsync(cancellationToken);
+            }
+        }
 
         public async Task<byte[]> WaitForSentAsync()
         {

@@ -32,6 +32,7 @@ public sealed class RealtimeClient : IDisposable
     private Task _stateNotificationTask = Task.CompletedTask;
     private Task? _runTask;
     private RealtimeClientState _state;
+    private bool _acceptingSends = true;
     private bool _disposed;
 
     public RealtimeClient(
@@ -116,7 +117,20 @@ public sealed class RealtimeClient : IDisposable
         }
     }
 
-    public async Task SendAsync(MessageEnvelope message, CancellationToken cancellationToken = default)
+    public Task SendAsync(MessageEnvelope message, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        if (message is not null &&
+            (string.Equals(message.Type, ProtocolMessageTypes.Subscribe, StringComparison.Ordinal) ||
+             string.Equals(message.Type, ProtocolMessageTypes.Unsubscribe, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "Use SubscribeAsync and UnsubscribeAsync so reconnect state remains consistent.");
+        }
+        return SendCoreAsync(message!, cancellationToken);
+    }
+
+    private async Task SendCoreAsync(MessageEnvelope message, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         var validation = ProtocolValidator.Validate(message, _clock.UtcNow);
@@ -124,13 +138,16 @@ public sealed class RealtimeClient : IDisposable
         {
             throw new RealtimeProtocolException("The outbound protocol message is invalid.");
         }
+        var ownedPayload = message.Payload.ValueKind == JsonValueKind.Undefined
+            ? NullPayload
+            : message.Payload;
         var ownedMessage = new MessageEnvelope(
             message.Version,
             message.Type,
             message.CorrelationId,
             message.Timestamp,
             message.Route,
-            message.Payload.Clone());
+            ownedPayload.Clone());
         var encoded = JsonSerializer.SerializeToUtf8Bytes(
             ownedMessage,
             RealtimeJsonSerializerContext.Default.MessageEnvelope);
@@ -181,7 +198,7 @@ public sealed class RealtimeClient : IDisposable
 
             try
             {
-                await SendAsync(CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, correlationId), cancellationToken)
+                await SendCoreAsync(CreateMessage(ProtocolMessageTypes.Subscribe, route, NullPayload, correlationId), cancellationToken)
                     .ConfigureAwait(false);
             }
             catch
@@ -225,7 +242,7 @@ public sealed class RealtimeClient : IDisposable
             }
             try
             {
-                await SendAsync(CreateMessage(ProtocolMessageTypes.Unsubscribe, route, NullPayload, correlationId), cancellationToken)
+                await SendCoreAsync(CreateMessage(ProtocolMessageTypes.Unsubscribe, route, NullPayload, correlationId), cancellationToken)
                     .ConfigureAwait(false);
             }
             catch
@@ -265,6 +282,7 @@ public sealed class RealtimeClient : IDisposable
             {
                 return;
             }
+            _acceptingSends = false;
             runTask = _runTask;
             if (runTask is null)
             {
@@ -300,6 +318,7 @@ public sealed class RealtimeClient : IDisposable
                 return;
             }
             _disposed = true;
+            _acceptingSends = false;
             runTask = _runTask;
             if (runTask is null)
             {
@@ -331,6 +350,8 @@ public sealed class RealtimeClient : IDisposable
         {
             RealtimeTransportClose? close = null;
             IRealtimeTransport? transport = null;
+            var cleanupCloseCode = RealtimeCloseCodes.Normal;
+            var cleanupCloseReason = "client_disconnect";
             try
             {
                 SetState(reconnectAttempt == 0 ? RealtimeClientState.Connecting : RealtimeClientState.Reconnecting);
@@ -380,8 +401,10 @@ public sealed class RealtimeClient : IDisposable
             {
                 break;
             }
-            catch (RealtimeProtocolException)
+            catch (RealtimeProtocolException exception)
             {
+                cleanupCloseCode = exception.CloseCode;
+                cleanupCloseReason = "protocol_failure";
                 Log(RealtimeClientLogLevel.Error, ProtocolFailureEventId, "Realtime protocol validation failed.");
                 SetState(RealtimeClientState.Faulted);
                 _firstConnection.TrySetException(new RealtimeProtocolException("Realtime protocol validation failed."));
@@ -406,8 +429,8 @@ public sealed class RealtimeClient : IDisposable
                         using var closeTimeout = new CancellationTokenSource(
                             TimeSpan.FromSeconds(_options.CloseTimeoutSeconds));
                         await transport.CloseAsync(
-                            RealtimeCloseCodes.Normal,
-                            "client_disconnect",
+                            cleanupCloseCode,
+                            cleanupCloseReason,
                             closeTimeout.Token).ConfigureAwait(false);
                     }
                     catch (Exception)
@@ -619,14 +642,18 @@ public sealed class RealtimeClient : IDisposable
     private async Task EnqueueOwnedAsync(MessageEnvelope message, CancellationToken cancellationToken)
     {
         await _sendSlots.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        try
+        var accepted = false;
+        lock (_stateLock)
         {
-            await _outbound.Writer.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            if (_acceptingSends)
+            {
+                accepted = _outbound.Writer.TryWrite(message);
+            }
         }
-        catch
+        if (!accepted)
         {
             ReleaseSendSlot();
-            throw;
+            throw new ChannelClosedException();
         }
     }
 
@@ -684,10 +711,14 @@ public sealed class RealtimeClient : IDisposable
 
     private void CompleteChannels()
     {
-        _outbound.Writer.TryComplete();
-        _sendSlots.Writer.TryComplete();
-        _inbound.Writer.TryComplete();
-        _firstConnection.TrySetCanceled(CancellationToken.None);
+        lock (_stateLock)
+        {
+            _acceptingSends = false;
+            _outbound.Writer.TryComplete();
+            _sendSlots.Writer.TryComplete();
+            _inbound.Writer.TryComplete();
+            _firstConnection.TrySetCanceled(CancellationToken.None);
+        }
     }
 
     private void RaiseStateChanged(RealtimeClientState previous, RealtimeClientState current)

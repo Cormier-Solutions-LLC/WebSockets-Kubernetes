@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Net;
 using System.Net.WebSockets;
+using Cormier.Realtime.Contracts;
 
 namespace Cormier.Realtime.Client;
 
@@ -70,6 +72,7 @@ public sealed class ClientWebSocketTransport : IRealtimeTransport
     private readonly ClientWebSocket _socket;
     private readonly int _maximumFrameBytes;
     private readonly int _maximumMessageBytes;
+    private byte[]? _receiveBuffer;
 
     internal ClientWebSocketTransport(
         ClientWebSocket socket,
@@ -79,6 +82,7 @@ public sealed class ClientWebSocketTransport : IRealtimeTransport
         _socket = socket;
         _maximumFrameBytes = maximumFrameBytes;
         _maximumMessageBytes = maximumMessageBytes;
+        _receiveBuffer = ArrayPool<byte>.Shared.Rent(maximumFrameBytes + 1);
     }
 
     public Task SendAsync(byte[] payload, CancellationToken cancellationToken)
@@ -96,8 +100,8 @@ public sealed class ClientWebSocketTransport : IRealtimeTransport
 
     public async Task<RealtimeTransportReceiveResult> ReceiveAsync(CancellationToken cancellationToken)
     {
-        var buffer = new byte[_maximumFrameBytes];
-        var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken)
+        var buffer = _receiveBuffer ?? throw new ObjectDisposedException(nameof(ClientWebSocketTransport));
+        var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer, 0, _maximumFrameBytes + 1), cancellationToken)
             .ConfigureAwait(false);
         if (result.MessageType == WebSocketMessageType.Close)
         {
@@ -108,15 +112,27 @@ public sealed class ClientWebSocketTransport : IRealtimeTransport
         }
         if (result.MessageType != WebSocketMessageType.Text)
         {
-            throw new RealtimeProtocolException("The server returned an unsupported WebSocket message type.");
+            throw new RealtimeProtocolException(
+                "The server returned an unsupported WebSocket message type.",
+                RealtimeCloseCodes.InvalidMessageType);
+        }
+        if (result.Count > _maximumFrameBytes)
+        {
+            throw new RealtimeProtocolException(
+                "The server returned an oversized WebSocket frame.",
+                RealtimeCloseCodes.MessageTooLarge);
         }
         if (!result.EndOfMessage)
         {
-            throw new RealtimeProtocolException("The server returned a fragmented or oversized WebSocket frame.");
+            throw new RealtimeProtocolException(
+                "The server returned a fragmented WebSocket message.",
+                RealtimeCloseCodes.InvalidPayloadData);
         }
         if (result.Count > _maximumMessageBytes)
         {
-            throw new RealtimeProtocolException("The server message exceeded the configured size limit.");
+            throw new RealtimeProtocolException(
+                "The server message exceeded the configured size limit.",
+                RealtimeCloseCodes.MessageTooLarge);
         }
         var payload = new byte[result.Count];
         Buffer.BlockCopy(buffer, 0, payload, 0, result.Count);
@@ -132,7 +148,15 @@ public sealed class ClientWebSocketTransport : IRealtimeTransport
         }
     }
 
-    public void Dispose() => _socket.Dispose();
+    public void Dispose()
+    {
+        var buffer = Interlocked.Exchange(ref _receiveBuffer, null);
+        if (buffer is not null)
+        {
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+        }
+        _socket.Dispose();
+    }
 
     private static string NormalizeCloseReason(string? reason) =>
         string.IsNullOrWhiteSpace(reason) ? "connection_closed" : "server_close";

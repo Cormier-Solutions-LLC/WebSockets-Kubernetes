@@ -122,8 +122,9 @@ public sealed class ExponentialRealtimeRetryPolicy : IRealtimeRetryPolicy
 
         var initial = close?.Reconnect?.InitialDelayMilliseconds ?? _initialDelayMilliseconds;
         var maximum = close?.Reconnect?.MaximumDelayMilliseconds ?? _maximumDelayMilliseconds;
-        var multiplier = Math.Pow(2, Math.Min(attempt - 1, 30));
-        var delay = Math.Min(maximum, initial * multiplier);
+        var delay = initial == 0 && maximum > 0
+            ? attempt == 1 ? 0 : Math.Min(maximum, Math.Pow(2, Math.Min(attempt - 2, 30)))
+            : Math.Min(maximum, initial * Math.Pow(2, Math.Min(attempt - 1, 30)));
         if (close?.Reconnect is { JitterRatio: > 0 } advice)
         {
             var factor = 1 + (((_random.NextDouble() * 2) - 1) * advice.JitterRatio);

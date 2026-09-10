@@ -150,6 +150,7 @@ var RealtimeClient = class {
   pending = /* @__PURE__ */ new Map();
   queued = [];
   subscriptions = /* @__PURE__ */ new Map();
+  subscriptionCommands = /* @__PURE__ */ new Map();
   socket;
   stateValue = "idle";
   connectPromise;
@@ -208,6 +209,7 @@ var RealtimeClient = class {
     this.clearReconnectTimer();
     this.connectPromise = this.openSocket(signal, false).catch((error) => {
       this.setState("closed");
+      this.rejectQueued(error instanceof Error ? error : this.normalizeError(error));
       throw error;
     }).finally(() => {
       this.connectPromise = void 0;
@@ -215,6 +217,12 @@ var RealtimeClient = class {
     return this.connectPromise;
   }
   async disconnect(code = closeCodes.normal, reason = "client_disconnect") {
+    if (!Number.isInteger(code) || code !== closeCodes.normal && (code < 3e3 || code > 4999)) {
+      throw new RangeError("The WebSocket close code must be 1000 or between 3000 and 4999.");
+    }
+    if (new TextEncoder().encode(reason).byteLength > 123) {
+      throw new RangeError("The WebSocket close reason must not exceed 123 UTF-8 bytes.");
+    }
     this.intentionalClose = true;
     this.generation += 1;
     this.clearReconnectTimer();
@@ -241,9 +249,11 @@ var RealtimeClient = class {
     }
     routeListeners.add(listener);
     try {
+      let subscriptionCommand = this.subscriptionCommands.get(route);
       if (isNewRoute) {
-        await this.sendCommand(createEnvelope(messageTypes.subscribe, route), signal);
+        subscriptionCommand = this.establishSubscription(route, signal);
       }
+      await subscriptionCommand;
     } catch (error) {
       routeListeners.delete(listener);
       if (routeListeners.size === 0) {
@@ -276,6 +286,9 @@ var RealtimeClient = class {
     this.setState(reconnecting ? "reconnecting" : "connecting");
     const connectionUrl = await this.createConnectionUrl(signal);
     signal?.throwIfAborted();
+    if (generation !== this.generation || this.intentionalClose) {
+      throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
+    }
     const factory = this.options.webSocketFactory ?? ((url, protocol) => new WebSocket(url, protocol));
     const socket = factory(connectionUrl, WEBSOCKET_SUBPROTOCOL);
     socket.binaryType = "arraybuffer";
@@ -326,7 +339,16 @@ var RealtimeClient = class {
     const url = new URL(this.options.url.toString(), globalThis.location?.href);
     const authentication = this.options.authentication ?? { kind: "session" };
     if (authentication.kind === "ticket") {
-      const endpoint = new URL(authentication.endpoint?.toString() ?? "/realtime/tickets", url);
+      const ticketBaseUrl = new URL(url);
+      if (ticketBaseUrl.protocol === "ws:") {
+        ticketBaseUrl.protocol = "http:";
+      } else if (ticketBaseUrl.protocol === "wss:") {
+        ticketBaseUrl.protocol = "https:";
+      }
+      const endpoint = new URL(authentication.endpoint?.toString() ?? "/realtime/tickets", ticketBaseUrl);
+      if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+        throw new TypeError("The ticket endpoint must use http or https.");
+      }
       const fetcher = authentication.fetch ?? globalThis.fetch;
       if (fetcher === void 0) {
         throw new RealtimeConnectionError("Ticket authentication requires the Fetch API.", "ticket_unavailable");
@@ -379,8 +401,6 @@ var RealtimeClient = class {
       if (this.stateValue === "idle" || this.stateValue === "closed") {
         void this.connect().catch((error) => {
           const normalized = this.normalizeError(error);
-          this.setState("closed");
-          this.rejectQueued(normalized);
           this.emit("error", normalized);
         });
       }
@@ -491,7 +511,7 @@ var RealtimeClient = class {
     this.scheduleReconnect();
   }
   scheduleReconnect() {
-    if (this.reconnectTimer !== void 0 || this.intentionalClose) {
+    if (this.reconnectTimer !== void 0 || this.intentionalClose || this.socket?.readyState === OPEN) {
       return;
     }
     if (this.reconnectAttempt >= this.reconnectOptions.maximumAttempts) {
@@ -523,17 +543,33 @@ var RealtimeClient = class {
       const queuedSubscriptions = new Set(this.queued.filter((command) => command.envelope.type === messageTypes.subscribe).map((command) => command.envelope.route));
       for (const route of this.subscriptions.keys()) {
         if (!queuedSubscriptions.has(route)) {
-          await this.sendCommand(createEnvelope(messageTypes.subscribe, route));
+          await this.establishSubscription(route);
         }
       }
+    } catch (error) {
+      this.emit("error", this.normalizeError(error));
+    } finally {
       while (this.queued.length > 0 && this.stateValue === "open") {
         const command = this.queued.shift();
         if (command !== void 0) {
           this.transmit(command);
         }
       }
-    } catch (error) {
-      this.emit("error", this.normalizeError(error));
+    }
+  }
+  async establishSubscription(route, signal) {
+    const existing = this.subscriptionCommands.get(route);
+    if (existing !== void 0) {
+      return existing;
+    }
+    const command = this.sendCommand(createEnvelope(messageTypes.subscribe, route), signal).then(() => void 0);
+    this.subscriptionCommands.set(route, command);
+    try {
+      await command;
+    } finally {
+      if (this.subscriptionCommands.get(route) === command) {
+        this.subscriptionCommands.delete(route);
+      }
     }
   }
   startHeartbeat() {

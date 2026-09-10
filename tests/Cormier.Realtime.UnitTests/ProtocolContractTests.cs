@@ -33,8 +33,9 @@ public sealed class ProtocolContractTests
     [Fact]
     public void LanguageNeutralFixturesMatchDotNetProtocolContract()
     {
-        using var fixtures = JsonDocument.Parse(File.ReadAllText(
-            Path.Combine(AppContext.BaseDirectory, "protocol", "fixtures", "v1", "envelopes.json")));
+        var relativePath = Path.Join("protocol", "fixtures", "v1", "envelopes.json");
+        var fixturePath = Path.GetFullPath(relativePath, AppContext.BaseDirectory);
+        using var fixtures = JsonDocument.Parse(File.ReadAllText(fixturePath));
         var root = fixtures.RootElement;
 
         Assert.Equal(ProtocolVersions.Current, root.GetProperty("protocolVersion").GetString());

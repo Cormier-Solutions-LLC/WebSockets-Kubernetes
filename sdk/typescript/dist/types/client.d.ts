@@ -58,6 +58,7 @@ export declare class RealtimeClient {
     private readonly pending;
     private readonly queued;
     private readonly subscriptions;
+    private readonly subscriptionCommands;
     private socket;
     private stateValue;
     private connectPromise;
@@ -84,6 +85,7 @@ export declare class RealtimeClient {
     private handleClose;
     private scheduleReconnect;
     private restoreSubscriptionsAndFlush;
+    private establishSubscription;
     private startHeartbeat;
     private stopHeartbeat;
     private clearReconnectTimer;

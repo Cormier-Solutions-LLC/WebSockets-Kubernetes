@@ -107,6 +107,7 @@ export class RealtimeClient {
   private readonly pending = new Map<string, PendingCommand>();
   private readonly queued: QueuedCommand[] = [];
   private readonly subscriptions = new Map<string, Set<(event: ServerMessageEnvelope) => void>>();
+  private readonly subscriptionCommands = new Map<string, Promise<void>>();
   private socket: WebSocketLike | undefined;
   private stateValue: RealtimeClientState = "idle";
   private connectPromise: Promise<void> | undefined;
@@ -171,6 +172,7 @@ export class RealtimeClient {
     this.connectPromise = this.openSocket(signal, false)
       .catch((error: unknown) => {
         this.setState("closed");
+        this.rejectQueued(error instanceof Error ? error : this.normalizeError(error));
         throw error;
       })
       .finally(() => {
@@ -180,6 +182,12 @@ export class RealtimeClient {
   }
 
   public async disconnect(code = closeCodes.normal, reason = "client_disconnect"): Promise<void> {
+    if (!Number.isInteger(code) || (code !== closeCodes.normal && (code < 3000 || code > 4999))) {
+      throw new RangeError("The WebSocket close code must be 1000 or between 3000 and 4999.");
+    }
+    if (new TextEncoder().encode(reason).byteLength > 123) {
+      throw new RangeError("The WebSocket close reason must not exceed 123 UTF-8 bytes.");
+    }
     this.intentionalClose = true;
     this.generation += 1;
     this.clearReconnectTimer();
@@ -212,9 +220,11 @@ export class RealtimeClient {
     }
     routeListeners.add(listener);
     try {
+      let subscriptionCommand = this.subscriptionCommands.get(route);
       if (isNewRoute) {
-        await this.sendCommand(createEnvelope(messageTypes.subscribe, route), signal);
+        subscriptionCommand = this.establishSubscription(route, signal);
       }
+      await subscriptionCommand;
     } catch (error: unknown) {
       routeListeners.delete(listener);
       if (routeListeners.size === 0) {
@@ -249,6 +259,9 @@ export class RealtimeClient {
     this.setState(reconnecting ? "reconnecting" : "connecting");
     const connectionUrl = await this.createConnectionUrl(signal);
     signal?.throwIfAborted();
+    if (generation !== this.generation || this.intentionalClose) {
+      throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
+    }
     const factory = this.options.webSocketFactory ?? ((url, protocol) => new WebSocket(url, protocol));
     const socket = factory(connectionUrl, WEBSOCKET_SUBPROTOCOL);
     socket.binaryType = "arraybuffer";
@@ -301,7 +314,16 @@ export class RealtimeClient {
     const url = new URL(this.options.url.toString(), globalThis.location?.href);
     const authentication = this.options.authentication ?? { kind: "session" };
     if (authentication.kind === "ticket") {
-      const endpoint = new URL(authentication.endpoint?.toString() ?? "/realtime/tickets", url);
+      const ticketBaseUrl = new URL(url);
+      if (ticketBaseUrl.protocol === "ws:") {
+        ticketBaseUrl.protocol = "http:";
+      } else if (ticketBaseUrl.protocol === "wss:") {
+        ticketBaseUrl.protocol = "https:";
+      }
+      const endpoint = new URL(authentication.endpoint?.toString() ?? "/realtime/tickets", ticketBaseUrl);
+      if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+        throw new TypeError("The ticket endpoint must use http or https.");
+      }
       const fetcher = authentication.fetch ?? globalThis.fetch;
       if (fetcher === undefined) {
         throw new RealtimeConnectionError("Ticket authentication requires the Fetch API.", "ticket_unavailable");
@@ -357,8 +379,6 @@ export class RealtimeClient {
       if (this.stateValue === "idle" || this.stateValue === "closed") {
         void this.connect().catch((error: unknown) => {
           const normalized = this.normalizeError(error);
-          this.setState("closed");
-          this.rejectQueued(normalized);
           this.emit("error", normalized);
         });
       }
@@ -473,7 +493,7 @@ export class RealtimeClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer !== undefined || this.intentionalClose) {
+    if (this.reconnectTimer !== undefined || this.intentionalClose || this.socket?.readyState === OPEN) {
       return;
     }
     if (this.reconnectAttempt >= this.reconnectOptions.maximumAttempts) {
@@ -508,17 +528,34 @@ export class RealtimeClient {
         .map((command) => command.envelope.route));
       for (const route of this.subscriptions.keys()) {
         if (!queuedSubscriptions.has(route)) {
-          await this.sendCommand(createEnvelope(messageTypes.subscribe, route));
+          await this.establishSubscription(route);
         }
       }
+    } catch (error: unknown) {
+      this.emit("error", this.normalizeError(error));
+    } finally {
       while (this.queued.length > 0 && this.stateValue === "open") {
         const command = this.queued.shift();
         if (command !== undefined) {
           this.transmit(command);
         }
       }
-    } catch (error: unknown) {
-      this.emit("error", this.normalizeError(error));
+    }
+  }
+
+  private async establishSubscription(route: string, signal?: AbortSignal): Promise<void> {
+    const existing = this.subscriptionCommands.get(route);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const command = this.sendCommand(createEnvelope(messageTypes.subscribe, route), signal).then(() => undefined);
+    this.subscriptionCommands.set(route, command);
+    try {
+      await command;
+    } finally {
+      if (this.subscriptionCommands.get(route) === command) {
+        this.subscriptionCommands.delete(route);
+      }
     }
   }
 

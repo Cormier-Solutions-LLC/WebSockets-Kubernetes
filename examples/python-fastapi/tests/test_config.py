@@ -45,6 +45,15 @@ def test_unsafe_origin_is_rejected() -> None:
         Settings.model_validate(environment)
 
 
+def test_malformed_origin_hosts_are_rejected() -> None:
+    for name in ("PUBLIC_ORIGIN", "GATEWAY_URL"):
+        for host in ("a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1"):
+            environment = values()
+            environment[name] = f"http://{host}:15500"
+            with pytest.raises(ValidationError):
+                Settings.model_validate(environment)
+
+
 def test_invalid_allowlists_are_rejected_during_settings_construction() -> None:
     for name in ("ALLOWED_TENANTS", "ALLOWED_USERS"):
         environment = values()

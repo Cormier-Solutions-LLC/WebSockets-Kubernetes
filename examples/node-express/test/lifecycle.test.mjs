@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { connectWithDeadline, createShutdown } from "../src/lifecycle.mjs";
+import { connectWithDeadline, createShutdown, listenForStartup } from "../src/lifecycle.mjs";
 
 test("bounds Redis startup readiness", async () => {
   const redisClient = { connect: () => new Promise(() => {}) };
   await assert.rejects(connectWithDeadline(redisClient, 10), { name: "StartupTimeoutError" });
+});
+
+test("rejects listener startup errors without leaving an uncaught error event", async () => {
+  const server = new EventEmitter();
+  server.listen = () => queueMicrotask(() => server.emit("error", Object.assign(new Error(), { name: "EADDRINUSE" })));
+  await assert.rejects(listenForStartup(server, 15100, "127.0.0.1"), { name: "EADDRINUSE" });
+  assert.equal(server.listenerCount("listening"), 0);
 });
 
 test("graceful shutdown closes each dependency once", async () => {

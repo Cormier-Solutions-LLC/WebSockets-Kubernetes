@@ -25,7 +25,8 @@ import reactor.core.publisher.Mono;
 
 @SpringBootTest(properties = {
     "LISTEN_HOST=127.0.0.1",
-    "PORT=0",
+    "PORT=15200",
+    "server.port=0",
     "PUBLIC_ORIGIN=http://127.0.0.1:15200",
     "GATEWAY_URL=http://127.0.0.1:9",
     "REDIS_URL=redis://127.0.0.1:6379",
@@ -43,6 +44,7 @@ final class ReferenceApplicationTests {
   @MockitoBean private ReactiveStringRedisTemplate redis;
   @MockitoBean private ReactiveValueOperations<String, String> values;
   @Autowired private RouteLocator routes;
+  @Autowired private ReferenceProperties properties;
 
   @BeforeEach
   void configureRedis() {
@@ -54,6 +56,7 @@ final class ReferenceApplicationTests {
 
   @Test
   void exposesHealthDiagnosticsAndCanonicalAssets() {
+    org.junit.jupiter.api.Assertions.assertEquals(15200, properties.port());
     client.get().uri("/health").exchange().expectStatus().isOk()
         .expectBody().jsonPath("$.status").isEqualTo("healthy");
     client.get().uri("/api/diagnostics").exchange().expectStatus().isOk()
@@ -170,19 +173,19 @@ final class ReferenceApplicationTests {
   @Test
   void rejectsExplicitDefaultOriginPorts() {
     var properties = new ReferenceProperties(
-        "127.0.0.1", URI.create("https://example.test:443"), URI.create("http://gateway.test"),
+        "127.0.0.1", 15200, URI.create("https://example.test:443"), URI.create("http://gateway.test"),
         1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
 
     properties = new ReferenceProperties(
-        "127.0.0.1", URI.create("https://EXAMPLE.TEST"), URI.create("http://gateway.test"),
+        "127.0.0.1", 15200, URI.create("https://EXAMPLE.TEST"), URI.create("http://gateway.test"),
         1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
 
     properties = new ReferenceProperties(
-        "127.0.0.1", URI.create("https://example.test:99999"), URI.create("http://gateway.test"),
+        "127.0.0.1", 15200, URI.create("https://example.test:99999"), URI.create("http://gateway.test"),
         1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());

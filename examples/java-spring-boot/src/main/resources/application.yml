@@ -1,6 +1,6 @@
 server:
   address: ${LISTEN_HOST}
-  port: ${PORT}
+  port: ${cormier.reference.port}
   shutdown: graceful
 spring:
   application:
@@ -23,6 +23,7 @@ management:
 cormier:
   reference:
     listen-host: ${LISTEN_HOST}
+    port: ${PORT}
     public-origin: ${PUBLIC_ORIGIN}
     gateway-url: ${GATEWAY_URL}
     session-lifetime-seconds: ${SESSION_LIFETIME_SECONDS}

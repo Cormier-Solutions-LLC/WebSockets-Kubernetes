@@ -1,3 +1,5 @@
+import ipaddress
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -7,11 +9,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 MAXIMUM_BODY_BYTES = 64 * 1024
 
 
+def _network_host(value: str) -> bool:
+    if "%" in value:
+        return False
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        if re.fullmatch(r"\d+(?:\.\d+){0,3}", value):
+            return False
+        labels = value.split(".")
+        return len(value) <= 253 and all(
+            1 <= len(label) <= 63 and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels
+        )
+
+
 def _origin(value: str) -> str:
     parsed = urlsplit(value)
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
+        or not _network_host(parsed.hostname)
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query

@@ -38,7 +38,7 @@ function parseOrigin(value, name) {
   const validDnsName = labels.every((label) => label.length >= 1 && label.length <= 63
     && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
   const resemblesNumericAddress = /^\d+(?:\.\d+){0,3}$/.test(rawHostname);
-  if (!authority || isIP(rawHostname) === 0 && (!validDnsName || resemblesNumericAddress)) {
+  if (!authority || rawHostname.includes("%") || isIP(rawHostname) === 0 && (!validDnsName || resemblesNumericAddress)) {
     throw new Error(`${name} must contain a valid DNS name or IP address.`);
   }
   if (/^http:\/\/[^/?#]+:80(?:\/|$)/i.test(value) || /^https:\/\/[^/?#]+:443(?:\/|$)/i.test(value)) {

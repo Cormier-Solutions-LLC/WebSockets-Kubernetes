@@ -3,7 +3,7 @@ import httpProxy from "http-proxy";
 import { createClient } from "redis";
 import { createApp } from "./app.mjs";
 import { loadConfig } from "./config.mjs";
-import { connectWithDeadline, createShutdown } from "./lifecycle.mjs";
+import { connectWithDeadline, createShutdown, listenForStartup } from "./lifecycle.mjs";
 import { createRedisOptions } from "./redis.mjs";
 import { createUpgradeHandler } from "./upgrade.mjs";
 
@@ -40,7 +40,14 @@ server.on("upgrade", createUpgradeHandler({
   upgradedSockets,
 }));
 
-await new Promise((resolve) => server.listen(config.port, config.listenHost, resolve));
+try {
+  await listenForStartup(server, config.port, config.listenHost);
+} catch (error) {
+  console.error(JSON.stringify({ event: "startup_failed", error: error?.name ?? "Error" }));
+  try { proxy.close(); } catch {}
+  if (redisClient.isOpen) await redisClient.quit().catch(() => redisClient.destroy());
+  process.exit(1);
+}
 console.log(JSON.stringify({ event: "started", stack: "node-express", instance: config.instanceName }));
 
 const stop = createShutdown({

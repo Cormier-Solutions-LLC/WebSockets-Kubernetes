@@ -16,6 +16,7 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties("cormier.reference")
 public record ReferenceProperties(
     @NotBlank @Pattern(regexp = "[A-Za-z0-9._:-]{1,253}") String listenHost,
+    @Min(1024) @Max(65535) int port,
     URI publicOrigin,
     URI gatewayUrl,
     @Min(60) @Max(7200) int sessionLifetimeSeconds,

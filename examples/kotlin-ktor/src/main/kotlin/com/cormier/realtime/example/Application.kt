@@ -2,6 +2,8 @@ package com.cormier.realtime.example
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.header
@@ -72,6 +74,7 @@ fun main() {
         val store = LettuceSessionStore.connect(config.redisUrl)
         val client = HttpClient(CIO) {
             install(ClientWebSockets) { maxFrameSize = MAXIMUM_BODY_BYTES.toLong() }
+            install(HttpTimeout)
         }
         val server = embeddedServer(Netty, host = config.listenHost, port = config.port) { referenceModule(config, store, client) }
         Runtime.getRuntime().addShutdownHook(Thread {
@@ -183,6 +186,11 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             requireOrigin(call.request.header(HttpHeaders.Origin), config)
             val body = readLimitedBody(call.receiveChannel())
             val response = client.post(config.gatewayUrl.resolve("/realtime/tickets").toString()) {
+                timeout {
+                    requestTimeoutMillis = 15_000
+                    connectTimeoutMillis = 5_000
+                    socketTimeoutMillis = 15_000
+                }
                 header(HttpHeaders.Origin, config.publicOrigin.toString())
                 header(FORWARDED_PROTO, config.publicOrigin.scheme)
                 call.request.header(HttpHeaders.Cookie)?.let { header(HttpHeaders.Cookie, it) }

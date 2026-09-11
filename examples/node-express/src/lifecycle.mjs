@@ -16,6 +16,22 @@ export async function connectWithDeadline(redisClient, timeoutMilliseconds) {
   }
 }
 
+export function listenForStartup(server, port, host) {
+  return new Promise((resolve, reject) => {
+    const onError = error => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, host);
+  });
+}
+
 function closeFrame(masked) {
   const reason = Buffer.from("Going Away");
   const payload = Buffer.allocUnsafe(reason.length + 2);

@@ -19,6 +19,8 @@ x86/
 [Aa][Rr][Mm]64/
 bld/
 [Bb]in/
+!examples/ruby-rails/bin/
+!examples/ruby-rails/bin/rails
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/

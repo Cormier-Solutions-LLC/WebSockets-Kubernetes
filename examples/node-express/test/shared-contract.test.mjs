@@ -37,6 +37,9 @@ test("configuration stays aligned with the canonical reference schema", async ()
   assert.equal(acceptsOrigin("http://127.0.0.1:15100"), true);
   assert.equal(acceptsOrigin("https://[::1]"), true);
   assert.equal(acceptsOrigin("https://[2001:db8::1]"), true);
+  assert.equal(acceptsOrigin("https://[::1:1:1:1:1:1:1]"), true);
+  assert.equal(acceptsOrigin("https://[1:1:1:1:1:1:1::]"), true);
+  assert.equal(acceptsOrigin("https://[::]"), true);
   for (const value of [
     "https://user@example.test",
     "https://example.test/path",
@@ -52,6 +55,8 @@ test("configuration stays aligned with the canonical reference schema", async ()
     "https://[:::]",
     "https://[.]",
     "https://[1:2:3]",
+    "https://[1:2:3:4:5:6:7:8:9]",
+    "https://[1::2::3]",
   ]) {
     assert.equal(acceptsOrigin(value), false, value);
   }

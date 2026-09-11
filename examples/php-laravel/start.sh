@@ -25,7 +25,12 @@ terminate() {
 trap terminate TERM INT
 
 attempt=0
-while ! nc -z "$LISTEN_HOST" "$PORT" >/dev/null 2>&1; do
+case "$LISTEN_HOST" in
+  *:*) readiness_host="[$LISTEN_HOST]" ;;
+  *) readiness_host="$LISTEN_HOST" ;;
+esac
+readiness_url="http://$readiness_host:$PORT/api/diagnostics"
+while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | grep -Fq '"stack":"PHP / Laravel"'; do
   if ! kill -0 "$server_pid" 2>/dev/null; then
     status=0
     wait "$server_pid" || status=$?
@@ -42,6 +47,12 @@ while ! nc -z "$LISTEN_HOST" "$PORT" >/dev/null 2>&1; do
   fi
   sleep 0.1
 done
+
+if ! kill -0 "$server_pid" 2>/dev/null; then
+  wait "$server_pid" || status=$?
+  printf '%s\n' '{"event":"startup_failed","stack":"php-laravel"}' >&2
+  exit "${status:-1}"
+fi
 
 printf '%s\n' '{"event":"application_started","stack":"php-laravel"}'
 status=0

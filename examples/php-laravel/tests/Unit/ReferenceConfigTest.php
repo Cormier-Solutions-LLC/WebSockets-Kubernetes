@@ -105,10 +105,12 @@ final class ReferenceConfigTest extends TestCase
         self::assertIsString($startup);
         self::assertStringContainsString('cormier-realtime.iife.js', $preflight);
         self::assertStringNotContainsString('cormier-realtime.iife.min.js', $preflight);
-        self::assertStringContainsString('while ! nc -z "$LISTEN_HOST" "$PORT"', $startup);
+        self::assertStringContainsString('readiness_url="http://$readiness_host:$PORT/api/diagnostics"', $startup);
+        self::assertStringContainsString('grep -Fq \'"stack":"PHP / Laravel"\'', $startup);
+        self::assertStringContainsString('if ! kill -0 "$server_pid"', $startup);
         self::assertLessThan(
             strpos($startup, 'application_started'),
-            strpos($startup, 'while ! nc -z')
+            strpos($startup, 'readiness_url=')
         );
     }
 }

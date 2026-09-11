@@ -5,6 +5,13 @@ import Testing
 
 @Suite("Reference settings")
 struct ReferenceSettingsTests {
+  @Test("accepts RFC 3339 timestamps with and without fractional seconds")
+  func acceptsRFC3339TimestampForms() {
+    #expect(parseTimestamp("2026-09-11T12:34:56Z") != nil)
+    #expect(parseTimestamp("2026-09-11T12:34:56.123Z") != nil)
+    #expect(parseTimestamp("not-a-timestamp") == nil)
+  }
+
   private var values: [String: String] {
     [
       "LISTEN_HOST": "127.0.0.1",

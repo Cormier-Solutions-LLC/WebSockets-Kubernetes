@@ -247,9 +247,13 @@ private func timestamp(_ date: Date = Date()) -> String {
   return formatter.string(from: date)
 }
 
-private func parseTimestamp(_ value: String) -> Date? {
+func parseTimestamp(_ value: String) -> Date? {
   let formatter = ISO8601DateFormatter()
   formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+  if let timestamp = formatter.date(from: value) {
+    return timestamp
+  }
+  formatter.formatOptions = [.withInternetDateTime]
   return formatter.date(from: value)
 }
 

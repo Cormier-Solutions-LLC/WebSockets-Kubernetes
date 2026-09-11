@@ -27,6 +27,7 @@ function fixture(overrides = {}) {
   const config = {
     trustProxyHops: 0,
     publicOrigin: "http://127.0.0.1:15100",
+    publicScheme: "http",
     gatewayUrl: "http://127.0.0.1:15101",
     sessionSecret: "a-runtime-only-secret-that-is-long-enough",
     sessionLifetimeSeconds: 1200,
@@ -106,7 +107,14 @@ test("establishes, validates, forwards, expires, and removes a session", async (
     .expect(202, { forwarded: true });
   assert.deepEqual(context.proxyCalls, [{
     path: "/realtime/tickets",
-    options: { target: context.config.gatewayUrl, changeOrigin: false, proxyTimeout: 10_000, timeout: 10_000 },
+    options: {
+      target: context.config.gatewayUrl,
+      changeOrigin: false,
+      xfwd: false,
+      headers: { "x-forwarded-proto": "http" },
+      proxyTimeout: 10_000,
+      timeout: 10_000,
+    },
   }]);
 
   const record = JSON.parse(context.values.get(replacementKey));

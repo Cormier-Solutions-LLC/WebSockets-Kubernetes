@@ -85,3 +85,23 @@ async def test_ticket_rejects_streamed_oversized_body_before_forwarding() -> Non
 
     assert response.status_code == 413
     assert upstream.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_streamed_oversized_body_before_model_parsing() -> None:
+    app = create_app(settings())
+
+    async def content():  # type: ignore[no-untyped-def]
+        yield b"a" * MAXIMUM_BODY_BYTES
+        yield b"b"
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://reference.test") as client:
+        response = await client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:15500"},
+            content=content(),
+        )
+
+    assert response.status_code == 413
+    assert response.json()["code"] == "invalid_request"

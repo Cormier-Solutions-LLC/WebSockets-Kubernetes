@@ -323,6 +323,10 @@ func (a *App) websocket(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	if browser.Subprotocol() != realtimeProtocol {
+		_ = browser.Close(websocket.StatusPolicyViolation, "required subprotocol")
+		return
+	}
 	browser.SetReadLimit(maximumBodyBytes)
 	defer browser.CloseNow()
 	target := *a.config.GatewayURL

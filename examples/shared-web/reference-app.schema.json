@@ -29,7 +29,7 @@
     "PUBLIC_ORIGIN": { "$ref": "#/$defs/httpOrigin" },
     "GATEWAY_URL": { "$ref": "#/$defs/httpOrigin" },
     "REDIS_URL": { "$ref": "#/$defs/redisUrl" },
-    "SESSION_SECRET": { "type": "string", "minLength": 32, "maxLength": 4096 },
+    "SESSION_SECRET": { "type": "string", "minLength": 32, "maxLength": 4096, "pattern": "^[!-~]{32,4096}(?![\\s\\S])" },
     "SESSION_LIFETIME_SECONDS": { "$ref": "#/$defs/sessionLifetime" },
     "INSTANCE_NAME": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
     "TOPOLOGY": { "enum": ["non-ha", "ha"] },
@@ -50,7 +50,7 @@
     "redisUrl": {
       "type": "string",
       "format": "uri",
-      "pattern": "^rediss?://"
+      "pattern": "^rediss?://(?:[^/?#]+@)?(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\\[[0-9a-f:.]+\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[0-9]*)?(?![\\s\\S])"
     },
     "sessionLifetime": {
       "type": "string",
@@ -59,7 +59,7 @@
     "httpOrigin": {
       "type": "string",
       "format": "uri",
-      "pattern": "^https?://(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\\[[0-9a-f:.]+\\])(?::[0-9]{1,5})?/?$",
+      "pattern": "^https?://(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\\[[0-9a-f:.]+\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?/?(?![\\s\\S])",
       "not": {
         "anyOf": [
           { "pattern": "^http://(?:[^/]+):80/?$" },

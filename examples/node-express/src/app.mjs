@@ -178,6 +178,8 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
     proxy.web(request, response, {
       target: config.gatewayUrl,
       changeOrigin: false,
+      xfwd: false,
+      headers: { "x-forwarded-proto": config.publicScheme },
       proxyTimeout: 10_000,
       timeout: 10_000,
     });

@@ -25,6 +25,7 @@ test("loads and normalizes explicit configuration", () => {
   assert.equal(config.port, 15100);
   assert.equal(config.trustProxyHops, 0);
   assert.equal(config.publicOrigin, "http://127.0.0.1:15100");
+  assert.equal(config.publicScheme, "http");
   assert.equal(config.gatewayUrl, "http://127.0.0.1:15101");
   assert.equal(config.redisUrl, "redis://user:password@127.0.0.1:16379/2");
   assert.deepEqual(config.allowedTenants, ["tenant-a", "tenant-b"]);

@@ -101,6 +101,7 @@ export function loadConfig(environment = process.env) {
     port: parsePort(required(environment, "PORT")),
     trustProxyHops: parseTrustProxyHops(required(environment, "TRUST_PROXY_HOPS")),
     publicOrigin: publicOrigin.origin,
+    publicScheme: publicOrigin.protocol.slice(0, -1),
     gatewayUrl: gatewayUrl.origin,
     redisUrl: redisUrl.toString(),
     sessionSecret,

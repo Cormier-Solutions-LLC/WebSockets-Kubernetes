@@ -14,6 +14,7 @@ import websockets
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .config import MAXIMUM_BODY_BYTES, Settings, gateway_port
 
@@ -46,6 +47,46 @@ def safe_headers(response: Response) -> None:
 
 def public_forwarding_headers(settings: Settings) -> dict[str, str]:
     return {"X-Forwarded-Proto": urlsplit(settings.PUBLIC_ORIGIN).scheme}
+
+
+class LoginBodyLimitMiddleware:
+    def __init__(self, app: ASGIApp, maximum_bytes: int) -> None:
+        self.app = app
+        self.maximum_bytes = maximum_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != "/api/login":
+            await self.app(scope, receive, send)
+            return
+
+        content_length = next((value for name, value in scope["headers"] if name.lower() == b"content-length"), None)
+        if content_length is not None:
+            try:
+                if int(content_length) > self.maximum_bytes:
+                    await self._reject(scope, receive, send)
+                    return
+            except ValueError:
+                await self._reject(scope, receive, send)
+                return
+
+        received = 0
+
+        async def limited_receive():  # type: ignore[no-untyped-def]
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.maximum_bytes:
+                    raise HTTPException(413, detail={"code": "invalid_request", "message": "The request is invalid."})
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+    @staticmethod
+    async def _reject(scope: Scope, receive: Receive, send: Send) -> None:
+        response = JSONResponse({"code": "invalid_request", "message": "The request is invalid."}, 413)
+        safe_headers(response)
+        await response(scope, receive, send)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -87,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("application_stopped")
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(LoginBodyLimitMiddleware, maximum_bytes=MAXIMUM_BODY_BYTES)
 
     @app.exception_handler(HTTPException)
     async def http_exception(_request: Request, exception: HTTPException) -> JSONResponse:

@@ -33,6 +33,7 @@ test("configuration stays aligned with the canonical reference schema", async ()
   const acceptsOrigin = (value) => new RegExp(originSchema.pattern).test(value)
     && !originSchema.not.anyOf.some(({ pattern }) => new RegExp(pattern).test(value));
   assert.equal(acceptsOrigin("https://example.test"), true);
+  assert.equal(acceptsOrigin("https://example.test:65535"), true);
   assert.equal(acceptsOrigin("http://127.0.0.1:15100"), true);
   for (const value of [
     "https://user@example.test",
@@ -40,6 +41,9 @@ test("configuration stays aligned with the canonical reference schema", async ()
     "https://example.test?route=x",
     "https://example.test#fragment",
     "https://example.test:443",
+    "https://example.test:0",
+    "https://example.test:65536",
+    "https://example.test:99999",
     "https://EXAMPLE.TEST",
   ]) {
     assert.equal(acceptsOrigin(value), false, value);
@@ -58,7 +62,16 @@ test("configuration stays aligned with the canonical reference schema", async ()
   const redisPattern = new RegExp(schema.$defs.redisUrl.pattern);
   assert.equal(redisPattern.test("redis://127.0.0.1:6379"), true);
   assert.equal(redisPattern.test("rediss://cache.example.test:6380"), true);
-  assert.equal(redisPattern.test("https://cache.example.test"), false);
+  assert.equal(redisPattern.test("redis://user:password@cache.example.test:6379/2"), true);
+  for (const value of ["https://cache.example.test", "redis:///0", "redis://cache.example.test/0#fragment", "redis://cache.example.test:99999"]) {
+    assert.equal(redisPattern.test(value), false, value);
+  }
+
+  const secretPattern = new RegExp(schema.properties.SESSION_SECRET.pattern);
+  assert.equal(secretPattern.test("a".repeat(32)), true);
+  assert.equal(secretPattern.test("a".repeat(4096)), true);
+  assert.equal(secretPattern.test(`${"a".repeat(31)}💥`), false);
+  assert.equal(secretPattern.test(`${"a".repeat(32)}\n`), false);
 
   const lifetimePattern = new RegExp(schema.$defs.sessionLifetime.pattern);
   for (const value of ["60", "1200", "7200"]) assert.equal(lifetimePattern.test(value), true, value);

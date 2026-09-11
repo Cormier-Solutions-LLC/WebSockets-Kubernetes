@@ -34,6 +34,7 @@ const server = http.createServer(app);
 const upgradedSockets = new Set();
 server.on("upgrade", createUpgradeHandler({
   publicOrigin: config.publicOrigin,
+  publicScheme: config.publicScheme,
   gatewayUrl: config.gatewayUrl,
   proxy,
   upgradedSockets,

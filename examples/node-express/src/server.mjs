@@ -4,6 +4,7 @@ import { createClient } from "redis";
 import { createApp } from "./app.mjs";
 import { loadConfig } from "./config.mjs";
 import { connectWithDeadline, createShutdown } from "./lifecycle.mjs";
+import { createUpgradeHandler } from "./upgrade.mjs";
 
 const config = loadConfig();
 const redisClient = createClient({ url: config.redisUrl });
@@ -30,15 +31,12 @@ proxy.on("error", (error, _request, response) => {
 const app = createApp({ config, redisClient, proxy });
 const server = http.createServer(app);
 const upgradedSockets = new Set();
-server.on("upgrade", (request, socket, head) => {
-  if (new URL(request.url ?? "/", config.publicOrigin).pathname !== "/realtime/ws") {
-    socket.destroy();
-    return;
-  }
-  upgradedSockets.add(socket);
-  socket.once("close", () => upgradedSockets.delete(socket));
-  proxy.ws(request, socket, head, { target: config.gatewayUrl, changeOrigin: false });
-});
+server.on("upgrade", createUpgradeHandler({
+  publicOrigin: config.publicOrigin,
+  gatewayUrl: config.gatewayUrl,
+  proxy,
+  upgradedSockets,
+}));
 
 await new Promise((resolve) => server.listen(config.port, config.listenHost, resolve));
 console.log(JSON.stringify({ event: "started", stack: "node-express", instance: config.instanceName }));

@@ -68,5 +68,8 @@ def test_canonical_contracts() -> None:
     origin = schema["$defs"]["httpOrigin"]
     assert origin["pattern"].startswith("^https?://")
     assert len(origin["not"]["anyOf"]) == 2
+    assert schema["properties"]["PORT"] == {"$ref": "#/$defs/port"}
+    assert schema["properties"]["APPLICATION_PORT"] == {"$ref": "#/$defs/port"}
+    assert schema["properties"]["REDIS_URL"] == {"$ref": "#/$defs/redisUrl"}
     assert sdk["protocolVersion"] == "1.0"
     assert protocol["protocolVersion"] == "1.0"

@@ -227,9 +227,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/realtime/tickets")
     async def ticket(request: Request) -> Response:
         require_origin(request.headers.get("origin"))
-        body = await request.body()
-        if len(body) > MAXIMUM_BODY_BYTES:
-            return JSONResponse({"code": "invalid_request", "message": "The request is invalid."}, 413)
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAXIMUM_BODY_BYTES:
+                return JSONResponse({"code": "invalid_request", "message": "The request is invalid."}, 413)
+            body.extend(chunk)
         headers = {
             name: request.headers[name]
             for name in ("host", "origin", "cookie", "content-type")
@@ -237,7 +239,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         try:
             upstream = await request.app.state.http.post(
-                f"{configured.GATEWAY_URL}/realtime/tickets", content=body, headers=headers
+                f"{configured.GATEWAY_URL}/realtime/tickets", content=bytes(body), headers=headers
             )
         except httpx.HTTPError:
             return JSONResponse(

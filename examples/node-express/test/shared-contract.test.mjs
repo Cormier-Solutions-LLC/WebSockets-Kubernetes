@@ -44,6 +44,15 @@ test("configuration stays aligned with the canonical reference schema", async ()
   ]) {
     assert.equal(acceptsOrigin(value), false, value);
   }
+
+  const portPattern = new RegExp(schema.$defs.port.pattern);
+  for (const value of ["1024", "15100", "65535"]) assert.equal(portPattern.test(value), true, value);
+  for (const value of ["0", "1023", "65536", "999999"]) assert.equal(portPattern.test(value), false, value);
+
+  const redisPattern = new RegExp(schema.$defs.redisUrl.pattern);
+  assert.equal(redisPattern.test("redis://127.0.0.1:6379"), true);
+  assert.equal(redisPattern.test("rediss://cache.example.test:6380"), true);
+  assert.equal(redisPattern.test("https://cache.example.test"), false);
 });
 
 test("generated SDK and canonical protocol fixture versions agree", async () => {

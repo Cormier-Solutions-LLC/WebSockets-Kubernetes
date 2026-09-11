@@ -21,14 +21,14 @@
   "properties": {
     "LISTEN_HOST": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,253}$" },
     "TRUST_PROXY_HOPS": { "type": "string", "pattern": "^(?:[0-9]|1[0-6])$" },
-    "PORT": { "type": "string", "pattern": "^[0-9]+$" },
+    "PORT": { "$ref": "#/$defs/port" },
     "APPLICATION_HOST": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,253}$" },
-    "APPLICATION_PORT": { "type": "string", "pattern": "^[0-9]+$" },
+    "APPLICATION_PORT": { "$ref": "#/$defs/port" },
     "APP_URL": { "type": "string", "format": "uri" },
     "PUBLIC_ROOT": { "type": "string", "minLength": 1 },
     "PUBLIC_ORIGIN": { "$ref": "#/$defs/httpOrigin" },
     "GATEWAY_URL": { "$ref": "#/$defs/httpOrigin" },
-    "REDIS_URL": { "type": "string", "format": "uri" },
+    "REDIS_URL": { "$ref": "#/$defs/redisUrl" },
     "SESSION_SECRET": { "type": "string", "minLength": 32, "maxLength": 4096 },
     "SESSION_LIFETIME_SECONDS": { "type": "string", "pattern": "^[0-9]+$" },
     "INSTANCE_NAME": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
@@ -39,6 +39,15 @@
     "ALLOWED_USERS": { "type": "string" }
   },
   "$defs": {
+    "port": {
+      "type": "string",
+      "pattern": "^(?:10(?:2[4-9]|[3-9][0-9])|1[1-9][0-9]{2}|[2-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65(?:[0-4][0-9]{2}|5(?:[0-2][0-9]|3[0-5])))$"
+    },
+    "redisUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^rediss?://"
+    },
     "httpOrigin": {
       "type": "string",
       "format": "uri",

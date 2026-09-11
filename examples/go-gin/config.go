@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -130,7 +131,7 @@ func loadConfig(lookup func(string) (string, bool)) (Config, error) {
 
 func parseOrigin(value string) (string, *url.URL, error) {
 	parsed, err := url.Parse(value)
-	if err != nil || strings.ToLower(value) != value || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || (parsed.Scheme == "http" && parsed.Port() == "80") || (parsed.Scheme == "https" && parsed.Port() == "443") {
+	if err != nil || strings.ToLower(value) != value || (parsed.Scheme != "http" && parsed.Scheme != "https") || !validNetworkHost(parsed.Hostname()) || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || (parsed.Scheme == "http" && parsed.Port() == "80") || (parsed.Scheme == "https" && parsed.Port() == "443") {
 		return "", nil, fmt.Errorf("origin is invalid")
 	}
 	if parsed.Port() != "" {
@@ -141,6 +142,29 @@ func parseOrigin(value string) (string, *url.URL, error) {
 	}
 	parsed.Path = ""
 	return strings.TrimSuffix(parsed.String(), "/"), parsed, nil
+}
+
+func validNetworkHost(host string) bool {
+	if host == "" || strings.Contains(host, "%") || len(host) > 253 {
+		return false
+	}
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if strings.IndexFunc(host, func(r rune) bool { return r != '.' && (r < '0' || r > '9') }) == -1 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validIdentifier(value string, colon bool) bool {

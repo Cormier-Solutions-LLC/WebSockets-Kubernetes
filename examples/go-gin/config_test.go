@@ -56,6 +56,25 @@ func TestTypedConfiguration(t *testing.T) {
 		t.Fatal("out-of-range origin port was accepted")
 	}
 }
+func TestOriginsRejectMalformedNetworkHosts(t *testing.T) {
+	for _, name := range []string{"PUBLIC_ORIGIN", "GATEWAY_URL"} {
+		for _, host := range []string{"a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1"} {
+			values := testValues()
+			values[name] = "https://" + host
+			if _, err := loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
+				t.Fatalf("%s accepted malformed host %q", name, host)
+			}
+		}
+	}
+}
+func TestOriginsAcceptFullIPv6Hosts(t *testing.T) {
+	values := testValues()
+	values["PUBLIC_ORIGIN"] = "https://[::1]"
+	values["GATEWAY_URL"] = "http://[2001:db8::1]:15501"
+	if _, err := loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err != nil {
+		t.Fatalf("full IPv6 origin was rejected: %v", err)
+	}
+}
 func TestCanonicalContracts(t *testing.T) {
 	values := testValues()
 	schema, err := os.ReadFile("../shared-web/reference-app.schema.json")

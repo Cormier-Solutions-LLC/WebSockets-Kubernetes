@@ -90,7 +90,7 @@ final readonly class ReferenceConfig
     private static function origin(string $value): string
     {
         $parsed = parse_url($value);
-        if ($parsed === false || strtolower($value) !== $value || ! in_array($parsed['scheme'] ?? '', ['http', 'https'], true) || empty($parsed['host'])
+        if ($parsed === false || strtolower($value) !== $value || ! in_array($parsed['scheme'] ?? '', ['http', 'https'], true) || ! self::networkHost($parsed['host'] ?? '')
             || isset($parsed['user']) || isset($parsed['pass']) || isset($parsed['query']) || isset($parsed['fragment'])
             || ! in_array($parsed['path'] ?? '', ['', '/'], true)
             || (($parsed['scheme'] ?? '') === 'http' && ($parsed['port'] ?? null) === 80)
@@ -99,6 +99,32 @@ final readonly class ReferenceConfig
         }
 
         return rtrim($value, '/');
+    }
+
+    private static function networkHost(string $host): bool
+    {
+        if ($host === '' || strlen($host) > 253 || str_contains($host, '%')) {
+            return false;
+        }
+        if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
+            $host = substr($host, 1, -1);
+        } elseif (str_contains($host, '[') || str_contains($host, ']')) {
+            return false;
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return true;
+        }
+        if (preg_match('/^\d+(?:\.\d+)*$/D', $host)) {
+            return false;
+        }
+
+        foreach (explode('.', $host) as $label) {
+            if (strlen($label) < 1 || strlen($label) > 63 || ! preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/D', $label)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static function host(string $value): string

@@ -34,6 +34,23 @@ defmodule CormierRealtimeExample.ConfigTest do
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
   end
 
+  test "rejects malformed origin network hosts" do
+    for name <- ["PUBLIC_ORIGIN", "GATEWAY_URL"],
+        host <- ["a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1"] do
+      invalid = Map.put(values(), name, "https://" <> host)
+      assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
+    end
+  end
+
+  test "accepts full IPv6 origin hosts" do
+    configured =
+      values()
+      |> Map.put("PUBLIC_ORIGIN", "https://[::1]")
+      |> Map.put("GATEWAY_URL", "http://[2001:db8::1]:15601")
+
+    assert {:ok, %{public_origin: "https://[::1]"}} = Config.load(&configured[&1])
+  end
+
   test "consumes canonical contracts" do
     schema = File.read!("../shared-web/reference-app.schema.json")
     Enum.each(Map.keys(values()), &assert(String.contains?(schema, ~s("#{&1}"))))

@@ -90,7 +90,9 @@ defmodule CormierRealtimeExample.Config do
       when scheme in ["http", "https"] and is_binary(host) and path in [nil, "", "/"] and
              (is_nil(port) or (is_integer(port) and port in 1..65_535)) and
              not explicit_default_port and canonical_casing ->
-        {:ok, String.trim_trailing(value, "/")}
+        if network_host?(host),
+          do: {:ok, String.trim_trailing(value, "/")},
+          else: {:error, :invalid_origin}
 
       _ ->
         {:error, :invalid_origin}
@@ -98,6 +100,29 @@ defmodule CormierRealtimeExample.Config do
   end
 
   defp origin(_), do: {:error, :invalid_origin}
+
+  defp network_host?(host) do
+    cond do
+      byte_size(host) > 253 or String.contains?(host, "%") ->
+        false
+
+      Regex.match?(~r/^\d+(?:\.\d+)*$/, host) ->
+        length(String.split(host, ".")) == 4 and
+          match?({:ok, _address}, :inet.parse_ipv4_address(String.to_charlist(host)))
+
+      true ->
+        case :inet.parse_address(String.to_charlist(host)) do
+          {:ok, _address} ->
+            true
+
+          {:error, _reason} ->
+            Enum.all?(String.split(host, "."), fn label ->
+              byte_size(label) in 1..63 and
+                Regex.match?(~r/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, label)
+            end)
+        end
+    end
+  end
 
   defp redis(value) when is_binary(value) do
     case URI.parse(value) do

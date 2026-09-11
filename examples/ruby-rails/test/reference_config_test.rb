@@ -54,6 +54,19 @@ class ReferenceConfigTest < Minitest::Test
     assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
   end
 
+  def test_rejects_malformed_origin_network_hosts
+    %w[PUBLIC_ORIGIN GATEWAY_URL].product(%w[a..b -bad.example bad-.example 999.999.999.999 127.1]).each do |name, host|
+      assert_raises(ArgumentError, "#{name} accepted #{host}") do
+        ReferenceConfig.load(values.merge(name => "https://#{host}"))
+      end
+    end
+  end
+
+  def test_accepts_full_ipv6_origin_hosts
+    environment = values.merge("PUBLIC_ORIGIN" => "https://[::1]", "GATEWAY_URL" => "http://[2001:db8::1]:15501")
+    assert_equal "https://[::1]", ReferenceConfig.load(environment).public_origin
+  end
+
   def test_canonical_contracts
     root = File.expand_path("../../..", __dir__)
     schema = JSON.parse(File.read(File.join(root, "examples/shared-web/reference-app.schema.json")))
@@ -99,6 +112,8 @@ class ReferenceConfigTest < Minitest::Test
     controller = File.read(File.expand_path("../app/controllers/reference_controller.rb", __dir__))
     assert_includes controller, "response.read_body { |chunk| append.call(chunk) }"
     assert_includes controller, "LimitedBodyReader.collect(limit: MAXIMUM_UPSTREAM_BYTES)"
+    assert_includes controller, "Timeout.timeout(TICKET_DEADLINE_SECONDS)"
+    assert_includes controller, "http.start do |connection|"
 
     boundary = "a" * (64 * 1_024)
     assert_equal boundary, LimitedBodyReader.collect(limit: boundary.bytesize) { |append| append.call(boundary) }

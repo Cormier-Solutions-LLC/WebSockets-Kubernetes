@@ -56,6 +56,33 @@ final class ReferenceConfigTest extends TestCase
         ReferenceConfig::fromArray($values);
     }
 
+    #[DataProvider('malformedOriginHostProvider')]
+    public function test_it_rejects_malformed_origin_network_hosts(string $name, string $host): void
+    {
+        $values = $this->values();
+        $values[$name] = 'https://'.$host;
+        $this->expectException(InvalidArgumentException::class);
+        ReferenceConfig::fromArray($values);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function malformedOriginHostProvider(): iterable
+    {
+        foreach (['public_origin', 'gateway_url'] as $name) {
+            foreach (['a..b', '-bad.example', 'bad-.example', '999.999.999.999', '127.1'] as $host) {
+                yield "$name-$host" => [$name, $host];
+            }
+        }
+    }
+
+    public function test_it_accepts_full_ipv6_origin_hosts(): void
+    {
+        $values = $this->values();
+        $values['public_origin'] = 'https://[::1]';
+        $values['gateway_url'] = 'http://[2001:db8::1]:15501';
+        self::assertSame('https://[::1]', ReferenceConfig::fromArray($values)->publicOrigin);
+    }
+
     #[DataProvider('forbiddenOriginProvider')]
     public function test_it_rejects_each_forbidden_origin_component(string $origin): void
     {

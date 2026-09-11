@@ -1,5 +1,6 @@
 require "set"
 require "uri"
+require "ipaddr"
 
 class ReferenceConfig
   IDENTIFIER = /\A[A-Za-z0-9._-]{1,128}\z/
@@ -65,7 +66,7 @@ class ReferenceConfig
     uri = URI.parse(value)
     explicit_default_port = value.match?(%r{\Ahttp://[^/?#]+:80(?:/|\z)}i) ||
       value.match?(%r{\Ahttps://[^/?#]+:443(?:/|\z)}i)
-    unless value == value.downcase && %w[http https].include?(uri.scheme) && uri.host && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil? &&
+    unless value == value.downcase && %w[http https].include?(uri.scheme) && network_host?(uri.host) && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil? &&
         [ "", "/" ].include?(uri.path) && (uri.port.nil? || (1..65_535).cover?(uri.port)) && !explicit_default_port
       raise ArgumentError, "origin configuration is invalid"
     end
@@ -74,6 +75,21 @@ class ReferenceConfig
     [ normalized, URI.parse(normalized) ]
   rescue URI::InvalidURIError
     raise ArgumentError, "origin configuration is invalid"
+  end
+
+  def network_host?(host)
+    return false unless host && host.bytesize <= 253 && !host.include?("%")
+    host = host[1...-1] if host.start_with?("[") && host.end_with?("]")
+    return false if host.include?("[") || host.include?("]")
+
+    IPAddr.new(host)
+    true
+  rescue IPAddr::InvalidAddressError
+    return false if /\A\d+(?:\.\d+)*\z/.match?(host)
+
+    host.split(".", -1).all? do |label|
+      (1..63).cover?(label.bytesize) && /\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\z/.match?(label)
+    end
   end
 
   def redis(value)

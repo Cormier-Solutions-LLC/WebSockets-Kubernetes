@@ -7,6 +7,12 @@ defmodule CormierRealtimeExample.Web do
 
   def init(options), do: options
 
+  def offers_protocol?(values) do
+    values
+    |> Enum.flat_map(&String.split(&1, ","))
+    |> Enum.any?(&(String.trim(&1) == @protocol))
+  end
+
   def call(conn, _options) do
     conn =
       conn
@@ -182,7 +188,8 @@ defmodule CormierRealtimeExample.Web do
   end
 
   defp route("GET", ["realtime", "ws"], conn, config) do
-    with :ok <- origin(conn, config) do
+    with :ok <- origin(conn, config),
+         :ok <- websocket_protocol(conn) do
       state = %{
         url: websocket_url(config.gateway_url, conn.query_string),
         origin: config.public_origin,
@@ -199,7 +206,8 @@ defmodule CormierRealtimeExample.Web do
         max_frame_size: @max_body
       )
     else
-      _ -> origin_error(conn)
+      {:error, :origin} -> origin_error(conn)
+      {:error, :protocol} -> protocol_error(conn)
     end
   end
 
@@ -211,6 +219,12 @@ defmodule CormierRealtimeExample.Web do
         do: :ok,
         else: {:error, :origin}
       )
+
+  defp websocket_protocol(conn) do
+    if offers_protocol?(get_req_header(conn, "sec-websocket-protocol")),
+      do: :ok,
+      else: {:error, :protocol}
+  end
 
   defp forward_headers(conn, config),
     do:
@@ -277,4 +291,11 @@ defmodule CormierRealtimeExample.Web do
 
   defp origin_error(conn),
     do: json(conn, 403, %{code: "origin_rejected", message: "The request Origin is not allowed."})
+
+  defp protocol_error(conn),
+    do:
+      json(conn, 400, %{
+        code: "subprotocol_required",
+        message: "The required WebSocket subprotocol was not offered."
+      })
 end

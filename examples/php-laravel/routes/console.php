@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Redis;
 Artisan::command('app:preflight', function (ReferenceConfig $config): int {
     try {
         Redis::connection()->ping();
-        foreach ([$config->sharedAssetRoot.'/index.html', $config->sharedAssetRoot.'/app.css', $config->sharedAssetRoot.'/app.js', $config->sdkAssetRoot.'/cormier-realtime.iife.min.js'] as $path) {
+        foreach ([$config->sharedAssetRoot.'/index.html', $config->sharedAssetRoot.'/app.css', $config->sharedAssetRoot.'/app.js', $config->sdkAssetRoot.'/cormier-realtime.iife.js'] as $path) {
             if (! is_file($path)) {
                 throw new RuntimeException('Required asset is unavailable.');
             }

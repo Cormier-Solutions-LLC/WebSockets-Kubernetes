@@ -108,7 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 configured.SHARED_ASSET_ROOT / "index.html",
                 configured.SHARED_ASSET_ROOT / "app.css",
                 configured.SHARED_ASSET_ROOT / "app.js",
-                configured.SDK_ASSET_ROOT / "cormier-realtime.iife.min.js",
+                configured.SDK_ASSET_ROOT / "cormier-realtime.iife.js",
             ):
                 if not path.is_file():
                     raise RuntimeError("required asset is unavailable")
@@ -400,6 +400,7 @@ async def gateway_to_browser(gateway, browser: WebSocket) -> None:  # type: igno
                 await browser.send_bytes(message)
             else:
                 await browser.send_text(message)
+        await browser.close(code=gateway.close_code or 1000, reason=gateway.close_reason or "")
     except websockets.ConnectionClosed as closed:
         await browser.close(code=closed.code, reason=closed.reason)
 

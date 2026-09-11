@@ -7,6 +7,7 @@ from reference_app.main import (
     MAXIMUM_BODY_BYTES,
     browser_to_gateway,
     create_app,
+    gateway_to_browser,
     offers_protocol,
     public_forwarding_headers,
 )
@@ -68,6 +69,30 @@ async def test_browser_close_details_are_forwarded() -> None:
     gateway = Gateway()
     await browser_to_gateway(Browser(), gateway)  # type: ignore[arg-type]
     assert gateway.closed == (1001, "leaving")
+
+
+@pytest.mark.asyncio
+async def test_normal_gateway_close_details_are_forwarded() -> None:
+    class Gateway:
+        close_code = 1000
+        close_reason = "complete"
+
+        def __aiter__(self):  # type: ignore[no-untyped-def]
+            async def messages():  # type: ignore[no-untyped-def]
+                if False:
+                    yield ""
+
+            return messages()
+
+    class Browser:
+        closed: tuple[int, str] | None = None
+
+        async def close(self, *, code: int, reason: str) -> None:
+            self.closed = (code, reason)
+
+    browser = Browser()
+    await gateway_to_browser(Gateway(), browser)  # type: ignore[arg-type]
+    assert browser.closed == (1000, "complete")
 
 
 def test_uvicorn_caps_browser_websocket_messages(monkeypatch: pytest.MonkeyPatch) -> None:

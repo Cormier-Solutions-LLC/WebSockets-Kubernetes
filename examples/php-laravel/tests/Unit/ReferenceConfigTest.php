@@ -96,4 +96,19 @@ final class ReferenceConfigTest extends TestCase
         self::assertStringContainsString('max_size 65536', $caddyfile);
         self::assertStringContainsString('header_up X-Forwarded-Proto {$PUBLIC_SCHEME}', $caddyfile);
     }
+
+    public function test_preflight_checks_the_loaded_sdk_and_started_log_follows_listener_readiness(): void
+    {
+        $preflight = file_get_contents(__DIR__.'/../../routes/console.php');
+        $startup = file_get_contents(__DIR__.'/../../start.sh');
+        self::assertIsString($preflight);
+        self::assertIsString($startup);
+        self::assertStringContainsString('cormier-realtime.iife.js', $preflight);
+        self::assertStringNotContainsString('cormier-realtime.iife.min.js', $preflight);
+        self::assertStringContainsString('while ! nc -z "$LISTEN_HOST" "$PORT"', $startup);
+        self::assertLessThan(
+            strpos($startup, 'application_started'),
+            strpos($startup, 'while ! nc -z')
+        );
+    }
 }

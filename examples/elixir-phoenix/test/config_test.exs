@@ -1,6 +1,7 @@
 defmodule CormierRealtimeExample.ConfigTest do
   use ExUnit.Case, async: true
   alias CormierRealtimeExample.Config
+  alias CormierRealtimeExample.Web
 
   defp values,
     do: %{
@@ -35,5 +36,11 @@ defmodule CormierRealtimeExample.ConfigTest do
     Enum.each(Map.keys(values()), &assert(String.contains?(schema, ~s("#{&1}"))))
     assert File.read!("../../sdk/typescript/dist/version.json") =~ ~s("protocolVersion": "1.0")
     assert File.read!("../../protocol/fixtures/v1/envelopes.json") =~ ~s("protocolVersion": "1.0")
+  end
+
+  test "requires the exact websocket subprotocol" do
+    refute Web.offers_protocol?([])
+    refute Web.offers_protocol?(["other, cormier.realtime.v10"])
+    assert Web.offers_protocol?(["other", " cormier.realtime.v1"])
   end
 end

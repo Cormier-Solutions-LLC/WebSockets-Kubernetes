@@ -102,4 +102,11 @@ struct ReferenceSettingsTests {
     #expect(sdk.contains(#""protocolVersion": "1.0""#))
     #expect(protocolFixture.contains(#""protocolVersion": "1.0""#))
   }
+
+  @Test("preflight checks the SDK bundle loaded by the shared page")
+  func preflightChecksLoadedSDKBundle() throws {
+    let source = try String(contentsOfFile: "Sources/App/configure.swift", encoding: .utf8)
+    #expect(source.contains("cormier-realtime.iife.js"))
+    #expect(!source.contains("cormier-realtime.iife.min.js"))
+  }
 }

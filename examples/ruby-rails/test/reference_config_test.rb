@@ -77,4 +77,10 @@ class ReferenceConfigTest < Minitest::Test
     assert_includes caddyfile, "request_body @bounded_request"
     assert_includes caddyfile, "max_size 65536"
   end
+
+  def test_preflight_checks_the_sdk_bundle_loaded_by_the_shared_page
+    startup = File.read(File.expand_path("../start.sh", __dir__))
+    assert_includes startup, "cormier-realtime.iife.js"
+    refute_includes startup, "cormier-realtime.iife.min.js"
+  end
 end

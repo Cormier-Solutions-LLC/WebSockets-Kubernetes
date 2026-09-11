@@ -10,6 +10,13 @@ permissions:
   contents: read
   security-events: write
 
+env:
+  CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
+  CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}
+  CI_PYTHON_IMAGE: ${{ vars.CI_PYTHON_IMAGE || 'python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc' }}
+  CI_RUBY_IMAGE: ${{ vars.CI_RUBY_IMAGE || 'ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc' }}
+  CI_SWIFT_IMAGE: ${{ vars.CI_SWIFT_IMAGE || 'swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c' }}
+
 jobs:
   helm-and-automation:
     runs-on: ubuntu-latest
@@ -59,18 +66,10 @@ jobs:
 
   build-test-aot:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -275,18 +274,10 @@ jobs:
 
   node-express:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -336,18 +327,10 @@ jobs:
 
   java-spring-boot:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -398,18 +381,10 @@ jobs:
 
   kotlin-ktor:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -459,18 +434,10 @@ jobs:
 
   rust-axum:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -518,18 +485,10 @@ jobs:
 
   go-gin:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -581,18 +540,10 @@ jobs:
 
   elixir-phoenix:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -646,18 +597,10 @@ jobs:
 
   php-laravel:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -678,7 +621,7 @@ jobs:
       - name: Check the locked Laravel reference adapter
         run: >-
           docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/php-laravel
-          composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332
+          "$CI_COMPOSER_IMAGE"
           sh -lc 'composer install --no-interaction --no-progress --no-scripts && composer validate --no-check-publish && vendor/bin/pint --test && vendor/bin/phpunit && composer audit --locked --no-interaction'
       - name: Build the Laravel reference container
         run: docker build --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
@@ -706,18 +649,10 @@ jobs:
 
   python-fastapi:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -738,7 +673,7 @@ jobs:
       - name: Check the locked FastAPI reference adapter
         run: >-
           docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/python-fastapi
-          python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc
+          "$CI_PYTHON_IMAGE"
           sh -lc 'pip install --no-cache-dir uv==0.12.13 >/dev/null && uv sync --frozen && uv lock --check && uv run ruff check . && uv run ruff format --check . && uv run pytest && uv run pip-audit --local'
       - name: Build the FastAPI reference container
         run: docker build --file examples/python-fastapi/Dockerfile --tag cormier-python-fastapi:${{ github.sha }} .
@@ -766,18 +701,10 @@ jobs:
 
   ruby-rails:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -798,7 +725,7 @@ jobs:
       - name: Check the locked Rails reference adapter
         run: >-
           docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/ruby-rails
-          ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc
+          "$CI_RUBY_IMAGE"
           sh -lc 'apk add --no-cache build-base git yaml-dev >/dev/null && gem install bundler -v 4.0.20 --no-document >/dev/null && bundle _4.0.20_ config set path /tmp/bundle && BUNDLE_FROZEN=true bundle _4.0.20_ install && bundle _4.0.20_ check && bundle _4.0.20_ exec rubocop && bundle _4.0.20_ exec ruby test/reference_config_test.rb && bundle _4.0.20_ exec brakeman --no-pager --quiet && bundle _4.0.20_ exec bundle-audit check --update'
       - name: Build the Rails reference container
         run: docker build --file examples/ruby-rails/Dockerfile --tag cormier-ruby-rails:${{ github.sha }} .
@@ -826,18 +753,10 @@ jobs:
 
   swift-vapor:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -858,7 +777,7 @@ jobs:
       - name: Check the locked Vapor reference adapter
         run: >-
           docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/swift-vapor
-          swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c
+          "$CI_SWIFT_IMAGE"
           sh -lc 'cp Package.resolved /tmp/Package.resolved && swift package resolve --disable-sandbox && diff -u /tmp/Package.resolved Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
       - name: Build the Vapor reference container
         run: docker build --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
@@ -891,18 +810,10 @@ jobs:
       matrix:
         shell: [bash, pwsh]
         profile: [non-ha, ha]
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x

@@ -1,4 +1,5 @@
 import Foundation
+import NIOCore
 
 struct ReferenceSettings: Sendable {
   let listenHost: String
@@ -74,7 +75,7 @@ struct ReferenceSettings: Sendable {
     guard value == value.lowercased(),
       let components = URLComponents(string: value),
       ["http", "https"].contains(components.scheme),
-      components.host != nil,
+      Self.networkHost(components.host),
       components.user == nil,
       components.password == nil,
       components.query == nil,
@@ -85,6 +86,38 @@ struct ReferenceSettings: Sendable {
       !(components.scheme == "https" && components.port == 443)
     else { throw SettingsError.invalid }
     return value.hasSuffix("/") ? String(value.dropLast()) : value
+  }
+
+  private static func networkHost(_ host: String?) -> Bool {
+    guard let host, !host.isEmpty, host.utf8.count <= 253, !host.contains("%") else {
+      return false
+    }
+    let candidate: String
+    if host.hasPrefix("[") && host.hasSuffix("]") {
+      candidate = String(host.dropFirst().dropLast())
+    } else {
+      guard !host.contains("[") && !host.contains("]") else { return false }
+      candidate = host
+    }
+    if candidate.contains(":") {
+      guard let address = try? SocketAddress(ipAddress: candidate, port: 0), case .v6 = address
+      else {
+        return false
+      }
+      return true
+    }
+    if candidate.allSatisfy({ $0.isNumber || $0 == "." }) {
+      guard let address = try? SocketAddress(ipAddress: candidate, port: 0), case .v4 = address
+      else {
+        return false
+      }
+      return true
+    }
+    return candidate.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
+      label.utf8.count <= 63
+        && label.range(of: #"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"#, options: .regularExpression)
+          != nil
+    }
   }
 
   private static func validRedisURL(_ value: String) throws -> String {

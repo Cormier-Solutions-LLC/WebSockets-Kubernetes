@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -227,4 +228,29 @@ test("returns a generic gateway failure when forwarding cannot start", async () 
     .expect(503);
   assert.equal(response.body.code, "service_unavailable");
   assert.equal(JSON.stringify(logs).includes("internal-gateway"), false);
+});
+
+test("destroys trickling ticket requests at the total deadline", async () => {
+  const context = fixture();
+  const proxy = new EventEmitter();
+  const upstream = new EventEmitter();
+  upstream.destroyedWith = undefined;
+  upstream.destroy = error => { upstream.destroyedWith = error; };
+  proxy.web = incoming => { proxy.emit("proxyReq", upstream, incoming); };
+  const app = createApp({
+    config: context.config,
+    redisClient: context.redisClient,
+    proxy,
+    ticketDeadlineMilliseconds: 10,
+  });
+  const agent = request.agent(app);
+  await login(agent, context.config).expect(200);
+
+  const response = await agent.post("/realtime/tickets")
+    .set("Origin", context.config.publicOrigin)
+    .send({ topics: ["orders"] })
+    .expect(503);
+
+  assert.equal(response.body.code, "service_unavailable");
+  assert.match(upstream.destroyedWith.message, /timed out/);
 });

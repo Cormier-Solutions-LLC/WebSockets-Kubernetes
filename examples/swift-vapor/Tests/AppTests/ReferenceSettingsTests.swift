@@ -1,4 +1,6 @@
 import Foundation
+import Logging
+@preconcurrency import NIOPosix
 import Testing
 
 @testable import App
@@ -60,6 +62,22 @@ struct ReferenceSettingsTests {
     var environment = self.values
     environment["PUBLIC_ORIGIN"] = "file:///tmp"
     #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+  }
+
+  @Test("validates complete origin host syntax")
+  func validatesCompleteOriginHosts() throws {
+    for host in [
+      "a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1",
+      "\(String(repeating: "a", count: 64)).example", "[fe80::1%25eth0]",
+    ] {
+      var environment = self.values
+      environment["GATEWAY_URL"] = "https://\(host)"
+      #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+    }
+    var environment = self.values
+    environment["PUBLIC_ORIGIN"] = "https://[::1]"
+    environment["GATEWAY_URL"] = "http://192.0.2.1:15401"
+    _ = try ReferenceSettings(environment: environment)
   }
 
   @Test("rejects explicit default origin ports")
@@ -125,6 +143,39 @@ struct ReferenceSettingsTests {
     #expect(source.contains("delegate: accumulator"))
     #expect(source.contains("let deadline: NIODeadline = .now() + .seconds(15)"))
     #expect(source.contains("delegate: accumulator, deadline: deadline"))
+  }
+
+  @Test("closes Redis connections when command deadlines expire")
+  func closesTimedOutRedisConnections() throws {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    let source = try String(
+      contentsOf: root.appending(path: "Sources/App/configure.swift"), encoding: .utf8)
+    #expect(source.contains("self.channels.closeAll()"))
+    #expect(source.contains("connectionRetryTimeout: .seconds(5)"))
+    #expect(source.contains("connectTimeout(.seconds(5))"))
+  }
+
+  @Test("fails a stalled Redis command and releases its channel")
+  func failsStalledRedisCommand() async throws {
+    let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+    let server = try await ServerBootstrap(group: group)
+      .childChannelInitializer { channel in channel.eventLoop.makeSucceededVoidFuture() }
+      .bind(host: "127.0.0.1", port: 0).get()
+    let port = try #require(server.localAddress?.port)
+    let pool = try DeadlineRedisPool(
+      url: "redis://127.0.0.1:\(port)", eventLoop: group.next(),
+      logger: Logger(label: "redis-deadline-test"))
+    let clock = ContinuousClock()
+    let started = clock.now
+
+    await #expect(throws: (any Error).self) {
+      try await pool.send(command: "PING", with: [], deadline: .milliseconds(25))
+    }
+    #expect(started.duration(to: clock.now) < .seconds(1))
+
+    pool.close()
+    try await server.close().get()
+    try await group.shutdownGracefully()
   }
 
   @Test("launcher waits for the stack-specific public endpoint")

@@ -50,7 +50,7 @@ function requireSession(request, response, next) {
   next();
 }
 
-export function createApp({ config, redisClient, proxy, logger = console }) {
+export function createApp({ config, redisClient, proxy, logger = console, ticketDeadlineMilliseconds = 10_000 }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxyHops === 0 ? false : config.trustProxyHops);
@@ -196,14 +196,36 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
   });
 
   app.post("/realtime/tickets", requireOrigin(config), requireSession, (request, response) => {
-    proxy.web(request, response, {
-      target: config.gatewayUrl,
-      changeOrigin: false,
-      xfwd: false,
-      headers: { "x-forwarded-proto": config.publicScheme },
-      proxyTimeout: 10_000,
-      timeout: 10_000,
-    });
+    let upstreamRequest;
+    const finish = () => {
+      clearTimeout(deadline);
+      proxy.off?.("proxyReq", captureUpstream);
+    };
+    const captureUpstream = (candidate, incoming) => {
+      if (incoming === request) upstreamRequest = candidate;
+    };
+    const deadline = setTimeout(() => {
+      upstreamRequest?.destroy(new Error("Gateway ticket request timed out."));
+      if (response.headersSent) response.destroy();
+      else response.status(503).json({ code: "service_unavailable", message: "The reference application dependency is unavailable." });
+    }, ticketDeadlineMilliseconds);
+    deadline.unref?.();
+    proxy.on?.("proxyReq", captureUpstream);
+    response.once("finish", finish);
+    response.once("close", finish);
+    try {
+      proxy.web(request, response, {
+        target: config.gatewayUrl,
+        changeOrigin: false,
+        xfwd: false,
+        headers: { "x-forwarded-proto": config.publicScheme },
+        proxyTimeout: ticketDeadlineMilliseconds,
+        timeout: ticketDeadlineMilliseconds,
+      });
+    } catch (error) {
+      finish();
+      throw error;
+    }
   });
 
   app.use("/_content/Cormier.Realtime.Browser", express.static(config.sdkAssetRoot, { index: false, fallthrough: false }));

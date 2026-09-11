@@ -11,7 +11,6 @@ enum EntryPoint {
       let application = try await Application.make(environment)
       do {
         try configure(application)
-        application.logger.notice("application_started", metadata: ["stack": "swift-vapor"])
         try await application.execute()
         application.logger.notice("application_stopped", metadata: ["stack": "swift-vapor"])
         try await application.asyncShutdown()

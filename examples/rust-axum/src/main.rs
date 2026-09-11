@@ -5,10 +5,11 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{
-        OriginalUri, State, WebSocketUpgrade,
+        DefaultBodyLimit, OriginalUri, Request, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -37,6 +38,7 @@ use tracing::{error, info};
 
 const COOKIE: &str = "cormier_session";
 const PROTOCOL: &str = "cormier.realtime.v1";
+const MAXIMUM_REQUEST_BODY_BYTES: usize = 64 * 1_024;
 const MAXIMUM_WEBSOCKET_BYTES: usize = 64 * 1_024;
 const MAXIMUM_TICKET_RESPONSE_BYTES: usize = 64 * 1_024;
 
@@ -126,12 +128,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/logout", post(logout))
         .route("/realtime/tickets", post(ticket))
         .route("/realtime/ws", get(websocket))
+        .layer(DefaultBodyLimit::max(MAXIMUM_REQUEST_BODY_BYTES))
         .layer(SetResponseHeaderLayer::if_not_present(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")))
         .layer(SetResponseHeaderLayer::if_not_present(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY")))
         .layer(SetResponseHeaderLayer::if_not_present(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer")))
         .layer(SetResponseHeaderLayer::if_not_present(header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static("default-src 'self'; connect-src 'self' ws: wss:; img-src 'self'; style-src 'self'; script-src 'self'")))
         .layer(SetResponseHeaderLayer::if_not_present(header::CACHE_CONTROL, HeaderValue::from_static("no-store")))
+        .layer(middleware::from_fn(map_payload_too_large))
         .with_state(state.clone());
     let listener = TcpListener::bind((config.listen_host.as_str(), config.port)).await?;
     let (stopping, stopped) = tokio::sync::oneshot::channel();
@@ -170,6 +174,15 @@ async fn shutdown() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+async fn map_payload_too_large(request: Request, next: Next) -> Response {
+    let response = next.run(request).await;
+    if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        AppError::invalid_request(StatusCode::PAYLOAD_TOO_LARGE).into_response()
+    } else {
+        response
     }
 }
 
@@ -571,6 +584,14 @@ struct AppError {
     message: &'static str,
 }
 impl AppError {
+    fn invalid_request(status: StatusCode) -> Self {
+        Self {
+            status,
+            code: "invalid_request",
+            message: "The request body is invalid.",
+        }
+    }
+
     fn origin() -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
@@ -620,6 +641,8 @@ impl IntoResponse for AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use tower::ServiceExt;
 
     #[test]
     fn requires_the_exact_websocket_subprotocol() {
@@ -644,6 +667,27 @@ mod tests {
         let error = append_ticket_chunk(&mut body, &Bytes::from_static(b"b"))
             .expect_err("oversized response");
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn maps_oversized_request_bodies_to_the_generic_contract() {
+        let app = Router::new()
+            .route("/", post(|_: Bytes| async { StatusCode::OK }))
+            .layer(DefaultBodyLimit::max(MAXIMUM_REQUEST_BODY_BYTES))
+            .layer(middleware::from_fn(map_payload_too_large));
+        let response = app
+            .oneshot(
+                Request::post("/")
+                    .body(Body::from(vec![b'a'; MAXIMUM_REQUEST_BODY_BYTES + 1]))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        assert!(String::from_utf8_lossy(&body).contains("invalid_request"));
     }
 
     #[tokio::test]

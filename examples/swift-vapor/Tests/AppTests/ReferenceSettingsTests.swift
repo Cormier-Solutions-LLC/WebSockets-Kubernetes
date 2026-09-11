@@ -135,4 +135,13 @@ struct ReferenceSettingsTests {
       source.firstRange(of: "readiness_url=")!.lowerBound
         < source.firstRange(of: "application_started")!.lowerBound)
   }
+
+  @Test("direct lifecycle reports startup only after boot")
+  func directLifecycleReportsStartupAfterBoot() throws {
+    let entryPoint = try String(contentsOfFile: "Sources/App/EntryPoint.swift", encoding: .utf8)
+    let configuration = try String(contentsOfFile: "Sources/App/configure.swift", encoding: .utf8)
+    #expect(!entryPoint.contains("application_started"))
+    #expect(configuration.contains("func didBootAsync"))
+    #expect(configuration.contains("application_started"))
+  }
 }

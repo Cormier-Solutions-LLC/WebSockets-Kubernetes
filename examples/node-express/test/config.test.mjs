@@ -39,6 +39,10 @@ test("rejects missing or unsafe configuration", () => {
   assert.throws(() => loadConfig({ ...validEnvironment, PORT: "80" }), /PORT/);
   assert.throws(() => loadConfig({ ...validEnvironment, PUBLIC_ORIGIN: "https://example.test/path" }), /PUBLIC_ORIGIN/);
   assert.throws(() => loadConfig({ ...validEnvironment, PUBLIC_ORIGIN: "https://example.test:443" }), /PUBLIC_ORIGIN/);
+  for (const host of ["a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1"]) {
+    assert.throws(() => loadConfig({ ...validEnvironment, PUBLIC_ORIGIN: `https://${host}` }), /PUBLIC_ORIGIN/);
+    assert.throws(() => loadConfig({ ...validEnvironment, GATEWAY_URL: `https://${host}` }), /GATEWAY_URL/);
+  }
   assert.throws(() => loadConfig({ ...validEnvironment, TRUST_PROXY_HOPS: "17" }), /TRUST_PROXY_HOPS/);
   assert.throws(() => loadConfig({ ...validEnvironment, GATEWAY_URL: "file:///tmp/gateway" }), /GATEWAY_URL/);
   assert.throws(() => loadConfig({ ...validEnvironment, REDIS_URL: "https://example.test" }), /REDIS_URL/);

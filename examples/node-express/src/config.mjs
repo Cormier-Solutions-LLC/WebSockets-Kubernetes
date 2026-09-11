@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +31,15 @@ function parseOrigin(value, name) {
   }
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
     throw new Error(`${name} must be an HTTP or HTTPS origin URL.`);
+  }
+  const authority = value.match(/^https?:\/\/(\[[^\]]+\]|[^:/?#]+)(?::\d+)?$/);
+  const rawHostname = authority?.[1]?.replace(/^\[|\]$/g, "") ?? "";
+  const labels = rawHostname.split(".");
+  const validDnsName = labels.every((label) => label.length >= 1 && label.length <= 63
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+  const resemblesNumericAddress = /^\d+(?:\.\d+){0,3}$/.test(rawHostname);
+  if (!authority || isIP(rawHostname) === 0 && (!validDnsName || resemblesNumericAddress)) {
+    throw new Error(`${name} must contain a valid DNS name or IP address.`);
   }
   if (/^http:\/\/[^/?#]+:80(?:\/|$)/i.test(value) || /^https:\/\/[^/?#]+:443(?:\/|$)/i.test(value)) {
     throw new Error(`${name} must omit the default port.`);

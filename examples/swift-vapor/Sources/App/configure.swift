@@ -22,6 +22,7 @@ func configure(_ application: Application) throws {
 private struct RedisStartupCheck: LifecycleHandler {
   func didBootAsync(_ application: Application) async throws {
     _ = try await boundedRedis(application.redis.send(command: "PING", with: []))
+    application.logger.notice("application_started", metadata: ["stack": "swift-vapor"])
   }
 }
 

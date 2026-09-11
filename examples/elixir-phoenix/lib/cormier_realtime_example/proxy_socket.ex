@@ -27,11 +27,8 @@ defmodule CormierRealtimeExample.ProxySocket do
   @impl true
   def terminate(reason, state) do
     if state[:upstream] do
-      if reason == :remote do
-        CormierRealtimeExample.UpstreamSocket.send_frame(state.upstream, {:close, 1000, ""})
-      end
-
-      GenServer.stop(state.upstream, :normal)
+      code = if reason == :remote, do: 1000, else: 1001
+      CormierRealtimeExample.UpstreamSocket.close(state.upstream, code, "")
     end
 
     :ok
@@ -43,8 +40,14 @@ end
 defmodule CormierRealtimeExample.UpstreamSocket do
   use GenServer
 
+  @maximum_frame_bytes 64 * 1024
+
   def start(browser, options), do: GenServer.start(__MODULE__, {browser, options})
   def send_frame(server, frame), do: GenServer.cast(server, {:send, frame})
+  def close(server, code, reason), do: GenServer.call(server, {:close, code, reason}, 1_500)
+
+  @doc false
+  def frame_allowed?(payload), do: byte_size(payload) <= @maximum_frame_bytes
 
   @impl true
   def init({browser, options}) do
@@ -118,15 +121,28 @@ defmodule CormierRealtimeExample.UpstreamSocket do
 
   @impl true
   def handle_cast({:send, frame}, state) do
-    with {:ok, websocket, data} <- Mint.WebSocket.encode(state.websocket, frame),
-         {:ok, connection} <-
-           Mint.WebSocket.stream_request_body(state.connection, state.reference, data) do
-      {:noreply, %{state | websocket: websocket, connection: connection}}
-    else
-      _ ->
-        send(state.browser, :upstream_closed)
-        {:stop, :normal, state}
+    case write_frame(state, frame) do
+      {:ok, state} -> {:noreply, state}
+      :error -> stop_upstream(state)
     end
+  end
+
+  @impl true
+  def handle_call({:close, code, reason}, from, state) do
+    case write_frame(state, {:close, code, reason}) do
+      {:ok, state} ->
+        timer = Process.send_after(self(), :close_timeout, 1_000)
+        {:noreply, Map.merge(state, %{closing_from: from, close_timer: timer})}
+
+      :error ->
+        {:stop, :normal, :error, state}
+    end
+  end
+
+  @impl true
+  def handle_info(:close_timeout, state) do
+    state = finish_closing(state, :timeout)
+    {:stop, :normal, state}
   end
 
   @impl true
@@ -137,8 +153,8 @@ defmodule CormierRealtimeExample.UpstreamSocket do
           {:ok, state} ->
             {:noreply, state}
 
-          :closed ->
-            send(state.browser, :upstream_closed)
+          {:closed, state} ->
+            state = finish_closing(state, :ok)
             {:stop, :normal, state}
         end
 
@@ -146,8 +162,7 @@ defmodule CormierRealtimeExample.UpstreamSocket do
         {:noreply, state}
 
       _ ->
-        send(state.browser, :upstream_closed)
-        {:stop, :normal, state}
+        stop_upstream(state)
     end
   end
 
@@ -156,27 +171,72 @@ defmodule CormierRealtimeExample.UpstreamSocket do
       {:data, reference, data}, {:ok, state} when reference == state.reference ->
         case Mint.WebSocket.decode(state.websocket, data) do
           {:ok, websocket, frames} ->
-            Enum.each(frames, fn
-              {type, payload} when type in [:text, :binary] ->
-                send(state.browser, {:upstream, {type, payload}})
-
-              {:close, code, reason} ->
-                send(state.browser, {:upstream_closed, code, reason})
-
-              _ ->
-                :ok
-            end)
-
-            {:cont, {:ok, %{state | websocket: websocket}}}
+            case decode_frames(frames, %{state | websocket: websocket}) do
+              {:ok, state} -> {:cont, {:ok, state}}
+              {:closed, state} -> {:halt, {:closed, state}}
+            end
 
           _ ->
-            {:halt, :closed}
+            send(state.browser, :upstream_closed)
+            {:halt, {:closed, state}}
         end
 
       _, result ->
         {:cont, result}
     end)
   end
+
+  defp decode_frames(frames, state) do
+    Enum.reduce_while(frames, {:ok, state}, fn
+      {type, payload}, {:ok, state} when type in [:text, :binary] ->
+        if frame_allowed?(payload) do
+          send(state.browser, {:upstream, {type, payload}})
+          {:cont, {:ok, state}}
+        else
+          state = close_oversized_upstream(state)
+          send(state.browser, {:upstream_closed, 1009, "message too large"})
+          {:halt, {:closed, state}}
+        end
+
+      {:close, code, reason}, {:ok, state} ->
+        send(state.browser, {:upstream_closed, code, reason})
+        {:halt, {:closed, state}}
+
+      _, result ->
+        {:cont, result}
+    end)
+  end
+
+  defp close_oversized_upstream(state) do
+    case write_frame(state, {:close, 1009, "message too large"}) do
+      {:ok, state} -> state
+      :error -> state
+    end
+  end
+
+  defp write_frame(state, frame) do
+    with {:ok, websocket, data} <- Mint.WebSocket.encode(state.websocket, frame),
+         {:ok, connection} <-
+           Mint.WebSocket.stream_request_body(state.connection, state.reference, data) do
+      {:ok, %{state | websocket: websocket, connection: connection}}
+    else
+      _ -> :error
+    end
+  end
+
+  defp stop_upstream(state) do
+    send(state.browser, :upstream_closed)
+    state = finish_closing(state, :error)
+    {:stop, :normal, state}
+  end
+
+  defp finish_closing(%{closing_from: from, close_timer: timer} = state, result) do
+    Process.cancel_timer(timer)
+    GenServer.reply(from, result)
+    Map.drop(state, [:closing_from, :close_timer])
+  end
+
+  defp finish_closing(state, _result), do: state
 
   @impl true
   def terminate(_reason, state), do: Mint.HTTP.close(state.connection)

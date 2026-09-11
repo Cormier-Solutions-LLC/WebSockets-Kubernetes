@@ -82,4 +82,28 @@ defmodule CormierRealtimeExample.ConfigTest do
     assert socket_options[:server_name_indication] == ~c"cache.example.test"
     assert is_function(socket_options[:customize_hostname_check][:match_fun], 2)
   end
+
+  test "caps upstream websocket frames" do
+    assert CormierRealtimeExample.UpstreamSocket.frame_allowed?(:binary.copy("a", 65_536))
+    refute CormierRealtimeExample.UpstreamSocket.frame_allowed?(:binary.copy("a", 65_537))
+  end
+
+  test "initiates a going-away handshake during shutdown" do
+    {:ok, upstream} = __MODULE__.FakeUpstream.start_link(self())
+    assert :ok = CormierRealtimeExample.ProxySocket.terminate(:shutdown, %{upstream: upstream})
+    assert_receive {:closed, 1001, ""}
+    GenServer.stop(upstream)
+  end
+
+  defmodule FakeUpstream do
+    use GenServer
+
+    def start_link(test), do: GenServer.start_link(__MODULE__, test)
+    def init(test), do: {:ok, test}
+
+    def handle_call({:close, code, reason}, _from, test) do
+      send(test, {:closed, code, reason})
+      {:reply, :ok, test}
+    end
+  end
 end

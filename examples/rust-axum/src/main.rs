@@ -275,6 +275,7 @@ async fn ticket(
         .join("realtime/tickets")
         .map_err(|_| AppError::unavailable())?;
     let mut request = state.http.post(url).body(body);
+    request = request.header("x-forwarded-proto", state.config.public_scheme());
     for name in [
         header::ORIGIN,
         header::COOKIE,
@@ -353,6 +354,10 @@ async fn relay_inner(
     request.headers_mut().insert(
         header::SEC_WEBSOCKET_PROTOCOL,
         HeaderValue::from_static(PROTOCOL),
+    );
+    request.headers_mut().insert(
+        "x-forwarded-proto",
+        HeaderValue::from_str(state.config.public_scheme()).map_err(|_| AppError::unavailable())?,
     );
     if let Some(value) = cookie {
         request.headers_mut().insert(header::COOKIE, value);

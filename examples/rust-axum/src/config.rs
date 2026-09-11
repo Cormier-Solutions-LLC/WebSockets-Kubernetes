@@ -92,6 +92,10 @@ impl Config {
             self.redis_instance_prefix, self.redis_session_key_prefix, id
         )
     }
+
+    pub fn public_scheme(&self) -> &str {
+        self.public_origin.scheme()
+    }
 }
 
 fn origin(value: &str) -> Result<Url, &'static str> {
@@ -179,6 +183,7 @@ mod tests {
         let config = Config::from_values(|key| values.get(key).cloned()).unwrap();
         assert_eq!(config.port, 15400);
         assert_eq!(config.listen_host, "127.0.0.1");
+        assert_eq!(config.public_scheme(), "http");
         let mut invalid = values.clone();
         invalid.insert("PUBLIC_ORIGIN", "file:///tmp".into());
         assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());

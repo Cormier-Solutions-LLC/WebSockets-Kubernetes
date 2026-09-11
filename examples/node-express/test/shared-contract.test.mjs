@@ -57,6 +57,14 @@ test("configuration stays aligned with the canonical reference schema", async ()
   const lifetimePattern = new RegExp(schema.$defs.sessionLifetime.pattern);
   for (const value of ["60", "1200", "7200"]) assert.equal(lifetimePattern.test(value), true, value);
   for (const value of ["0", "59", "7201", "999999"]) assert.equal(lifetimePattern.test(value), false, value);
+
+  const allowlistPattern = new RegExp(schema.$defs.allowlist.pattern);
+  for (const value of ["tenant-a", "tenant-a,tenant_b", " tenant-a, tenant.b "]) {
+    assert.equal(allowlistPattern.test(value), true, value);
+  }
+  for (const value of ["", " ", "tenant a", "tenant-a,", ",tenant-a", "tenant-a,,tenant-b"]) {
+    assert.equal(allowlistPattern.test(value), false, value);
+  }
 });
 
 test("generated SDK and canonical protocol fixture versions agree", async () => {

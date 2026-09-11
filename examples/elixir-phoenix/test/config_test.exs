@@ -20,7 +20,8 @@ defmodule CormierRealtimeExample.ConfigTest do
 
   test "validates typed configuration" do
     values = values()
-    assert {:ok, %{listen_host: "127.0.0.1", port: 15_600}} = Config.load(&values[&1])
+    assert {:ok, config = %{listen_host: "127.0.0.1", port: 15_600}} = Config.load(&values[&1])
+    assert Config.public_scheme(config) == "http"
     invalid = Map.put(values, "PUBLIC_ORIGIN", "file:///tmp")
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
     invalid = Map.put(values, "PUBLIC_ORIGIN", "https://example.test:443")

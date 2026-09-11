@@ -7,6 +7,8 @@ This small, non-production adapter demonstrates a coroutine-native Ktor front en
 - Java 25; Kotlin/JVM output targets Java 25
 - Redis 7.4 or a compatible configured service
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis prefixes
+
+For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
 - The generated `sdk/typescript/dist` assets (`npm ci && npm run build` in `sdk/typescript`)
 
 Supply every value shown in `.env.example`; it is a fixture and is not loaded automatically. From `examples/kotlin-ktor` on PowerShell:

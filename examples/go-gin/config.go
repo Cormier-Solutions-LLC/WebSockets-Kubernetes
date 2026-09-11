@@ -167,3 +167,6 @@ func (c Config) Allows(tenant, user string) bool {
 func (c Config) SessionKey(id string) string {
 	return c.RedisInstancePrefix + ":" + c.RedisSessionKeyPrefix + ":" + id
 }
+func (c Config) PublicScheme() string {
+	return strings.SplitN(c.PublicOrigin, ":", 2)[0]
+}

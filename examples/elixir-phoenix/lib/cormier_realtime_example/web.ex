@@ -162,7 +162,7 @@ defmodule CormierRealtimeExample.Web do
          {:ok, response} <-
            Req.post(config.gateway_url <> "/realtime/tickets",
              body: body,
-             headers: forward_headers(conn),
+             headers: forward_headers(conn, config),
              connect_options: [timeout: 5_000],
              receive_timeout: 15_000,
              retry: false
@@ -188,6 +188,7 @@ defmodule CormierRealtimeExample.Web do
         origin: config.public_origin,
         cookie: get_req_header(conn, "cookie") |> List.first(),
         host: conn.host <> port_suffix(conn),
+        forwarded_proto: CormierRealtimeExample.Config.public_scheme(config),
         protocol: @protocol
       }
 
@@ -211,11 +212,15 @@ defmodule CormierRealtimeExample.Web do
         else: {:error, :origin}
       )
 
-  defp forward_headers(conn),
+  defp forward_headers(conn, config),
     do:
       Enum.flat_map(["origin", "cookie", "content-type"], fn name ->
         Enum.map(get_req_header(conn, name), &{name, &1})
-      end) ++ [{"host", conn.host <> port_suffix(conn)}]
+      end) ++
+        [
+          {"host", conn.host <> port_suffix(conn)},
+          {"x-forwarded-proto", CormierRealtimeExample.Config.public_scheme(config)}
+        ]
 
   defp port_suffix(%{port: port, scheme: :http}) when port == 80, do: ""
   defp port_suffix(%{port: port, scheme: :https}) when port == 443, do: ""

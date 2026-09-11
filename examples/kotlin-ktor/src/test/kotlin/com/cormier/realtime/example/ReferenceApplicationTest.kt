@@ -103,6 +103,44 @@ class ReferenceApplicationTest {
         upstream.close()
     }
 
+    @Test
+    fun `ticket bodies are bounded before gateway forwarding`() = testApplication {
+        var upstreamCalls = 0
+        val upstream = HttpClient(MockEngine {
+            upstreamCalls++
+            respond("{}", HttpStatusCode.OK)
+        })
+        application { referenceModule(ReferenceConfig.load(fixtureEnvironment), MemoryStore(), upstream) }
+        val response = client.post("/realtime/tickets") {
+            header(HttpHeaders.Origin, fixtureEnvironment.getValue("PUBLIC_ORIGIN"))
+            setBody(ByteArray(64 * 1024 + 1))
+        }
+        assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+        assertEquals(0, upstreamCalls)
+        upstream.close()
+    }
+
+    @Test
+    fun `ticket forwarding preserves the validated public scheme`() = testApplication {
+        var forwardedProto: String? = null
+        val upstream = HttpClient(MockEngine { request ->
+            forwardedProto = request.headers["X-Forwarded-Proto"]
+            respond("{}", HttpStatusCode.OK)
+        })
+        val environment = fixtureEnvironment + mapOf(
+            "PUBLIC_ORIGIN" to "https://public.example.test",
+            "GATEWAY_URL" to "http://gateway.example.test",
+        )
+        application { referenceModule(ReferenceConfig.load(environment), MemoryStore(), upstream) }
+        val response = client.post("/realtime/tickets") {
+            header(HttpHeaders.Origin, environment.getValue("PUBLIC_ORIGIN"))
+            setBody("{}")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("https", forwardedProto)
+        upstream.close()
+    }
+
     private class MemoryStore : SessionStore {
         val values = mutableMapOf<String, String>()
         override suspend fun ready() = true

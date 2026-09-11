@@ -6,6 +6,8 @@ This non-production adapter demonstrates an Axum front end for Cormier.Realtime.
 
 - Rust 1.98.1 (pinned by `rust-toolchain.toml`)
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
+
+For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
 - Generated `sdk/typescript/dist` assets
 
 Supply every `.env.example` value externally; the application does not load the fixture. From `examples/rust-axum`, run `cargo run --locked`. Run the repeatable gate with:

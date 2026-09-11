@@ -40,6 +40,8 @@ defmodule CormierRealtimeExample.Config do
   def session_key(config, id),
     do: Enum.join([config.redis_instance_prefix, config.redis_session_key_prefix, id], ":")
 
+  def public_scheme(config), do: URI.parse(config.public_origin).scheme
+
   def listen_address(host) do
     with {:error, _} <- :inet.parse_address(String.to_charlist(host)),
          {:ok, address} <- :inet.getaddr(String.to_charlist(host), :inet),

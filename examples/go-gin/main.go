@@ -287,6 +287,7 @@ func (a *App) ticket(c *gin.Context) {
 	for _, name := range []string{"Origin", "Cookie", "Content-Type"} {
 		request.Header.Set(name, c.GetHeader(name))
 	}
+	request.Header.Set("X-Forwarded-Proto", a.config.PublicScheme())
 	response, err := a.client.Do(request)
 	if err != nil {
 		unavailable(c)
@@ -331,7 +332,10 @@ func (a *App) websocket(c *gin.Context) {
 	}
 	target.Path = "/realtime/ws"
 	target.RawQuery = c.Request.URL.RawQuery
-	headers := http.Header{"Origin": []string{a.config.PublicOrigin}}
+	headers := http.Header{
+		"Origin":            []string{a.config.PublicOrigin},
+		"X-Forwarded-Proto": []string{a.config.PublicScheme()},
+	}
 	if cookie := c.GetHeader("Cookie"); cookie != "" {
 		headers.Set("Cookie", cookie)
 	}

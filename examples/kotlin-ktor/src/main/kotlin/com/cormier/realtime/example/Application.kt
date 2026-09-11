@@ -25,6 +25,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
@@ -40,6 +41,7 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readBytes
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
+import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -48,6 +50,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import java.security.SecureRandom
 import java.time.Instant
@@ -57,6 +60,8 @@ import kotlin.system.exitProcess
 
 private const val SESSION_COOKIE = "cormier_session"
 private const val SUBPROTOCOL = "cormier.realtime.v1"
+private const val MAXIMUM_BODY_BYTES = 64 * 1024
+private const val FORWARDED_PROTO = "X-Forwarded-Proto"
 
 fun main() {
     try {
@@ -159,12 +164,14 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
         }
         post("/realtime/tickets") {
             requireOrigin(call.request.header(HttpHeaders.Origin), config)
+            val body = readLimitedBody(call.receiveChannel())
             val response = client.post(config.gatewayUrl.resolve("/realtime/tickets").toString()) {
                 header(HttpHeaders.Origin, config.publicOrigin.toString())
+                header(FORWARDED_PROTO, config.publicOrigin.scheme)
                 call.request.header(HttpHeaders.Cookie)?.let { header(HttpHeaders.Cookie, it) }
                 call.request.header(HttpHeaders.Host)?.let { header(HttpHeaders.Host, it) }
                 call.request.header(HttpHeaders.ContentType)?.let { header(HttpHeaders.ContentType, it) }
-                setBody(call.receive<ByteArray>())
+                setBody(body)
             }
             call.respondBytes(response.body<ByteArray>(), ContentType.Application.Json, response.status)
         }
@@ -180,6 +187,7 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                     query.forEach { (name, value) -> parameters.append(name, value) }
                 }
                 header(HttpHeaders.Origin, browserOrigin!!)
+                header(FORWARDED_PROTO, config.publicOrigin.scheme)
                 call.request.header(HttpHeaders.Cookie)?.let { header(HttpHeaders.Cookie, it) }
                 call.request.header(HttpHeaders.Host)?.let { header(HttpHeaders.Host, it) }
                 header(HttpHeaders.SecWebSocketProtocol, SUBPROTOCOL)
@@ -207,6 +215,19 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             }
         }
     }
+}
+
+private suspend fun readLimitedBody(channel: io.ktor.utils.io.ByteReadChannel): ByteArray {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(16 * 1024)
+    while (true) {
+        val count = channel.readAvailable(buffer, 0, buffer.size)
+        if (count == -1) break
+        if (output.size() + count > MAXIMUM_BODY_BYTES) throw ClientFault(
+            HttpStatusCode.PayloadTooLarge, "invalid_request", "The request is invalid.")
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
 }
 
 private fun requireOrigin(origin: String?, config: ReferenceConfig) {

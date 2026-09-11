@@ -15,6 +15,9 @@ func TestTypedConfiguration(t *testing.T) {
 	if err != nil || config.ListenHost != "127.0.0.1" || config.Port != 15500 {
 		t.Fatalf("valid configuration: %v", err)
 	}
+	if config.PublicScheme() != "http" {
+		t.Fatalf("unexpected public scheme: %s", config.PublicScheme())
+	}
 	values["PUBLIC_ORIGIN"] = "file:///tmp"
 	if _, err = loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
 		t.Fatal("unsafe origin was accepted")

@@ -52,6 +52,7 @@ defmodule CormierRealtimeExample.UpstreamSocket do
       [
         {"host", options.host},
         {"origin", options.origin},
+        {"x-forwarded-proto", options.forwarded_proto},
         {"sec-websocket-protocol", options.protocol}
       ] ++
         if(options.cookie, do: [{"cookie", options.cookie}], else: [])

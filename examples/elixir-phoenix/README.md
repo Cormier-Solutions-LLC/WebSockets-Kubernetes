@@ -6,6 +6,8 @@ This non-production adapter demonstrates a supervised Phoenix front end for Corm
 
 - Elixir 1.20.4 and Erlang/OTP 29.0.6
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
+
+For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
 - Generated `sdk/typescript/dist` assets
 
 Supply every `.env.example` value externally; the application does not load the fixture. From this directory run `mix deps.get && mix run --no-halt`. The repeatable gate is:

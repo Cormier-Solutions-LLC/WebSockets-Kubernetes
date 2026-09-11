@@ -17,7 +17,14 @@ use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::{future::IntoFuture, sync::Arc, time::Duration};
+use std::{
+    future::IntoFuture,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 use store::SessionStore;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::net::TcpListener;
@@ -38,6 +45,41 @@ struct AppState {
     config: Config,
     store: SessionStore,
     http: Client,
+    stopping: tokio::sync::watch::Receiver<bool>,
+    relays: Arc<RelayTracker>,
+}
+
+#[derive(Default)]
+struct RelayTracker {
+    active: AtomicUsize,
+    drained: tokio::sync::Notify,
+}
+
+impl RelayTracker {
+    fn start(self: &Arc<Self>) -> RelayGuard {
+        self.active.fetch_add(1, Ordering::AcqRel);
+        RelayGuard(self.clone())
+    }
+
+    async fn wait(&self) {
+        loop {
+            let drained = self.drained.notified();
+            if self.active.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            drained.await;
+        }
+    }
+}
+
+struct RelayGuard(Arc<RelayTracker>);
+
+impl Drop for RelayGuard {
+    fn drop(&mut self) {
+        if self.0.active.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.0.drained.notify_waiters();
+        }
+    }
 }
 
 #[tokio::main]
@@ -64,10 +106,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15))
         .build()?;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let state = Arc::new(AppState {
         config: config.clone(),
         store,
         http,
+        stopping: shutdown_rx,
+        relays: Arc::new(RelayTracker::default()),
     });
     let app = Router::new()
         .route_service("/", ServeFile::new(config.shared_asset_root.join("index.html")))
@@ -87,11 +132,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .layer(SetResponseHeaderLayer::if_not_present(header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static("default-src 'self'; connect-src 'self' ws: wss:; img-src 'self'; style-src 'self'; script-src 'self'")))
         .layer(SetResponseHeaderLayer::if_not_present(header::CACHE_CONTROL, HeaderValue::from_static("no-store")))
-        .with_state(state);
+        .with_state(state.clone());
     let listener = TcpListener::bind((config.listen_host.as_str(), config.port)).await?;
     let (stopping, stopped) = tokio::sync::oneshot::channel();
     let signal = async move {
         shutdown().await;
+        let _ = shutdown_tx.send(true);
         let _ = stopping.send(());
     };
     let server = axum::serve(listener, app)
@@ -102,7 +148,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tokio::select! {
         result = &mut server => result?,
         _ = stopped => {
-            tokio::time::timeout(Duration::from_secs(15), &mut server).await
+            tokio::time::timeout(Duration::from_secs(15), async {
+                (&mut server).await?;
+                state.relays.wait().await;
+                Ok::<(), std::io::Error>(())
+            }).await
                 .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "shutdown timeout"))??;
         }
     }
@@ -344,6 +394,7 @@ async fn relay(
     host: Option<HeaderValue>,
     query: Option<String>,
 ) {
+    let _guard = state.relays.start();
     if let Err(error) = relay_inner(browser, state, cookie, host, query).await {
         error!(event="websocket_proxy_failed", kind=%error.code);
     }
@@ -391,10 +442,38 @@ async fn relay_inner(
         .await
         .map_err(|_| AppError::unavailable())?
         .map_err(|_| AppError::unavailable())?;
+    let mut stopping = state.stopping.clone();
     let (mut browser_tx, mut browser_rx) = browser.split();
     let (mut gateway_tx, mut gateway_rx) = gateway.split();
-    let to_gateway = async {
-        while let Some(Ok(message)) = browser_rx.next().await {
+    loop {
+        tokio::select! {
+          _ = wait_for_shutdown(&mut stopping) => {
+            let _ = gateway_tx.send(tokio_tungstenite::tungstenite::Message::Close(Some(
+                tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Away,
+                    reason: "Going Away".into(),
+                }))).await;
+            let _ = browser_tx.send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                code: 1001,
+                reason: "Going Away".into(),
+            }))).await;
+            let mut browser_closed = false;
+            let mut gateway_closed = false;
+            while !browser_closed || !gateway_closed {
+                tokio::select! {
+                  message = browser_rx.next(), if !browser_closed => {
+                    browser_closed = matches!(message, None | Some(Err(_)) | Some(Ok(Message::Close(_))));
+                  }
+                  message = gateway_rx.next(), if !gateway_closed => {
+                    gateway_closed = matches!(message, None | Some(Err(_)) |
+                        Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))));
+                  }
+                }
+            }
+            break;
+          }
+          message = browser_rx.next() => {
+            let Some(Ok(message)) = message else { break };
             let converted = match message {
                 Message::Text(value) => {
                     tokio_tungstenite::tungstenite::Message::Text(value.as_str().into())
@@ -413,10 +492,9 @@ async fn relay_inner(
             if gateway_tx.send(converted).await.is_err() {
                 break;
             }
-        }
-    };
-    let to_browser = async {
-        while let Some(Ok(message)) = gateway_rx.next().await {
+          }
+          message = gateway_rx.next() => {
+            let Some(Ok(message)) = message else { break };
             let converted = match message {
                 tokio_tungstenite::tungstenite::Message::Text(value) => {
                     Message::Text(value.as_str().into())
@@ -433,10 +511,18 @@ async fn relay_inner(
             if browser_tx.send(converted).await.is_err() {
                 break;
             }
+          }
         }
-    };
-    tokio::select! { _ = to_gateway => {}, _ = to_browser => {} }
+    }
     Ok(())
+}
+
+async fn wait_for_shutdown(stopping: &mut tokio::sync::watch::Receiver<bool>) {
+    while !*stopping.borrow() {
+        if stopping.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 fn require_origin(headers: &HeaderMap, config: &Config) -> Result<(), AppError> {
@@ -552,5 +638,15 @@ mod tests {
         let error = append_ticket_chunk(&mut body, &Bytes::from_static(b"b"))
             .expect_err("oversized response");
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn relay_tracker_waits_for_active_relays() {
+        let tracker = Arc::new(RelayTracker::default());
+        let guard = tracker.start();
+        assert_eq!(tracker.active.load(Ordering::Acquire), 1);
+        drop(guard);
+        tracker.wait().await;
+        assert_eq!(tracker.active.load(Ordering::Acquire), 0);
     }
 }

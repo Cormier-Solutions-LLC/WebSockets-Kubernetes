@@ -49,6 +49,11 @@ class ReferenceConfigTest < Minitest::Test
     assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
   end
 
+  def test_rejects_out_of_range_origin_port
+    environment = values.merge("PUBLIC_ORIGIN" => "https://example.test:99999")
+    assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
+  end
+
   def test_canonical_contracts
     root = File.expand_path("../../..", __dir__)
     schema = JSON.parse(File.read(File.join(root, "examples/shared-web/reference-app.schema.json")))

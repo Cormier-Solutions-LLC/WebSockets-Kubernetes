@@ -1,6 +1,7 @@
 defmodule CormierRealtimeExample.ConfigTest do
   use ExUnit.Case, async: true
   alias CormierRealtimeExample.Config
+  alias CormierRealtimeExample.Application, as: ReferenceApplication
   alias CormierRealtimeExample.Web
 
   defp values,
@@ -60,5 +61,25 @@ defmodule CormierRealtimeExample.ConfigTest do
              Web.collect_response_chunk({:data, "b"}, {request, bounded})
 
     assert overflow.body == :too_large
+  end
+
+  test "rejects and drains oversized request bodies" do
+    conn = Plug.Test.conn(:post, "/realtime/tickets", :binary.copy("a", 65_537))
+    assert {:error, :too_large, drained} = Web.read_bounded_body(conn)
+    assert {:ok, "", _conn} = Plug.Conn.read_body(drained)
+  end
+
+  test "brackets IPv6 forwarding authorities" do
+    assert Web.authority(%{host: "::1", port: 15_600, scheme: :http}) == "[::1]:15600"
+    assert Web.authority(%{host: "example.test", port: 443, scheme: :https}) == "example.test"
+  end
+
+  test "authenticates secure Redis peers" do
+    options = ReferenceApplication.redis_start_options("rediss://cache.example.test:6380")
+    socket_options = Keyword.fetch!(options, :socket_opts)
+    assert socket_options[:verify] == :verify_peer
+    assert socket_options[:cacertfile] == CAStore.file_path()
+    assert socket_options[:server_name_indication] == ~c"cache.example.test"
+    assert is_function(socket_options[:customize_hostname_check][:match_fun], 2)
   end
 end

@@ -21,6 +21,19 @@ defmodule CormierRealtimeExample.Web do
       else: {:cont, {request, %{response | body: body}}}
   end
 
+  def read_bounded_body(conn) do
+    case read_body(conn, length: @max_body, read_timeout: 5_000) do
+      {:ok, body, conn} -> {:ok, body, conn}
+      {:more, _body, conn} -> {:error, :too_large, discard_body(conn)}
+      {:error, reason} -> {:error, reason, conn}
+    end
+  end
+
+  def authority(%{host: host, port: port, scheme: scheme}) do
+    host = if String.contains?(host, ":"), do: "[#{host}]", else: host
+    host <> port_suffix(port, scheme)
+  end
+
   def call(conn, _options) do
     conn =
       conn
@@ -78,7 +91,7 @@ defmodule CormierRealtimeExample.Web do
 
   defp route("POST", ["api", "login"], conn, config) do
     with :ok <- origin(conn, config),
-         {:ok, body, conn} <- read_body(conn, length: @max_body, read_timeout: 5_000),
+         {:ok, body, conn} <- read_bounded_body(conn),
          {:ok, %{"tenantId" => tenant, "userId" => user}} <- Jason.decode(body),
          true <-
            MapSet.member?(config.allowed_tenants, tenant) and
@@ -122,6 +135,9 @@ defmodule CormierRealtimeExample.Web do
     else
       {:error, :origin} ->
         origin_error(conn)
+
+      {:error, :too_large, conn} ->
+        request_too_large(conn)
 
       _ ->
         json(conn, 400, %{
@@ -172,7 +188,7 @@ defmodule CormierRealtimeExample.Web do
 
   defp route("POST", ["realtime", "tickets"], conn, config) do
     with :ok <- origin(conn, config),
-         {:ok, body, conn} <- read_body(conn, length: @max_body, read_timeout: 5_000),
+         {:ok, body, conn} <- read_bounded_body(conn),
          {:ok, response} <-
            Req.post(config.gateway_url <> "/realtime/tickets",
              body: body,
@@ -193,6 +209,7 @@ defmodule CormierRealtimeExample.Web do
       |> send_resp(response.status, body)
     else
       {:error, :origin} -> origin_error(conn)
+      {:error, :too_large, conn} -> request_too_large(conn)
       _ -> unavailable(conn)
     end
   end
@@ -204,7 +221,7 @@ defmodule CormierRealtimeExample.Web do
         url: websocket_url(config.gateway_url, conn.query_string),
         origin: config.public_origin,
         cookie: get_req_header(conn, "cookie") |> List.first(),
-        host: conn.host <> port_suffix(conn),
+        host: authority(conn),
         forwarded_proto: CormierRealtimeExample.Config.public_scheme(config),
         protocol: @protocol
       }
@@ -242,13 +259,21 @@ defmodule CormierRealtimeExample.Web do
         Enum.map(get_req_header(conn, name), &{name, &1})
       end) ++
         [
-          {"host", conn.host <> port_suffix(conn)},
+          {"host", authority(conn)},
           {"x-forwarded-proto", CormierRealtimeExample.Config.public_scheme(config)}
         ]
 
-  defp port_suffix(%{port: port, scheme: :http}) when port == 80, do: ""
-  defp port_suffix(%{port: port, scheme: :https}) when port == 443, do: ""
-  defp port_suffix(conn), do: ":#{conn.port}"
+  defp port_suffix(80, :http), do: ""
+  defp port_suffix(443, :https), do: ""
+  defp port_suffix(port, _scheme), do: ":#{port}"
+
+  defp discard_body(conn) do
+    case read_body(conn, length: @max_body, read_timeout: 5_000) do
+      {:more, _body, conn} -> discard_body(conn)
+      {:ok, _body, conn} -> conn
+      {:error, _reason} -> conn
+    end
+  end
 
   defp websocket_url(url, query) do
     suffix = if query == "", do: "", else: "?" <> query
@@ -302,6 +327,9 @@ defmodule CormierRealtimeExample.Web do
         code: "service_unavailable",
         message: "The reference application dependency is unavailable."
       })
+
+  defp request_too_large(conn),
+    do: json(conn, 413, %{code: "invalid_request", message: "The request is invalid."})
 
   defp origin_error(conn),
     do: json(conn, 403, %{code: "origin_rejected", message: "The request Origin is not allowed."})

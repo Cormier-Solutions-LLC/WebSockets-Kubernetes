@@ -76,6 +76,13 @@ struct ReferenceSettingsTests {
     #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
   }
 
+  @Test("rejects out-of-range origin ports")
+  func rejectsOutOfRangeOriginPort() {
+    var environment = self.values
+    environment["PUBLIC_ORIGIN"] = "https://example.test:99999"
+    #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+  }
+
   @Test("aligns private listener hosts with the shared contract")
   func alignsPrivateListenerHosts() throws {
     var environment = self.values
@@ -108,6 +115,14 @@ struct ReferenceSettingsTests {
     let source = try String(contentsOfFile: "Sources/App/configure.swift", encoding: .utf8)
     #expect(source.contains("cormier-realtime.iife.js"))
     #expect(!source.contains("cormier-realtime.iife.min.js"))
+  }
+
+  @Test("caps ticket responses while the HTTP client streams them")
+  func capsTicketResponsesWhileStreaming() throws {
+    let source = try String(contentsOfFile: "Sources/App/routes.swift", encoding: .utf8)
+    #expect(source.contains("ResponseAccumulator("))
+    #expect(source.contains("maxBodySize: maximumBodyBytes"))
+    #expect(source.contains("delegate: accumulator"))
   }
 
   @Test("launcher waits for the stack-specific public endpoint")

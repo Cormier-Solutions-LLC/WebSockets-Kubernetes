@@ -8,6 +8,7 @@ let package = Package(
     .executable(name: "CormierRealtimeVaporExample", targets: ["App"])
   ],
   dependencies: [
+    .package(url: "https://github.com/swift-server/async-http-client.git", exact: "1.36.1"),
     .package(url: "https://github.com/vapor/vapor.git", exact: "4.121.4"),
     .package(url: "https://github.com/vapor/redis.git", exact: "4.14.0"),
   ],
@@ -15,6 +16,7 @@ let package = Package(
     .executableTarget(
       name: "App",
       dependencies: [
+        .product(name: "AsyncHTTPClient", package: "async-http-client"),
         .product(name: "Vapor", package: "vapor"),
         .product(name: "Redis", package: "redis"),
       ],

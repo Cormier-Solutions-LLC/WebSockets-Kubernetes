@@ -80,6 +80,7 @@ struct ReferenceSettings: Sendable {
       components.query == nil,
       components.fragment == nil,
       components.path.isEmpty || components.path == "/",
+      components.port.map({ (1...65_535).contains($0) }) ?? true,
       !(components.scheme == "http" && components.port == 80),
       !(components.scheme == "https" && components.port == 443)
     else { throw SettingsError.invalid }

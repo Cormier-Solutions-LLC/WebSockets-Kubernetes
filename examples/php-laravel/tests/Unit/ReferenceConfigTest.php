@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Http\Controllers\ReferenceController;
 use App\ReferenceConfig;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -123,5 +124,13 @@ final class ReferenceConfigTest extends TestCase
         self::assertStringContainsString("withOptions(['stream' => true])", $controller);
         self::assertStringContainsString('MAXIMUM_BODY_BYTES + 1 - strlen($body)', $controller);
         self::assertStringNotContainsString('response($upstream->body()', $controller);
+    }
+
+    public function test_session_expirations_require_strict_rfc3339(): void
+    {
+        self::assertTrue(ReferenceController::validFutureExpiration('2099-01-02T03:04:05Z', 0));
+        self::assertTrue(ReferenceController::validFutureExpiration('2099-01-02T03:04:05.123+00:00', 0));
+        self::assertFalse(ReferenceController::validFutureExpiration('tomorrow', 0));
+        self::assertFalse(ReferenceController::validFutureExpiration('2099-02-30T03:04:05Z', 0));
     }
 }

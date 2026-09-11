@@ -176,11 +176,38 @@ final class ReferenceController
             return null;
         }
         $record = json_decode($encoded, true, flags: JSON_THROW_ON_ERROR);
-        if (! is_array($record) || ($record['revoked'] ?? true) !== false || ! isset($record['expiresAt']) || strtotime($record['expiresAt']) <= time()) {
+        if (! is_array($record) || ($record['revoked'] ?? true) !== false ||
+            ! self::validFutureExpiration($record['expiresAt'] ?? null)) {
             return null;
         }
 
         return $record;
+    }
+
+    public static function validFutureExpiration(mixed $value, ?int $now = null): bool
+    {
+        if (! is_string($value) || ! preg_match(
+            '/\A(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})\z/D',
+            $value,
+            $parts,
+        )) {
+            return false;
+        }
+        $fraction = $parts[2] ?? '';
+        $zone = $parts[3] === 'Z' ? '+00:00' : $parts[3];
+        $normalized = $parts[1].($fraction === '' ? '' : '.'.str_pad($fraction, 6, '0')).$zone;
+        $format = $fraction === '' ? '!Y-m-d\TH:i:sP' : '!Y-m-d\TH:i:s.uP';
+        $expiration = \DateTimeImmutable::createFromFormat($format, $normalized);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if ($expiration === false || $errors !== false) {
+            return false;
+        }
+        $microseconds = $expiration->format('u');
+        $fractionMatches = $fraction === '' ||
+            (str_starts_with($microseconds, $fraction) && trim(substr($microseconds, strlen($fraction)), '0') === '');
+
+        return $expiration->format('Y-m-d\TH:i:s') === $parts[1] &&
+            $expiration->format('P') === $zone && $fractionMatches && $expiration->getTimestamp() > ($now ?? time());
     }
 
     private function rejectOrigin(Request $request): ?JsonResponse

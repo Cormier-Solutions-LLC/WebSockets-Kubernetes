@@ -1,3 +1,4 @@
+import AsyncHTTPClient
 import Foundation
 @preconcurrency import Redis
 import Vapor
@@ -186,11 +187,7 @@ func routes(_ application: Application, settings: ReferenceSettings) {
         headers.replaceOrAdd(name: .host, value: authority)
       }
       headers.replaceOrAdd(name: "X-Forwarded-Proto", value: settings.publicScheme)
-      let upstream = try await request.client.post(
-        URI(string: "\(settings.gatewayURL)/realtime/tickets"), headers: headers
-      ) {
-        $0.body = request.body.data
-      }
+      let upstream = try await boundedTicketRequest(request, settings: settings, headers: headers)
       var responseHeaders = HTTPHeaders()
       responseHeaders.contentType = upstream.headers.contentType ?? .json
       let body = upstream.body.map { Response.Body(buffer: $0) } ?? .empty
@@ -199,6 +196,18 @@ func routes(_ application: Application, settings: ReferenceSettings) {
       return await dependencyUnavailable(request, caught: error)
     }
   }
+}
+
+private func boundedTicketRequest(
+  _ request: Request, settings: ReferenceSettings, headers: HTTPHeaders
+) async throws -> HTTPClient.Response {
+  let body = request.body.data.map { HTTPClient.Body.byteBuffer($0) }
+  let outbound = try HTTPClient.Request(
+    url: "\(settings.gatewayURL)/realtime/tickets", method: .POST, headers: headers, body: body)
+  let accumulator = ResponseAccumulator(request: outbound, maxBodySize: maximumBodyBytes)
+  let task: HTTPClient.Task<HTTPClient.Response> =
+    request.application.http.client.shared.execute(request: outbound, delegate: accumulator)
+  return try await task.futureResult.get()
 }
 
 private func asset(_ request: Request, path: String, type: HTTPMediaType) throws -> Response {

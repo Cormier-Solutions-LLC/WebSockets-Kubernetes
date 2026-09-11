@@ -42,4 +42,6 @@ For a production-only failure, reproduce against `dist/readable` with the same S
 
 Update one pinned optimization dependency at a time, run `npm run check`, then run the full adapter browser matrix. Review output size, CSP/SRI behavior, selector mappings, accessibility, and readable/optimized behavior parity. A pipeline, profile, or mapping contract change requires a `pipelineVersion` update and migration notes.
 
+Pipeline 1.1.0 moves optimized and obfuscated application source maps from their served profile directories to `dist/source-maps/<profile>`. Artifact consumers upgrading from 1.0.0 must read map paths from `asset-manifest.json` instead of assuming that maps sit beside the generated CSS and JavaScript. Deployments should continue serving only the selected profile directory; support tooling may retain the sibling source-map tree in an access-controlled build artifact.
+
 To roll back an asset regression, deploy the prior immutable asset set or point `SHARED_ASSET_ROOT` at the matching readable profile. Roll back the SDK and reference assets together because SRI values bind each page to exact bytes. Disable optional obfuscation by returning to `npm run build`; it is never required for compatibility.

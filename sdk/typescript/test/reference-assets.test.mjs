@@ -8,6 +8,7 @@ const root = resolve(import.meta.dirname, "..");
 
 test("the coordinated asset manifest retains readable and optimized profiles", async () => {
   const manifest = JSON.parse(await readFile(resolve(root, "../../examples/shared-web/dist/asset-manifest.json"), "utf8"));
+  assert.equal(manifest.pipelineVersion, "1.1.0");
   assert.deepEqual(Object.keys(manifest.profiles), ["readable", "optimized"]);
   assert.equal(manifest.defaults.development, "readable");
   assert.equal(manifest.defaults.production, "optimized");
@@ -86,4 +87,18 @@ test("class mappings change selector APIs without rewriting JavaScript propertie
     safelist: [],
   });
   assert.equal(result.javascript, 'console.log("message"); node.classList.add("a"); document.querySelector(".a")');
+});
+
+test("selector mappings rewrite static template-literal selector arguments", () => {
+  const result = applySelectorMappings({
+    css: ".internal #private {}",
+    html: '<div class="internal" id="private"></div>',
+    javascript: "document.querySelector(`#private .internal`); node.classList.add(`internal`)",
+  }, {
+    enabled: true,
+    ids: { private: "a" },
+    classes: { internal: "b" },
+    safelist: [],
+  });
+  assert.equal(result.javascript, 'document.querySelector("#a .b"); node.classList.add("b")');
 });

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pipelineVersion": "1.0.0",
+  "pipelineVersion": "1.1.0",
   "package": "@cormier/realtime",
   "version": "0.1.0",
   "defaults": {

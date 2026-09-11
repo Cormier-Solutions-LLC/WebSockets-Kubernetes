@@ -49,6 +49,12 @@ function memberName(member) {
   return member.computed && member.property.type === "Literal" ? member.property.value : undefined;
 }
 
+function staticStringValue(node) {
+  if (node.type === "Literal" && typeof node.value === "string") return node.value;
+  if (node.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis[0].value.cooked;
+  return undefined;
+}
+
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "module" });
   const replacements = [];
@@ -57,9 +63,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
-    if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "CallExpression") {
+    const value = staticStringValue(node);
+    if (value !== undefined && parent?.type === "CallExpression") {
       const method = memberName(parent.callee);
-      let mapped = node.value;
+      let mapped = value;
       if (selectorMethods.has(method) || (parent.callee.type === "Identifier" && parent.callee.name === "$")) {
         for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
         for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
@@ -70,7 +77,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       } else if (classListMethods.has(method) && memberName(parent.callee.object) === "classList") {
         mapped = classes[mapped] ?? mapped;
       }
-      if (mapped !== node.value) replacements.push({ start: node.start, end: node.end, value: JSON.stringify(mapped) });
+      if (mapped !== value) replacements.push({ start: node.start, end: node.end, value: JSON.stringify(mapped) });
     }
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {

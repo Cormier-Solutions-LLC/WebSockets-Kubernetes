@@ -79,7 +79,8 @@ public sealed record RealtimeIdentity(
     string TenantId,
     string UserId,
     IReadOnlyList<string> AllowedTopics,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    string? SessionId = null);
 
 public sealed record RedisSessionRecord(
     string TenantId,
@@ -93,7 +94,8 @@ public sealed record ConnectionTicketRecord(
     string UserId,
     IReadOnlyList<string> AllowedTopics,
     DateTimeOffset ExpiresAt,
-    string Audience);
+    string Audience,
+    string? SessionId = null);
 
 public sealed record ConnectionTicketResponse(string Ticket, DateTimeOffset ExpiresAt);
 

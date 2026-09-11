@@ -68,6 +68,10 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public DateTimeOffset LastActivity => new(Interlocked.Read(ref _lastActivityTicks), TimeSpan.Zero);
 
+    public int SubscriptionCount => _subscriptions.Count;
+
+    public int QueuedMessageCount => Math.Max(0, Volatile.Read(ref _queuedMessages));
+
     public bool IsOpen =>
         _socket.State == WebSocketState.Open &&
         Volatile.Read(ref _closeRequested) == 0 &&
@@ -94,12 +98,26 @@ public sealed class RealtimeConnection : IAsyncDisposable
         return true;
     }
 
-    public bool TrySubscribe(AuthorizedRoute route) =>
-        _subscriptions.Count < _options.MaximumSubscriptions &&
-        _subscriptions.TryAdd(route.SubscriptionKey, 0);
+    public bool TrySubscribe(AuthorizedRoute route)
+    {
+        if (_subscriptions.Count >= _options.MaximumSubscriptions ||
+            !_subscriptions.TryAdd(route.SubscriptionKey, 0))
+        {
+            return false;
+        }
+        _metrics.RecordSubscriptionAdded();
+        return true;
+    }
 
-    public bool Unsubscribe(AuthorizedRoute route) =>
-        _subscriptions.TryRemove(route.SubscriptionKey, out _);
+    public bool Unsubscribe(AuthorizedRoute route)
+    {
+        if (!_subscriptions.TryRemove(route.SubscriptionKey, out _))
+        {
+            return false;
+        }
+        _metrics.RecordSubscriptionsRemoved();
+        return true;
+    }
 
     public bool IsSubscribed(string topic, string? userId)
     {
@@ -234,6 +252,8 @@ public sealed class RealtimeConnection : IAsyncDisposable
             Volatile.Write(ref _disposing, 1);
             _outbound.Writer.TryComplete();
             _metrics.RecordQueueRemoved(Interlocked.Exchange(ref _queuedMessages, 0));
+            _metrics.RecordSubscriptionsRemoved(_subscriptions.Count);
+            _subscriptions.Clear();
         }
         if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {

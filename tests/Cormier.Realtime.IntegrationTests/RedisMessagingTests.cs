@@ -27,6 +27,11 @@ public sealed class RedisMessagingTests
 
         var identity = await sessions.ValidateAsync(validId, CancellationToken.None);
         Assert.NotNull(identity);
+        await Assert.ThrowsAsync<ArgumentException>(async () => await tickets.IssueAsync(
+            identity with { SessionId = "short" },
+            "gateway.example",
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None));
         Assert.Null(await sessions.ValidateAsync(expiredId, CancellationToken.None));
         Assert.Null(await sessions.ValidateAsync(revokedId, CancellationToken.None));
         Assert.Null(await sessions.ValidateAsync("missing-session-123456", CancellationToken.None));
@@ -40,11 +45,13 @@ public sealed class RedisMessagingTests
         Assert.Null(await tickets.ConsumeAsync(ticket, "gateway.example", CancellationToken.None));
 
         var usableTicket = await tickets.IssueAsync(
-            identity,
+            identity with { SessionId = validId },
             "gateway.example",
             TimeSpan.FromSeconds(5),
             CancellationToken.None);
-        Assert.NotNull(await tickets.ConsumeAsync(usableTicket, "gateway.example", CancellationToken.None));
+        var consumed = await tickets.ConsumeAsync(usableTicket, "gateway.example", CancellationToken.None);
+        Assert.NotNull(consumed);
+        Assert.Equal(validId, consumed.SessionId);
         Assert.Null(await tickets.ConsumeAsync(usableTicket, "gateway.example", CancellationToken.None));
         Assert.Null(await tickets.ConsumeAsync(string.Empty, "gateway.example", CancellationToken.None));
         Assert.Null(await tickets.ConsumeAsync("not/a/valid/ticket/value/1234567890", "gateway.example", CancellationToken.None));

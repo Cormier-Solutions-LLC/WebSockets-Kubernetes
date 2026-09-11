@@ -44,7 +44,7 @@ public sealed class GatewayMetricsTests
 
         listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
         {
-            if (instrument.Name == "gateway.health.requests")
+            if (instrument.Name == "cormier_realtime_health_requests_total")
             {
                 foreach (var tag in tags)
                 {
@@ -110,5 +110,17 @@ public sealed class GatewayMetricsTests
         Assert.Contains("cormier_realtime_websocket_closes_total{code=\"other\"} 2", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("code=\"3999\"", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("code=\"4000\"", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReconnectMetricRequiresExplicitReconnectContext()
+    {
+        using var metrics = new GatewayMetrics();
+
+        metrics.RecordAuthentication(true, "ticket");
+        metrics.RecordAuthentication(true, "ticket", reconnecting: true);
+
+        var rendered = metrics.RenderPrometheus();
+        Assert.Contains("cormier_realtime_reconnect_authentications_total 1", rendered, StringComparison.Ordinal);
     }
 }

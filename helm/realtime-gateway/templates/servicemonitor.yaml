@@ -1,4 +1,4 @@
-{{- if and .Values.observability.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+{{- if and .Values.metrics.enabled .Values.observability.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -16,9 +16,16 @@ spec:
     matchNames: [{{ .Release.Namespace | quote }}]
   endpoints:
     - port: http
-      path: /metrics
+      path: {{ .Values.metrics.path }}
       interval: {{ .Values.observability.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.observability.serviceMonitor.scrapeTimeout }}
+      {{- if .Values.metrics.authorizationPolicy }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ .Values.metrics.scrapeTokenSecret.name }}
+          key: {{ .Values.metrics.scrapeTokenSecret.key }}
+      {{- end }}
       relabelings:
         - sourceLabels: [__meta_kubernetes_service_name]
           targetLabel: service

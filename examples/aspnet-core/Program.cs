@@ -14,5 +14,6 @@ var app = builder.Build();
 app.UseRealtimeGateway();
 app.UseSession();
 app.MapRealtimeGateway();
+app.MapRealtimeDiagnostics();
 app.MapGet("/", () => Results.Text("Cormier.Realtime ASP.NET Core integration example"));
 app.Run();

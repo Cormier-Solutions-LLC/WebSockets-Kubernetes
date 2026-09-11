@@ -2,6 +2,8 @@
 
 This application is an external-consumer proof for the supported ASP.NET Core integration and generated browser SDK. It creates an ASP.NET Core session, stores the authoritative tenant/user identity in Redis, issues a single-use connection ticket, maps the realtime endpoints, and exposes direct-script and ESM browser workflows.
 
+The `/operator.html` page demonstrates the operator-only diagnostics workflow against a diagnostics API that has been explicitly enabled and protected. Supply the configured base path and a short-lived operator bearer token at runtime; the page keeps it only in memory and never writes it to output or storage. Snapshot, operational-event, live-log, and temporary log-level control calls remain subject to the server's policy, Origin, network, duration, buffer, and rate limits. The ordinary application page does not expose these controls.
+
 ## Prerequisites
 
 - .NET SDK 10

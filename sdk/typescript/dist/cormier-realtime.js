@@ -195,6 +195,10 @@ var RealtimeClient = class {
     if (options.url.toString().trim().length === 0) {
       throw new TypeError("A WebSocket URL is required.");
     }
+    const configuredUrl = new URL(options.url.toString(), "http://localhost");
+    if ([...configuredUrl.searchParams.keys()].some((key) => key.toLowerCase() === "reconnect")) {
+      throw new TypeError("The realtime URL must not contain the reserved reconnect query parameter.");
+    }
     this.options = {
       maximumQueuedCommands: 128,
       maximumPendingCommands: 128,
@@ -352,7 +356,7 @@ var RealtimeClient = class {
     signal?.throwIfAborted();
     const generation = ++this.generation;
     this.setState(reconnecting ? "reconnecting" : "connecting");
-    const connectionUrl = await this.createConnectionUrl(signal);
+    const connectionUrl = await this.createConnectionUrl(reconnecting, signal);
     signal?.throwIfAborted();
     if (generation !== this.generation || this.intentionalClose) {
       throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
@@ -422,7 +426,7 @@ var RealtimeClient = class {
       };
     });
   }
-  async createConnectionUrl(signal) {
+  async createConnectionUrl(reconnecting, signal) {
     const url = new URL(this.options.url.toString(), globalThis.location?.href);
     const authentication = this.options.authentication ?? { kind: "session" };
     if (authentication.kind === "ticket") {
@@ -462,6 +466,9 @@ var RealtimeClient = class {
     }
     if (url.protocol !== "ws:" && url.protocol !== "wss:") {
       throw new TypeError("The realtime URL must use ws, wss, http, or https.");
+    }
+    if (reconnecting) {
+      url.searchParams.set("reconnect", "true");
     }
     return url.toString();
   }
@@ -847,7 +854,175 @@ var RealtimeClient = class {
     }
   }
 };
+
+// src/diagnostics.ts
+var DiagnosticsClient = class {
+  #baseUrl;
+  #headers;
+  #fetch;
+  #onStreamError;
+  #streamRetryMilliseconds;
+  constructor(options = {}) {
+    this.#baseUrl = (options.baseUrl ?? "/diagnostics/v1").replace(/\/$/, "");
+    this.#headers = { ...options.headers ?? {} };
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.#onStreamError = options.onStreamError ?? (() => void 0);
+    this.#streamRetryMilliseconds = options.streamRetryMilliseconds ?? 1e3;
+    if (!Number.isSafeInteger(this.#streamRetryMilliseconds) || this.#streamRetryMilliseconds < 100 || this.#streamRetryMilliseconds > 6e4) {
+      throw new RangeError("streamRetryMilliseconds must be between 100 and 60000.");
+    }
+  }
+  snapshot(signal) {
+    return this.#request("/snapshot", signal ? { signal } : {});
+  }
+  activeLogLevels(signal) {
+    return this.#request("/logging/overrides", signal ? { signal } : {});
+  }
+  audit(offset = 0, limit = 25, signal) {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return this.#request(`/logging/audit?${query}`, signal ? { signal } : {});
+  }
+  applyLogLevel(change, signal) {
+    return this.#request("/logging/overrides", {
+      method: "POST",
+      ...signal ? { signal } : {},
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...change, scope: change.scope ?? "all" })
+    });
+  }
+  async revertLogLevel(id, signal) {
+    await this.#request(`/logging/overrides/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      ...signal ? { signal } : {}
+    });
+  }
+  streamEvents(onEvent) {
+    return this.#stream("/events", {}, onEvent);
+  }
+  tailLogs(filter, onEvent) {
+    return this.#stream(
+      "/logs/tail",
+      filter,
+      onEvent,
+      filter.durationSeconds
+    );
+  }
+  #stream(path, query, onEvent, durationSeconds) {
+    const parameters = new URLSearchParams();
+    for (const [name, value] of Object.entries(query)) if (value !== void 0) parameters.set(name, String(value));
+    const suffix = parameters.size === 0 ? "" : `?${parameters}`;
+    const cancellation = new AbortController();
+    const durationTimer = durationSeconds !== void 0 && Number.isFinite(durationSeconds) && durationSeconds > 0 ? setTimeout(() => cancellation.abort(), durationSeconds * 1e3) : void 0;
+    void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent).finally(() => {
+      if (durationTimer !== void 0) clearTimeout(durationTimer);
+    });
+    return () => {
+      if (durationTimer !== void 0) clearTimeout(durationTimer);
+      cancellation.abort();
+    };
+  }
+  async #runStream(url, cancellation, onEvent) {
+    while (!cancellation.signal.aborted) {
+      try {
+        if (await this.#consumeStream(url, cancellation, onEvent)) {
+          return;
+        }
+      } catch (error) {
+        if (cancellation.signal.aborted) {
+          return;
+        }
+        this.#onStreamError(error instanceof Error ? error : new Error("The diagnostics stream failed."));
+        if (error instanceof DiagnosticsStreamHttpError && error.isPermanent) {
+          return;
+        }
+      }
+      await this.#waitForStreamRetry(cancellation.signal);
+    }
+  }
+  async #consumeStream(url, cancellation, onEvent) {
+    const response = await this.#fetch(url, {
+      credentials: "same-origin",
+      headers: this.#headers,
+      signal: cancellation.signal
+    });
+    if (!response.ok || response.body === null) {
+      throw new DiagnosticsStreamHttpError(response.status);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (!cancellation.signal.aborted) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        let boundary = buffer.search(/\r?\n\r?\n/);
+        while (boundary >= 0) {
+          const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] ?? "\n\n";
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + separator.length);
+          if (this.#dispatchStreamBlock(block, onEvent)) {
+            cancellation.abort();
+            return true;
+          }
+          boundary = buffer.search(/\r?\n\r?\n/);
+        }
+        if (done) {
+          return false;
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => void 0);
+    }
+    return false;
+  }
+  async #waitForStreamRetry(signal) {
+    await new Promise((resolve) => {
+      const complete = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", complete);
+        resolve();
+      };
+      const timer = setTimeout(complete, this.#streamRetryMilliseconds);
+      signal.addEventListener("abort", complete, { once: true });
+    });
+  }
+  #dispatchStreamBlock(block, onEvent) {
+    let eventName = "message";
+    const data = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+      if (line.startsWith("data:")) data.push(line.slice("data:".length).trimStart());
+    }
+    if (eventName === "disconnect") {
+      return true;
+    }
+    if (eventName === "message" && data.length > 0) {
+      onEvent(JSON.parse(data.join("\n")));
+    }
+    return false;
+  }
+  async #request(path, init = {}) {
+    const response = await this.#fetch(`${this.#baseUrl}${path}`, {
+      ...init,
+      credentials: "same-origin",
+      headers: { ...this.#headers, ...init.headers ?? {} }
+    });
+    if (!response.ok) {
+      throw new Error(`Diagnostics request failed with HTTP ${response.status}.`);
+    }
+    return response.status === 204 ? void 0 : await response.json();
+  }
+};
+var DiagnosticsStreamHttpError = class extends Error {
+  isPermanent;
+  constructor(status) {
+    super(`Diagnostics stream failed with HTTP ${status}.`);
+    this.name = "DiagnosticsStreamHttpError";
+    this.isPermanent = status >= 400 && status < 500 && status !== 408 && status !== 429;
+  }
+};
 export {
+  DiagnosticsClient,
   PROTOCOL_VERSION,
   RealtimeClient,
   RealtimeConnectionError,

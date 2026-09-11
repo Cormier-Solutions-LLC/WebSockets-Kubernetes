@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const profile = process.env.FULL_CIRCLE_PROFILE;
 if (profile !== "ha" && profile !== "non-ha") throw new Error("FULL_CIRCLE_PROFILE must be ha or non-ha.");
+const diagnosticsToken = process.env.FULL_CIRCLE_DIAGNOSTICS_TOKEN;
+if (!diagnosticsToken) throw new Error("FULL_CIRCLE_DIAGNOSTICS_TOKEN must contain the runtime-generated test credential.");
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const plan = JSON.parse(readFileSync(resolve(repositoryRoot, "examples/full-circle/full-circle.plan.json"), "utf8"));
 const selectedPlan = plan.profiles?.[profile];
@@ -36,6 +38,12 @@ const appServers = instances.map(instance => ({
     Redis__Endpoint: redis,
     Redis__InstancePrefix: plan.redis.instancePrefix,
     Realtime__AllowedOrigins__0: `http://127.0.0.1:${entryPort}`,
+    Diagnostics__Enabled: "true",
+    Diagnostics__ProductionEnabled: "true",
+    Diagnostics__AuthorizationPolicy: "Cormier.Diagnostics.Operator",
+    Diagnostics__OperatorToken: diagnosticsToken,
+    Diagnostics__AllowedOrigins__0: `http://127.0.0.1:${entryPort}`,
+    Diagnostics__AllowedNetworks__0: "127.0.0.0/8",
   },
 }));
 if (profile === "ha") {

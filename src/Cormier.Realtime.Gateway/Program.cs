@@ -15,10 +15,47 @@ builder.Logging.AddJsonConsole(options =>
     options.UseUtcTimestamp = true;
 });
 
-builder.Services.AddRealtimeGateway(builder.Configuration);
-
-builder.Configuration.AddCommandLine(args);
 builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddCommandLine(args);
+builder.Services.AddRealtimeGateway(builder.Configuration);
+var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
+var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
+var metricsPolicy = builder.Configuration["Metrics:AuthorizationPolicy"];
+var protectedMetricsEnabled = builder.Configuration.GetValue<bool>("Metrics:Enabled") &&
+    !string.IsNullOrWhiteSpace(metricsPolicy);
+if (diagnosticsEnabled && protectedMetricsEnabled &&
+    string.Equals(diagnosticsPolicy, metricsPolicy, StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("Diagnostics and protected metrics require distinct authorization policies.");
+}
+if (diagnosticsEnabled)
+{
+    var diagnosticsToken = builder.Configuration["Diagnostics:OperatorToken"];
+    if (string.IsNullOrWhiteSpace(diagnosticsPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
+    {
+        throw new InvalidOperationException(
+            "Standalone diagnostics require an authorization policy and a Secret-backed Diagnostics:OperatorToken.");
+    }
+    builder.Services.AddRealtimeDiagnosticsBearer(diagnosticsPolicy, diagnosticsToken);
+}
+if (protectedMetricsEnabled)
+{
+    var metricsToken = builder.Configuration["Metrics:ScrapeToken"];
+    if (string.IsNullOrWhiteSpace(metricsPolicy) || string.IsNullOrWhiteSpace(metricsToken))
+    {
+        throw new InvalidOperationException(
+            "Protected metrics require an authorization policy and a Secret-backed Metrics:ScrapeToken.");
+    }
+    if (diagnosticsEnabled && string.Equals(
+        metricsToken,
+        builder.Configuration["Diagnostics:OperatorToken"],
+        StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("Diagnostics and protected metrics require distinct bearer tokens.");
+    }
+    builder.Services.AddRealtimeMetricsBearer(metricsPolicy, metricsToken);
+}
+
 var app = builder.Build();
 var state = app.Services.GetRequiredService<GatewayState>();
 var metrics = app.Services.GetRequiredService<GatewayMetrics>();
@@ -45,7 +82,13 @@ app.Lifetime.ApplicationStopping.Register(() =>
 });
 
 app.UseRealtimeGateway();
+if (diagnosticsEnabled || protectedMetricsEnabled)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 app.MapRealtimeGateway();
+app.MapRealtimeDiagnostics();
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>
 {
@@ -77,11 +120,6 @@ app.MapGet("/health/ready", async Task<Results<Ok<HealthStatusResponse>, JsonHtt
             response,
             RealtimeJsonSerializerContext.Default.HealthStatusResponse,
             statusCode: StatusCodes.Status503ServiceUnavailable);
-});
-
-app.MapGet("/metrics", ContentHttpResult () =>
-{
-    return TypedResults.Text(metrics.RenderPrometheus(), "text/plain; version=0.0.4; charset=utf-8");
 });
 
 app.Run();

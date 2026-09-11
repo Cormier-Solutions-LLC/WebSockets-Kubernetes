@@ -1,4 +1,4 @@
-{{- if and .Values.observability.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
+{{- if and .Values.metrics.enabled .Values.observability.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
 {{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
 {{- $traefikServicePattern := default (printf "^%s-%s-%v@kubernetescrd$" .Release.Namespace (include "realtime-gateway.fullname" .) .Values.service.port) .Values.observability.platformMetrics.traefikServicePattern }}
 {{- $_ := set .Values.observability.prometheusRule.routingLabels "service" (default (include "realtime-gateway.fullname" .) .Values.observability.prometheusRule.routingLabels.service) }}
@@ -56,7 +56,7 @@ spec:
             summary: Abnormal WebSocket disconnect rate is elevated
             runbook_url: {{ printf "%s/disconnects" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
         - alert: RealtimeGatewayReconnectStorm
-          expr: sum(increase(cormier_realtime_connections_opened_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) / clamp_min(sum(cormier_realtime_active_connections{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}), 1) > {{ .Values.observability.alertThresholds.reconnectRatio }}
+          expr: sum(increase(cormier_realtime_reconnect_authentications_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])) / clamp_min(sum(increase(cormier_realtime_connections_opened_total{namespace={{ .Release.Namespace | quote }},service={{ include "realtime-gateway.fullname" . | quote }}}[5m])), 1) > {{ .Values.observability.alertThresholds.reconnectRatio }}
           for: 10m
           labels:
             severity: warning

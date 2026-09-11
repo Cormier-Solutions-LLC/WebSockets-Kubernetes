@@ -66,6 +66,9 @@ spec:
           env:
             - name: ASPNETCORE_HTTP_PORTS
               value: {{ .Values.service.targetPort | quote }}
+            - name: CORMIER_REALTIME_INSTANCE_ID
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
             - name: Redis__Password
               valueFrom:
                 secretKeyRef: { name: {{ .Values.redis.credentialsSecret.name }}, key: {{ .Values.redis.credentialsSecret.passwordKey }} }
@@ -76,6 +79,21 @@ spec:
             {{- end }}
             - name: Redis__Ssl
               value: {{ .Values.redis.tls | quote }}
+            {{- if and .Values.diagnostics.enabled .Values.diagnostics.operatorTokenSecret.name }}
+            - name: Diagnostics__OperatorToken
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.diagnostics.operatorTokenSecret.name }}, key: {{ .Values.diagnostics.operatorTokenSecret.key }} }
+            {{- end }}
+            {{- if and .Values.metrics.enabled .Values.metrics.authorizationPolicy .Values.metrics.scrapeTokenSecret.name }}
+            - name: Metrics__ScrapeToken
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.metrics.scrapeTokenSecret.name }}, key: {{ .Values.metrics.scrapeTokenSecret.key }} }
+            {{- end }}
+            {{- if and .Values.observability.otlp.enabled .Values.observability.otlp.headersSecret.name }}
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.observability.otlp.headersSecret.name }}, key: {{ .Values.observability.otlp.headersSecret.key }} }
+            {{- end }}
           startupProbe:
             httpGet: { path: /health/startup, port: http }
             periodSeconds: 2

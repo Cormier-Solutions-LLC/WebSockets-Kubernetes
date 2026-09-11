@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -136,7 +136,7 @@ async function buildPackageConsumer() {
     targetGraph[packageId].contentHash = createHash("sha512").update(await readFile(resolve(feed, packageFile))).digest("base64");
   }
   await writeFile(consumerLock, `${JSON.stringify(consumerLockGraph, null, 2)}\n`);
-  await writeFile(config, `<configuration><config><add key="globalPackagesFolder" value="${xml(packages)}" /></config><packageSources><clear /><add key="local" value="${xml(feed)}" /><add key="upstream" value="%NUGET_UPSTREAM_SOURCE%" /></packageSources><packageSourceMapping><packageSource key="local"><package pattern="Cormier.Realtime.*" /></packageSource><packageSource key="upstream"><package pattern="Microsoft.*" /><package pattern="StackExchange.Redis" /><package pattern="RESPite" /><package pattern="System.*" /></packageSource></packageSourceMapping></configuration>\n`);
+  await writeFile(config, `<configuration><config><add key="globalPackagesFolder" value="${xml(packages)}" /></config><packageSources><clear /><add key="local" value="${xml(feed)}" /><add key="upstream" value="%NUGET_UPSTREAM_SOURCE%" /></packageSources><packageSourceMapping><packageSource key="local"><package pattern="Cormier.Realtime.*" /></packageSource><packageSource key="upstream"><package pattern="Microsoft.*" /><package pattern="OpenTelemetry" /><package pattern="OpenTelemetry.*" /><package pattern="StackExchange.Redis" /><package pattern="RESPite" /><package pattern="System.*" /></packageSource></packageSourceMapping></configuration>\n`);
   const project = "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj";
   const properties = [
     "-p:UseProjectReferences=false",
@@ -169,9 +169,14 @@ try {
     await verifyRedis();
   } else if (action === "validate") {
     await verifyRedis();
+    const diagnosticsToken = randomBytes(32).toString("hex");
     await command(executable("npx"), ["playwright", "test", "--config", "playwright.full-circle.config.mjs"], {
       cwd: resolve(repositoryRoot, "sdk/typescript"),
-      env: { FULL_CIRCLE_PROFILE: profileName, REDIS_TEST_ENDPOINT: redisEndpoint },
+      env: {
+        FULL_CIRCLE_PROFILE: profileName,
+        FULL_CIRCLE_DIAGNOSTICS_TOKEN: diagnosticsToken,
+        REDIS_TEST_ENDPOINT: redisEndpoint,
+      },
     });
   } else if (action === "run") {
     const instance = profile.instances[0];
@@ -179,6 +184,7 @@ try {
       env: {
         ASPNETCORE_URLS: `http://127.0.0.1:${instance.port}`,
         FullCircle__Topology: profileName,
+        Gateway__Topology: profileName,
         FullCircle__InstanceName: instance.name,
         Redis__Endpoint: redisEndpoint,
         Redis__InstancePrefix: plan.redis.instancePrefix,

@@ -63,6 +63,29 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task MetricsEndpointNegotiatesOpenMetrics()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/metrics");
+        request.Headers.Accept.ParseAdd("application/openmetrics-text; version=1.0.0");
+
+        using var response = await _client.SendAsync(request, CancellationToken.None);
+        var body = await response.Content.ReadAsStringAsync(CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/openmetrics-text", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("1.0.0", response.Content.Headers.ContentType?.Parameters.Single(item => item.Name == "version").Value);
+        Assert.EndsWith("# EOF\n", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DiagnosticsAreDisabledByDefault()
+    {
+        using var response = await _client.GetAsync("/diagnostics/v1/snapshot", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public void ApplicationConfigurationOverridesBindToRedisOptions()
     {
         using var baseFactory = new WebApplicationFactory<Program>();

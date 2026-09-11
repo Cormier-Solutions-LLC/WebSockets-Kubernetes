@@ -128,6 +128,10 @@
           "legendFormat": "opened"
         },
         {
+          "expr": "sum(rate(cormier_realtime_reconnect_authentications_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
+          "legendFormat": "fresh-ticket reconnects"
+        },
+        {
           "expr": "sum by (reason) (rate(cormier_realtime_connections_closed_total{environment=~\"$environment\",cluster=~\"$cluster\",namespace=~\"$namespace\",instance=~\"$instance\",service=\"__SERVICE_NAME__\"}[$__rate_interval]))",
           "legendFormat": "closed {{reason}}"
         },

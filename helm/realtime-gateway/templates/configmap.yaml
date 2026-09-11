@@ -1,3 +1,12 @@
+{{- if and .Values.diagnostics.enabled .Values.metrics.enabled .Values.metrics.authorizationPolicy (eq (lower .Values.diagnostics.authorizationPolicy) (lower .Values.metrics.authorizationPolicy)) }}
+{{- fail "diagnostics.authorizationPolicy and metrics.authorizationPolicy must be distinct" }}
+{{- end }}
+{{- if and .Values.diagnostics.enabled .Values.metrics.enabled .Values.metrics.authorizationPolicy (eq .Values.diagnostics.operatorTokenSecret.name .Values.metrics.scrapeTokenSecret.name) (eq .Values.diagnostics.operatorTokenSecret.key .Values.metrics.scrapeTokenSecret.key) }}
+{{- fail "diagnostics.operatorTokenSecret and metrics.scrapeTokenSecret must reference distinct Secret keys" }}
+{{- end }}
+{{- if gt (int .Values.diagnostics.minimumLogOverrideSeconds) (int .Values.diagnostics.maximumLogOverrideSeconds) }}
+{{- fail "diagnostics.maximumLogOverrideSeconds must be greater than or equal to diagnostics.minimumLogOverrideSeconds" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,6 +17,30 @@ data:
   Gateway__ServiceName: {{ include "realtime-gateway.fullname" . | quote }}
   Gateway__ShutdownDrainSeconds: {{ .Values.gateway.shutdownDrainSeconds | quote }}
   Gateway__DetailedHealthChecks: {{ .Values.gateway.detailedHealthChecks | quote }}
+  Gateway__Topology: {{ ternary "ha" "non-ha" (gt (int .Values.replicaCount) 1) | quote }}
+  Diagnostics__Enabled: {{ .Values.diagnostics.enabled | quote }}
+  Diagnostics__ProductionEnabled: {{ .Values.diagnostics.productionEnabled | quote }}
+  Diagnostics__BasePath: {{ .Values.diagnostics.basePath | quote }}
+  Diagnostics__AuthorizationPolicy: {{ .Values.diagnostics.authorizationPolicy | quote }}
+  Diagnostics__MaximumDetailItems: {{ .Values.diagnostics.maximumDetailItems | quote }}
+  Diagnostics__MaximumConcurrentRequests: {{ .Values.diagnostics.maximumConcurrentRequests | quote }}
+  Diagnostics__MaximumTailSessions: {{ .Values.diagnostics.maximumTailSessions | quote }}
+  Diagnostics__TailBufferCapacity: {{ .Values.diagnostics.tailBufferCapacity | quote }}
+  Diagnostics__TailEventsPerSecond: {{ .Values.diagnostics.tailEventsPerSecond | quote }}
+  Diagnostics__TailBytesPerSecond: {{ .Values.diagnostics.tailBytesPerSecond | quote }}
+  Diagnostics__MaximumTailDurationSeconds: {{ .Values.diagnostics.maximumTailDurationSeconds | quote }}
+  Diagnostics__MinimumLogOverrideSeconds: {{ .Values.diagnostics.minimumLogOverrideSeconds | quote }}
+  Diagnostics__MaximumLogOverrideSeconds: {{ .Values.diagnostics.maximumLogOverrideSeconds | quote }}
+  Diagnostics__AuditCapacity: {{ .Values.diagnostics.auditCapacity | quote }}
+  Diagnostics__AuditRetentionDays: {{ .Values.diagnostics.auditRetentionDays | quote }}
+  Metrics__Enabled: {{ .Values.metrics.enabled | quote }}
+  Metrics__Path: {{ .Values.metrics.path | quote }}
+  Metrics__AuthorizationPolicy: {{ .Values.metrics.authorizationPolicy | quote }}
+  Metrics__OtlpEnabled: {{ .Values.observability.otlp.enabled | quote }}
+  {{- if .Values.observability.otlp.endpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.observability.otlp.protocol | quote }}
+  {{- end }}
   Redis__Endpoint: {{ include "realtime-gateway.redisEndpoint" . | quote }}
   Redis__SentinelServiceName: {{ ternary .Values.redis.sentinelServiceName "" (eq .Values.redis.mode "managed") | quote }}
   Redis__RequiredForReadiness: {{ .Values.redis.requiredForReadiness | quote }}
@@ -21,4 +54,16 @@ data:
   {{- end }}
   {{- range $index, $network := .Values.gateway.trustedNetworks }}
   Proxy__TrustedNetworks__{{ $index }}: {{ $network | quote }}
+  {{- end }}
+  {{- range $index, $origin := .Values.diagnostics.allowedOrigins }}
+  Diagnostics__AllowedOrigins__{{ $index }}: {{ $origin | quote }}
+  {{- end }}
+  {{- range $index, $network := .Values.diagnostics.allowedNetworks }}
+  Diagnostics__AllowedNetworks__{{ $index }}: {{ $network | quote }}
+  {{- end }}
+  {{- range $index, $category := .Values.diagnostics.logCategoryAllowlist }}
+  Diagnostics__LogCategoryAllowlist__{{ $index }}: {{ $category | quote }}
+  {{- end }}
+  {{- range $index, $network := .Values.metrics.allowedNetworks }}
+  Metrics__AllowedNetworks__{{ $index }}: {{ $network | quote }}
   {{- end }}

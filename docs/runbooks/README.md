@@ -2,6 +2,8 @@
 
 All commands require explicit context, namespace, release, and endpoint parameters. Never copy a production address, credential, or Secret value into this repository or an incident ticket.
 
+For the operator-only live troubleshooting surface, temporary log-level controls, redaction limits, and portable telemetry rollback, see [secure diagnostics operations](diagnostics.md).
+
 ## Deployment, promotion, and rollback
 
 1. Confirm CI passed build, tests, Native AOT smoke, rootless/read-only container smoke, dependency review, Trivy scans, and SBOM generation.

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cormier.Realtime operator diagnostics</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <h1>Operator diagnostics</h1>
+    <p>This test-only view calls the separately authorized diagnostics API. The bearer value remains in browser memory and is never written to output or storage.</p>
+    <section>
+      <label>Diagnostics base path <input id="base" value="/diagnostics/v1"></label>
+      <label>Operator bearer token <input id="token" type="password" autocomplete="off"></label>
+      <button id="snapshot">Refresh snapshot</button>
+      <button id="events">Start events</button>
+      <button id="logs">Start log tail</button>
+      <button id="stop">Stop streams</button>
+    </section>
+    <section>
+      <h2>Temporary logging</h2>
+      <label>Category <input id="category" value="Cormier.Realtime"></label>
+      <label>Level <select id="level"><option>Debug</option><option>Trace</option><option>Information</option><option>Warning</option></select></label>
+      <label>Duration seconds <input id="duration" type="number" min="30" max="3600" value="300"></label>
+      <label>Reason <input id="reason" value="full-circle diagnostics verification"></label>
+      <button id="apply">Apply across replicas</button>
+      <button id="revert" disabled>Revert active override</button>
+      <button id="audit">Refresh audit</button>
+      <p>Automatic reversion in <strong id="countdown">not active</strong></p>
+    </section>
+    <section><h2>Live output</h2><pre id="output" aria-live="polite"></pre></section>
+    <p><a href="/">Return to realtime workflow</a></p>
+  </main>
+  <script src="/_content/Cormier.Realtime.Browser/cormier-realtime.iife.js"></script>
+  <script src="/operator.js"></script>
+</body>
+</html>

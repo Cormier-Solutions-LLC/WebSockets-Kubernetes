@@ -18,6 +18,18 @@ builder.Services.AddOptions<FullCircleOptions>()
     .Validate(options => options.AllowedUsers is { Length: > 0 } && options.AllowedUsers.All(IsSafeScope), "FullCircle:AllowedUsers must contain safe fixture identifiers.")
     .ValidateOnStart();
 builder.Services.AddRealtimeGateway(builder.Configuration);
+var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
+if (diagnosticsEnabled)
+{
+    var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
+    var diagnosticsToken = builder.Configuration["Diagnostics:OperatorToken"];
+    if (string.IsNullOrWhiteSpace(diagnosticsPolicy) || string.IsNullOrWhiteSpace(diagnosticsToken))
+    {
+        throw new InvalidOperationException(
+            "Enabled full-circle diagnostics require a policy and runtime-provided operator token.");
+    }
+    builder.Services.AddRealtimeDiagnosticsBearer(diagnosticsPolicy, diagnosticsToken);
+}
 builder.Services.AddSingleton<IDistributedCache, RedisDistributedCache>();
 var sessionLifetimeMinutes = builder.Configuration.GetValue<int?>("FullCircle:SessionLifetimeMinutes") ?? 20;
 builder.Services.AddSession(options =>
@@ -31,9 +43,15 @@ builder.Services.AddSession(options =>
 var app = builder.Build();
 app.UseRealtimeGateway();
 app.UseSession();
+if (diagnosticsEnabled)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 app.UseStaticFiles();
 app.MapStaticAssets();
 app.MapRealtimeGateway();
+app.MapRealtimeDiagnostics();
 
 app.MapPost("/api/login", async (LoginRequest request, HttpContext context, IOptions<FullCircleOptions> settings,
     RedisConnectionProvider connections, RedisOptions redis, CancellationToken cancellationToken) =>
@@ -80,12 +98,12 @@ app.MapGet("/api/session", async (HttpContext context, IRealtimeSessionStore ses
 
 app.MapGet("/api/diagnostics", async (IOptions<FullCircleOptions> settings, IRedisReadinessProbe redis,
     CancellationToken cancellationToken) => Results.Ok(new
-{
-    topology = settings.Value.Topology,
-    instance = settings.Value.InstanceName,
-    redis = await redis.IsReadyAsync(cancellationToken) ? "ready" : "unavailable",
-    timestamp = DateTimeOffset.UtcNow,
-}));
+    {
+        topology = settings.Value.Topology,
+        instance = settings.Value.InstanceName,
+        redis = await redis.IsReadyAsync(cancellationToken) ? "ready" : "unavailable",
+        timestamp = DateTimeOffset.UtcNow,
+    }));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapFallbackToFile("index.html");
 app.Run();

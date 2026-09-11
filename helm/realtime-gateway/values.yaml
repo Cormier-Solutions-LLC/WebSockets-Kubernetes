@@ -62,6 +62,17 @@ observability:
     interval: 30s
     scrapeTimeout: 10s
     additionalLabels: {}
+  otlp:
+    enabled: false
+    endpoint: ""
+    protocol: http/protobuf
+    egressNamespaceSelector: {}
+    egressPodSelector: {}
+    egressCidrs: []
+    egressPorts: [4317, 4318, 443]
+    headersSecret:
+      name: ""
+      key: headers
   grafanaDashboard:
     enabled: true
     label: grafana_dashboard
@@ -88,6 +99,41 @@ gateway:
     - 10.0.0.0/8
     - 172.16.0.0/12
     - 192.168.0.0/16
+
+diagnostics:
+  enabled: false
+  productionEnabled: false
+  basePath: /diagnostics/v1
+  authorizationPolicy: Cormier.Diagnostics.Operator
+  operatorTokenSecret:
+    # Required when diagnostics are enabled. The chart references but never creates this Secret.
+    name: ""
+    key: token
+  allowedOrigins: []
+  allowedNetworks: []
+  logCategoryAllowlist:
+    - Cormier.Realtime
+  maximumDetailItems: 100
+  maximumConcurrentRequests: 8
+  maximumTailSessions: 4
+  tailBufferCapacity: 128
+  tailEventsPerSecond: 50
+  tailBytesPerSecond: 65536
+  maximumTailDurationSeconds: 900
+  minimumLogOverrideSeconds: 30
+  maximumLogOverrideSeconds: 3600
+  auditCapacity: 500
+  auditRetentionDays: 30
+
+metrics:
+  enabled: true
+  path: /metrics
+  authorizationPolicy: ""
+  scrapeTokenSecret:
+    # Required for protected metrics. This credential must be distinct from the diagnostics operator token.
+    name: ""
+    key: token
+  allowedNetworks: []
 
 redis:
   # external: use an existing endpoint; managed: endpoint is derived from managedReleaseName.

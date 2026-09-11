@@ -39,6 +39,9 @@ test-results/
 .browser-cache/
 /src/Cormier.Realtime.Browser/wwwroot/
 
+# Java build outputs
+target/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

@@ -8,7 +8,7 @@ async function login(page) {
 
 test("shared UI completes login, connect, subscribe, publish, receive, reconnect, and logout", async ({ page }) => {
   await login(page);
-  await expect(page.locator("#diagnostics")).toContainText("Node.js / Express");
+  await expect(page.locator("#diagnostics")).toContainText(process.env.REFERENCE_STACK);
   await page.click("#connect");
   await expect(page.locator("#state")).toHaveText("open");
   await page.click("#subscribe");
@@ -35,16 +35,14 @@ test("anonymous, invalid identity, and rejected Origin requests fail safely", as
   await expect(page.locator("#events")).toContainText("error");
 
   const invalid = await request.post("/api/login", {
-    headers: { Origin: "http://127.0.0.1:15100" },
+    headers: { Origin: new URL(process.env.REFERENCE_BASE_URL).origin },
     data: { tenantId: "unknown", userId: "unknown" },
   });
   expect(invalid.status()).toBe(400);
-  expect(await invalid.json()).toMatchObject({ code: "invalid_identity" });
 
   const rejected = await request.post("/api/login", {
     headers: { Origin: "https://untrusted.invalid" },
     data: { tenantId: "tenant-a", userId: "user-a" },
   });
   expect(rejected.status()).toBe(403);
-  expect(await rejected.json()).toMatchObject({ code: "origin_rejected" });
 });

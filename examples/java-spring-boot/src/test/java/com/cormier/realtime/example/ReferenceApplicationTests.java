@@ -1,0 +1,135 @@
+package com.cormier.realtime.example;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
+
+import java.time.Duration;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.redis.core.ReactiveValueOperations;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
+
+@SpringBootTest(properties = {
+    "PORT=0",
+    "PUBLIC_ORIGIN=http://127.0.0.1:15200",
+    "GATEWAY_URL=http://127.0.0.1:9",
+    "REDIS_URL=redis://127.0.0.1:6379",
+    "SESSION_LIFETIME_SECONDS=1200",
+    "INSTANCE_NAME=java-spring-a",
+    "TOPOLOGY=non-ha",
+    "REDIS_INSTANCE_PREFIX=cormier:java-test",
+    "REDIS_SESSION_KEY_PREFIX=sessions",
+    "ALLOWED_TENANTS=tenant-a,tenant-b",
+    "ALLOWED_USERS=user-a,user-b"
+})
+@AutoConfigureWebTestClient
+final class ReferenceApplicationTests {
+  @Autowired private WebTestClient client;
+  @MockitoBean private ReactiveStringRedisTemplate redis;
+  @MockitoBean private ReactiveValueOperations<String, String> values;
+
+  @BeforeEach
+  void configureRedis() {
+    when(redis.hasKey(anyString())).thenReturn(Mono.just(false));
+    when(redis.opsForValue()).thenReturn(values);
+    when(values.set(anyString(), anyString(), any(Duration.class))).thenReturn(Mono.just(true));
+    when(redis.delete(anyString())).thenReturn(Mono.just(1L));
+  }
+
+  @Test
+  void exposesHealthDiagnosticsAndCanonicalAssets() {
+    client.get().uri("/health").exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.status").isEqualTo("healthy");
+    client.get().uri("/api/diagnostics").exchange().expectStatus().isOk()
+        .expectHeader().cacheControl(CacheControl.noStore())
+        .expectBody().jsonPath("$.stack").isEqualTo("Java / Spring Boot")
+        .jsonPath("$.redis").isEqualTo("ready");
+    client.get().uri("/").exchange().expectStatus().isOk()
+        .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML);
+    client.get().uri("/app.js").exchange().expectStatus().isOk();
+  }
+
+  @Test
+  void rejectsMissingOriginAndUnknownIdentity() {
+    client.post().uri("/api/login").contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"tenantId\":\"tenant-a\",\"userId\":\"user-a\"}")
+        .exchange().expectStatus().isForbidden()
+        .expectBody().jsonPath("$.code").isEqualTo("origin_rejected");
+    client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"tenantId\":\"tenant-a\",\"userId\":\"unknown\"}")
+        .exchange().expectStatus().isBadRequest()
+        .expectBody().jsonPath("$.code").isEqualTo("invalid_identity");
+  }
+
+  @Test
+  void createsGatewayCompatibleSessionAndLogsOut() {
+    client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"tenantId\":\"tenant-a\",\"userId\":\"user-a\"}")
+        .exchange().expectStatus().isOk()
+        .expectCookie().httpOnly("cormier_session", true)
+        .expectCookie().sameSite("cormier_session", "Strict")
+        .expectBody().jsonPath("$.tenantId").isEqualTo("tenant-a")
+        .jsonPath("$.sessionId").doesNotExist();
+    client.post().uri("/api/logout").header("Origin", "http://127.0.0.1:15200")
+        .exchange().expectStatus().isNoContent()
+        .expectCookie().maxAge("cormier_session", Duration.ZERO);
+  }
+
+  @Test
+  void rejectsExpiredSessions() throws Exception {
+    var expired = "{\"tenantId\":\"tenant-a\",\"userId\":\"user-a\",\"allowedTopics\":[\"orders\"],"
+        + "\"expiresAt\":\"" + Instant.EPOCH + "\",\"revoked\":false}";
+    when(values.get(anyString())).thenReturn(Mono.just(expired));
+    client.get().uri("/api/session").cookie("cormier_session", "0123456789abcdef")
+        .exchange().expectStatus().isUnauthorized()
+        .expectBody().jsonPath("$.code").isEqualTo("authentication_required");
+  }
+
+  @Test
+  void returnsRedactedDependencyAndGatewayFailures() {
+    when(values.set(anyString(), anyString(), any(Duration.class)))
+        .thenReturn(Mono.error(new IllegalStateException("redis://user:secret@private.invalid")));
+    client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"tenantId\":\"tenant-a\",\"userId\":\"user-a\"}")
+        .exchange().expectStatus().isEqualTo(503)
+        .expectBody().json("{\"code\":\"service_unavailable\",\"message\":\"The reference application dependency is unavailable.\"}")
+        .consumeWith(result -> org.junit.jupiter.api.Assertions.assertFalse(
+            new String(result.getResponseBody()).contains("private.invalid")));
+
+    client.post().uri("/realtime/tickets").header("Origin", "http://127.0.0.1:15200")
+        .exchange().expectStatus().is5xxServerError()
+        .expectBody().consumeWith(result -> org.junit.jupiter.api.Assertions.assertFalse(
+            new String(result.getResponseBody()).contains("127.0.0.1:9")));
+  }
+
+  @Test
+  void consumesCanonicalConfigurationAndProtocolContracts() throws Exception {
+    var mapper = new tools.jackson.databind.ObjectMapper();
+    var schema = mapper.readTree(Files.readString(Path.of("../shared-web/reference-app.schema.json")));
+    var required = schema.get("required").toString();
+    for (var name : new String[] { "PUBLIC_ORIGIN", "GATEWAY_URL", "REDIS_URL", "SESSION_LIFETIME_SECONDS",
+        "INSTANCE_NAME", "TOPOLOGY", "REDIS_INSTANCE_PREFIX", "REDIS_SESSION_KEY_PREFIX", "ALLOWED_TENANTS",
+        "ALLOWED_USERS" }) {
+      org.junit.jupiter.api.Assertions.assertTrue(required.contains("\"" + name + "\""), name);
+    }
+    var sdk = mapper.readTree(Files.readString(Path.of("../../sdk/typescript/dist/version.json")));
+    var protocol = mapper.readTree(Files.readString(Path.of("../../protocol/fixtures/v1/envelopes.json")));
+    org.junit.jupiter.api.Assertions.assertEquals("1.0", sdk.get("protocolVersion").asText());
+    org.junit.jupiter.api.Assertions.assertEquals(sdk.get("protocolVersion"), protocol.get("protocolVersion"));
+  }
+}

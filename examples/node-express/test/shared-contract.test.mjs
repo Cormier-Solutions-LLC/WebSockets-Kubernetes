@@ -23,6 +23,7 @@ test("configuration stays aligned with the canonical reference schema", async ()
     ALLOWED_TENANTS: "tenant-a,tenant-b",
     ALLOWED_USERS: "user-a,user-b",
   })[name]]));
+  environment.SESSION_SECRET = "a-runtime-only-secret-that-is-long-enough";
   assert.equal(Object.keys(environment).length, 12);
   assert.doesNotThrow(() => loadConfig(environment));
 });

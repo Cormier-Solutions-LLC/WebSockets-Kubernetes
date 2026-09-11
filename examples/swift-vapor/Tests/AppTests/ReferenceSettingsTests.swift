@@ -123,6 +123,8 @@ struct ReferenceSettingsTests {
     #expect(source.contains("ResponseAccumulator("))
     #expect(source.contains("maxBodySize: maximumBodyBytes"))
     #expect(source.contains("delegate: accumulator"))
+    #expect(source.contains("let deadline: NIODeadline = .now() + .seconds(15)"))
+    #expect(source.contains("delegate: accumulator, deadline: deadline"))
   }
 
   @Test("launcher waits for the stack-specific public endpoint")

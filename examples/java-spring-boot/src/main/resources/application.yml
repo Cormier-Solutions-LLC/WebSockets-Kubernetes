@@ -3,6 +3,9 @@ server:
   port: ${cormier.reference.port}
   shutdown: graceful
 spring:
+  http:
+    codecs:
+      max-in-memory-size: 64KB
   application:
     name: cormier-realtime-java-spring-boot-example
   data:

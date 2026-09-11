@@ -51,6 +51,14 @@ class ReferenceApplicationTest {
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:443")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://EXAMPLE.TEST")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:99999")) }
+        for (host in listOf("a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1",
+            "${"a".repeat(64)}.example", "[fe80::1%25eth0]")) {
+            assertFailsWith<IllegalArgumentException>(host) {
+                ReferenceConfig.load(fixtureEnvironment + ("GATEWAY_URL" to "https://$host"))
+            }
+        }
+        ReferenceConfig.load(fixtureEnvironment + mapOf(
+            "PUBLIC_ORIGIN" to "https://[::1]", "GATEWAY_URL" to "http://192.0.2.1:15301"))
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("ALLOWED_USERS" to "bad user")) }
     }
 

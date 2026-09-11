@@ -1,3 +1,4 @@
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -7,6 +8,7 @@ import httpx
 import pytest
 
 from reference_app import __main__ as entrypoint
+from reference_app import main as reference_main
 from reference_app.config import Settings
 from reference_app.main import (
     MAXIMUM_BODY_BYTES,
@@ -176,6 +178,32 @@ async def test_ticket_forwards_the_public_scheme_to_an_internal_gateway() -> Non
 async def test_ticket_rejects_streamed_oversized_upstream_response() -> None:
     app = create_app(settings())
     app.state.http = Upstream(b"a" * (MAXIMUM_BODY_BYTES + 1))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://reference.test") as client:
+        response = await client.post("/realtime/tickets", headers={"Origin": "http://127.0.0.1:15500"}, content=b"{}")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "service_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_ticket_enforces_a_total_streaming_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    class SlowResponse:
+        status_code = 202
+        headers = {"content-type": "application/json"}
+
+        async def aiter_bytes(self):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(1)
+            yield b"{}"
+
+    class SlowUpstream:
+        @asynccontextmanager
+        async def stream(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            yield SlowResponse()
+
+    monkeypatch.setattr(reference_main, "TICKET_DEADLINE_SECONDS", 0.01)
+    app = create_app(settings())
+    app.state.http = SlowUpstream()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://reference.test") as client:
         response = await client.post("/realtime/tickets", headers={"Origin": "http://127.0.0.1:15500"}, content=b"{}")

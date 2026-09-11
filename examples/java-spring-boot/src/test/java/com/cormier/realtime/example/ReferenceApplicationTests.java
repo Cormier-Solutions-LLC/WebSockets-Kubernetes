@@ -91,6 +91,15 @@ final class ReferenceApplicationTests {
   }
 
   @Test
+  void rejectsOversizedLoginAsAClientError() {
+    var body = "{\"tenantId\":\"tenant-a\",\"userId\":\"user-a\"}" + " ".repeat(64 * 1024);
+    client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
+        .contentType(MediaType.APPLICATION_JSON).bodyValue(body)
+        .exchange().expectStatus().isEqualTo(413)
+        .expectBody().jsonPath("$.code").isEqualTo("invalid_request");
+  }
+
+  @Test
   void createsGatewayCompatibleSessionAndLogsOut() {
     client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
         .contentType(MediaType.APPLICATION_JSON)
@@ -189,5 +198,22 @@ final class ReferenceApplicationTests {
         1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
+  }
+
+  @Test
+  void rejectsMalformedOriginHostsAndAcceptsFullIpLiterals() {
+    for (var name : new String[] { "a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example", "[fe80::1%25eth0]" }) {
+      var properties = new ReferenceProperties(
+          "127.0.0.1", 15200, URI.create("https://" + name), URI.create("http://gateway.test"),
+          1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+          java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
+      org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid(), name);
+    }
+    var properties = new ReferenceProperties(
+        "127.0.0.1", 15200, URI.create("https://[::1]"), URI.create("http://192.0.2.1:15501"),
+        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
+    org.junit.jupiter.api.Assertions.assertTrue(properties.areOriginsValid());
   }
 }

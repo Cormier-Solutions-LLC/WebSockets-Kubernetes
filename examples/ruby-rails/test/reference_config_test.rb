@@ -4,6 +4,9 @@ require "stringio"
 require_relative "../lib/reference_config"
 require_relative "../lib/limited_body_reader"
 
+class ApplicationController; end unless defined?(ApplicationController)
+require_relative "../app/controllers/reference_controller"
+
 class ReferenceConfigTest < Minitest::Test
   def values
     {
@@ -123,5 +126,13 @@ class ReferenceConfigTest < Minitest::Test
         append.call("b")
       end
     end
+  end
+
+  def test_session_expirations_require_rfc3339_offsets
+    now = Time.utc(2026, 1, 1)
+    refute ReferenceController.valid_future_expiration?("2099-01-01T00:00:00", now)
+    refute ReferenceController.valid_future_expiration?("January 1, 2099", now)
+    refute ReferenceController.valid_future_expiration?("2099-02-30T00:00:00Z", now)
+    assert ReferenceController.valid_future_expiration?("2099-01-01T00:00:00Z", now)
   end
 end

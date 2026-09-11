@@ -6,7 +6,9 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -37,7 +39,7 @@ public record ReferenceProperties(
   private static boolean isOrigin(URI value) {
     return value != null
         && ("http".equals(value.getScheme()) || "https".equals(value.getScheme()))
-        && value.getHost() != null
+        && isNetworkHost(value.getHost())
         && value.toString().equals(value.toString().toLowerCase(java.util.Locale.ROOT))
         && value.getUserInfo() == null
         && (value.getPath() == null || value.getPath().isEmpty() || "/".equals(value.getPath()))
@@ -46,6 +48,35 @@ public record ReferenceProperties(
         && (value.getPort() == -1 || value.getPort() >= 1 && value.getPort() <= 65535)
         && !("http".equals(value.getScheme()) && value.getPort() == 80)
         && !("https".equals(value.getScheme()) && value.getPort() == 443);
+  }
+
+  private static boolean isNetworkHost(String host) {
+    if (host == null || host.isEmpty() || host.length() > 253 || host.contains("%")) return false;
+    var unbracketed = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+    if (unbracketed.contains("[") || unbracketed.contains("]")) return false;
+    if (unbracketed.contains(":")) {
+      try {
+        return InetAddress.getByName(unbracketed).getHostAddress().contains(":");
+      } catch (UnknownHostException error) {
+        return false;
+      }
+    }
+    if (unbracketed.matches("[0-9.]+")) {
+      var parts = unbracketed.split("\\.", -1);
+      if (parts.length != 4) return false;
+      for (var part : parts) {
+        try {
+          if (part.isEmpty() || Integer.parseInt(part) > 255) return false;
+        } catch (NumberFormatException error) {
+          return false;
+        }
+      }
+      return true;
+    }
+    for (var label : unbracketed.split("\\.", -1)) {
+      if (label.length() < 1 || label.length() > 63 || !label.matches("[a-z0-9](?:[a-z0-9-]*[a-z0-9])?")) return false;
+    }
+    return true;
   }
 
   public boolean allows(String tenantId, String userId) {

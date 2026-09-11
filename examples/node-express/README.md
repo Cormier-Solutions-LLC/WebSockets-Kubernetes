@@ -72,7 +72,7 @@ This is a teaching adapter, not a production identity system or reverse proxy. `
 | Redis | 7.4 | Tested session service |
 | Container base | Node 24.20.0 Alpine, pinned OCI index digest | Reproducible multi-platform base |
 
-The stack-specific runtime is six source files and 546 nonblank lines before tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
+The stack-specific runtime is six source files and 555 nonblank lines before tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
 
 ## Support and diagnostics
 

@@ -25,6 +25,7 @@ logging.getLogger("uvicorn").setLevel(logging.CRITICAL)
 logging.getLogger("websockets").setLevel(logging.CRITICAL)
 SESSION_COOKIE = "cormier_session"
 PROTOCOL = "cormier.realtime.v1"
+TICKET_DEADLINE_SECONDS = 15
 
 
 class LoginRequest(BaseModel):
@@ -283,23 +284,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         headers.update(public_forwarding_headers(configured))
         try:
-            async with request.app.state.http.stream(
-                "POST", f"{configured.GATEWAY_URL}/realtime/tickets", content=bytes(body), headers=headers
-            ) as upstream:
-                response_body = bytearray()
-                async for chunk in upstream.aiter_bytes():
-                    if len(response_body) + len(chunk) > MAXIMUM_BODY_BYTES:
-                        return JSONResponse(
-                            {
-                                "code": "service_unavailable",
-                                "message": "The reference application dependency is unavailable.",
-                            },
-                            503,
-                        )
-                    response_body.extend(chunk)
-                status_code = upstream.status_code
-                content_type = upstream.headers.get("content-type", "application/json")
-        except httpx.HTTPError:
+            async with asyncio.timeout(TICKET_DEADLINE_SECONDS):
+                async with request.app.state.http.stream(
+                    "POST", f"{configured.GATEWAY_URL}/realtime/tickets", content=bytes(body), headers=headers
+                ) as upstream:
+                    response_body = bytearray()
+                    async for chunk in upstream.aiter_bytes():
+                        if len(response_body) + len(chunk) > MAXIMUM_BODY_BYTES:
+                            return JSONResponse(
+                                {
+                                    "code": "service_unavailable",
+                                    "message": "The reference application dependency is unavailable.",
+                                },
+                                503,
+                            )
+                        response_body.extend(chunk)
+                    status_code = upstream.status_code
+                    content_type = upstream.headers.get("content-type", "application/json")
+        except httpx.HTTPError, TimeoutError:
             return JSONResponse(
                 {"code": "service_unavailable", "message": "The reference application dependency is unavailable."}, 503
             )

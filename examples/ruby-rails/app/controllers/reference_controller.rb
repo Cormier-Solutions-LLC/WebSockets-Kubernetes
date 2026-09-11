@@ -1,4 +1,5 @@
 require "json"
+require "date"
 require "net/http"
 require "securerandom"
 require "time"
@@ -10,6 +11,17 @@ class ReferenceController < ApplicationController
   MAXIMUM_UPSTREAM_BYTES = 64 * 1_024
   TICKET_DEADLINE_SECONDS = 15
   SESSION_COOKIE = "cormier_session"
+  RFC3339_TIMESTAMP = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\z/
+
+  def self.valid_future_expiration?(value, now = Time.now.utc)
+    return false unless value.is_a?(String) && RFC3339_TIMESTAMP.match?(value)
+
+    components = Date._iso8601(value)
+    Date.valid_date?(components.fetch(:year), components.fetch(:mon), components.fetch(:mday)) &&
+      Time.iso8601(value) > now
+  rescue ArgumentError, KeyError
+    false
+  end
 
   def index
     shared_asset("index.html", "text/html; charset=utf-8")
@@ -141,7 +153,9 @@ class ReferenceController < ApplicationController
     return nil unless encoded
 
     record = JSON.parse(encoded)
-    return nil if record.fetch("revoked", true) || Time.iso8601(record.fetch("expiresAt")) <= Time.now.utc
+    expires_at = record.fetch("expiresAt")
+    return nil unless self.class.valid_future_expiration?(expires_at)
+    return nil if record.fetch("revoked", true)
 
     record
   rescue KeyError, ArgumentError

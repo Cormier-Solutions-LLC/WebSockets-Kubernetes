@@ -1,5 +1,6 @@
 package com.cormier.realtime.example
 
+import java.net.InetAddress
 import java.net.URI
 import java.nio.file.Path
 
@@ -26,9 +27,28 @@ data class ReferenceConfig(
         fun load(environment: Map<String, String> = System.getenv()): ReferenceConfig {
             fun required(name: String) = environment[name]?.trim()?.takeIf(String::isNotEmpty)
                 ?: error("$name is required")
+            fun networkHost(host: String?): Boolean {
+                if (host.isNullOrEmpty() || host.length > 253 || '%' in host) return false
+                val unbracketed = host.removeSurrounding("[", "]")
+                if ('[' in unbracketed || ']' in unbracketed) return false
+                if (':' in unbracketed) {
+                    return try {
+                        InetAddress.getByName(unbracketed).hostAddress.contains(':')
+                    } catch (_: java.net.UnknownHostException) {
+                        false
+                    }
+                }
+                if (unbracketed.matches(Regex("[0-9.]+"))) {
+                    val parts = unbracketed.split('.')
+                    return parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 }
+                }
+                return unbracketed.split('.').all {
+                    it.length in 1..63 && Regex("[a-z0-9](?:[a-z0-9-]*[a-z0-9])?").matches(it)
+                }
+            }
             fun origin(name: String): URI {
                 val value = URI(required(name)).normalize()
-                require(value.toString() == value.toString().lowercase() && value.scheme in setOf("http", "https") && value.host != null && value.userInfo == null &&
+                require(value.toString() == value.toString().lowercase() && value.scheme in setOf("http", "https") && networkHost(value.host) && value.userInfo == null &&
                     (value.path.isNullOrEmpty() || value.path == "/") && value.query == null && value.fragment == null &&
                     (value.port == -1 || value.port in 1..65535) &&
                     !(value.scheme == "http" && value.port == 80) && !(value.scheme == "https" && value.port == 443)) {

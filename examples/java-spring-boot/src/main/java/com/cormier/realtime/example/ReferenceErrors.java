@@ -20,8 +20,11 @@ final class ReferenceErrors {
     var status = error.getStatusCode();
     var code = status.value() == 503 ? "service_unavailable"
         : status.value() == 403 ? "origin_rejected"
-        : status.value() == 401 ? "authentication_required" : "invalid_identity";
-    return ResponseEntity.status(status).body(Map.of("code", code, "message", error.getReason()));
+        : status.value() == 401 ? "authentication_required"
+        : status.value() == 413 ? "invalid_request" : "invalid_identity";
+    var message = status.value() == 413 ? "The request body is invalid."
+        : error.getReason() == null ? "The request is invalid." : error.getReason();
+    return ResponseEntity.status(status).body(Map.of("code", code, "message", message));
   }
 
   @ExceptionHandler({ServerWebInputException.class, DataBufferLimitException.class})

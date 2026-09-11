@@ -69,7 +69,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Gradle 9.7.1 JDK 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has three stack-specific production Kotlin files and 391 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
+The adapter has three stack-specific production Kotlin files and 411 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
 
 ## Support and diagnostics
 

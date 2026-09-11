@@ -5,7 +5,17 @@ import { rateLimit } from "express-rate-limit";
 import session from "express-session";
 
 const gatewayCookieName = "cormier_session";
+const rfc3339Timestamp = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 const exampleCookieName = "cormier_example_session";
+
+function parseRfc3339(value) {
+  if (typeof value !== "string") return Number.NaN;
+  const match = rfc3339Timestamp.exec(value);
+  if (!match) return Number.NaN;
+  const [, year, month, day] = match;
+  const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+  return Number(day) <= lastDay ? Date.parse(value) : Number.NaN;
+}
 
 function noStore(response) {
   response.set("cache-control", "no-store");
@@ -164,7 +174,7 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
         return;
       }
       const record = JSON.parse(stored);
-      const expiresAt = Date.parse(record.expiresAt);
+      const expiresAt = parseRfc3339(record.expiresAt);
       if (record.revoked === true || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         await redisClient.del(`${config.redisInstancePrefix}:${config.redisSessionKeyPrefix}:${identity.sessionId}`);
         noStore(response);

@@ -1,5 +1,6 @@
 import AsyncHTTPClient
 import Foundation
+import NIOCore
 @preconcurrency import Redis
 import Vapor
 
@@ -205,8 +206,10 @@ private func boundedTicketRequest(
   let outbound = try HTTPClient.Request(
     url: "\(settings.gatewayURL)/realtime/tickets", method: .POST, headers: headers, body: body)
   let accumulator = ResponseAccumulator(request: outbound, maxBodySize: maximumBodyBytes)
+  let deadline: NIODeadline = .now() + .seconds(15)
   let task: HTTPClient.Task<HTTPClient.Response> =
-    request.application.http.client.shared.execute(request: outbound, delegate: accumulator)
+    request.application.http.client.shared.execute(
+      request: outbound, delegate: accumulator, deadline: deadline)
   return try await task.futureResult.get()
 }
 

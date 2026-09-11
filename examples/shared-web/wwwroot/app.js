@@ -9,14 +9,32 @@
   };
   const invoke = async (action) => { try { await action(); } catch (error) { write("error", { name: error.name, code: error.code, message: error.message }); } };
   fetch("/api/diagnostics").then(r => r.json()).then(value => {
-    document.querySelector("#diagnostics").textContent = `Topology: ${value.topology}; instance: ${value.instance}; Redis: ${value.redis}`;
+    const stack = value.stack ? `Stack: ${value.stack}; ` : "";
+    document.querySelector("#diagnostics").textContent = `${stack}Topology: ${value.topology}; instance: ${value.instance}; Redis: ${value.redis}`;
+    const links = document.querySelector("#stack-links");
+    for (const item of Array.isArray(value.links) ? value.links : []) {
+      if (typeof item?.href !== "string" || !item.href.startsWith("/") || typeof item.label !== "string") continue;
+      const paragraph = document.createElement("p");
+      const anchor = document.createElement("a");
+      anchor.href = item.href;
+      anchor.textContent = item.label;
+      paragraph.append(anchor);
+      links.append(paragraph);
+    }
   }).catch(error => write("diagnostics", error.message));
   document.querySelector("#login").onclick = () => invoke(async () => {
     const response = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ tenantId: document.querySelector("#tenant").value, userId: document.querySelector("#user").value }) });
     const value = await response.json(); if (!response.ok) throw new Error(value.message); write("session", value);
   });
-  document.querySelector("#logout").onclick = () => invoke(async () => { await fetch("/api/logout", { method: "POST" }); write("session", "logged out"); });
+  document.querySelector("#logout").onclick = () => invoke(async () => {
+    const response = await fetch("/api/logout", { method: "POST" });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({}));
+      throw new Error(value.message || "Logout failed.");
+    }
+    write("session", "logged out");
+  });
   document.querySelector("#connect").onclick = () => invoke(async () => {
     client = new CormierRealtime.RealtimeClient({ url: "/realtime/ws", authentication: { kind: "ticket" },
       reconnect: { initialDelayMilliseconds: 50, maximumDelayMilliseconds: 500, jitterRatio: 0, maximumAttempts: 20 } });

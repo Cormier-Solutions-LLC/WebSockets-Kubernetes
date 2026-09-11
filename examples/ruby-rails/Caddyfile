@@ -1,0 +1,31 @@
+{
+	auto_https off
+	admin off
+	log default {
+		output discard
+	}
+}
+
+http://:{$PORT} {
+	bind {$LISTEN_HOST}
+	log {
+		output discard
+	}
+	header {
+		Cache-Control "no-store"
+		Content-Security-Policy "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self'; style-src 'self'; script-src 'self'"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+	@realtime_websocket path /realtime/ws
+	reverse_proxy @realtime_websocket {$GATEWAY_URL} {
+		header_up Host {http.request.hostport}
+		header_up X-Forwarded-Proto {$PUBLIC_SCHEME}
+	}
+	@bounded_request path /api/login /realtime/tickets
+	request_body @bounded_request {
+		max_size 65536
+	}
+	reverse_proxy unix//tmp/cormier-rails.sock
+}

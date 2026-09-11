@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 async function login(page, tenant = "tenant-a", user = "user-a") {
   await page.goto("/");
-  await page.selectOption("#tenant", tenant);
-  await page.selectOption("#user", user);
+  await page.locator("#tenant").fill(tenant);
+  await page.locator("#user").fill(user);
   await page.click("#login");
   await expect(page.locator("#events")).toContainText('"tenantId"');
 }

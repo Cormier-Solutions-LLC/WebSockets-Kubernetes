@@ -1,0 +1,40 @@
+server:
+  address: ${LISTEN_HOST}
+  port: ${cormier.reference.port}
+  shutdown: graceful
+spring:
+  http:
+    codecs:
+      max-in-memory-size: 64KB
+  application:
+    name: cormier-realtime-java-spring-boot-example
+  data:
+    redis:
+      url: ${REDIS_URL}
+      connect-timeout: 15s
+      timeout: 5s
+  lifecycle:
+    timeout-per-shutdown-phase: 15s
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+cormier:
+  reference:
+    listen-host: ${LISTEN_HOST}
+    port: ${PORT}
+    public-origin: ${PUBLIC_ORIGIN}
+    gateway-url: ${GATEWAY_URL}
+    session-lifetime-seconds: ${SESSION_LIFETIME_SECONDS}
+    instance-name: ${INSTANCE_NAME}
+    topology: ${TOPOLOGY}
+    redis-instance-prefix: ${REDIS_INSTANCE_PREFIX}
+    redis-session-key-prefix: ${REDIS_SESSION_KEY_PREFIX}
+    allowed-tenants: ${ALLOWED_TENANTS}
+    allowed-users: ${ALLOWED_USERS}
+    shared-asset-root: ${SHARED_ASSET_ROOT:../shared-web/wwwroot}
+    sdk-asset-root: ${SDK_ASSET_ROOT:../../sdk/typescript/dist}

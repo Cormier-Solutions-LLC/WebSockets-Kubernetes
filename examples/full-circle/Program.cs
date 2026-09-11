@@ -99,9 +99,15 @@ app.MapGet("/api/session", async (HttpContext context, IRealtimeSessionStore ses
 app.MapGet("/api/diagnostics", async (IOptions<FullCircleOptions> settings, IRedisReadinessProbe redis,
     CancellationToken cancellationToken) => Results.Ok(new
     {
+        stack = "ASP.NET Core",
         topology = settings.Value.Topology,
         instance = settings.Value.InstanceName,
         redis = await redis.IsReadyAsync(cancellationToken) ? "ready" : "unavailable",
+        links = new[]
+        {
+            new { href = "/esm.html", label = "Run the ESM variant" },
+            new { href = "/operator.html", label = "Open the operator diagnostics workflow" }
+        },
         timestamp = DateTimeOffset.UtcNow,
     }));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));

@@ -11,10 +11,18 @@ public sealed partial class BrandingConfigurationTests
     {
         var excludedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".backups", ".git", ".bootstrap", ".logs", "artifacts", "bin", "obj", "refs"
+            ".backups", ".bootstrap", ".build", ".git", ".gradle", ".logs", ".venv",
+            "_build", "artifacts", "bin", "deps", "node_modules", "obj", "refs", "target", "vendor"
         };
-        var candidates = Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories)
-            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(excludedDirectories.Contains));
+        var enumeration = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        };
+        var candidates = Directory.EnumerateFiles(Root, "*", enumeration)
+            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(excludedDirectories.Contains)
+                || path.StartsWith(Path.Join(Root, "examples", "ruby-rails", "bin") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
 
         var legacyBrand = string.Concat("pro", "pago");
         var violations = candidates

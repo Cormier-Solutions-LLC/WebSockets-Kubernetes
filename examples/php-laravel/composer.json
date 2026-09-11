@@ -1,0 +1,42 @@
+{
+  "$schema": "https://getcomposer.org/schema.json",
+  "name": "cormier/realtime-example-laravel",
+  "description": "Minimal Laravel reference adapter for Cormier.Realtime",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": "8.5.*",
+    "laravel/framework": "13.31.0",
+    "predis/predis": "3.6.0"
+  },
+  "require-dev": {
+    "laravel/pint": "^1.27",
+    "phpunit/phpunit": "^12.5.12"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit"
+  },
+  "config": {
+    "allow-plugins": {
+      "php-http/discovery": true
+    },
+    "audit": {
+      "abandoned": "fail"
+    },
+    "optimize-autoloader": true,
+    "preferred-install": "dist",
+    "sort-packages": true
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

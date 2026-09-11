@@ -1,0 +1,12 @@
+# Update, deprecation, and rollback procedure
+
+1. Inventory the currently locked PHP, Laravel, Predis, Composer, FrankenPHP, Redis, Cormier.Realtime SDK/protocol/gateway, and canonical asset versions. Record the deployed configuration names and persistent Redis compatibility without recording values.
+2. Review official release notes, security advisories, support policies, deprecations, and breaking changes for every changed component. Confirm PHP extensions, Composer platform requirements, container architectures, and gateway protocol compatibility before editing pins.
+3. Preserve mutable deployment configuration and data outside the source tree. Back up Redis according to the deployment runbook when an update can affect record formats; never copy secrets into build context or logs.
+4. Update explicit constraints and image digests, run `composer update --with-all-dependencies`, review the entire lock diff, and rebuild the canonical TypeScript assets. Never hand-edit `composer.lock` or copy generated/vendor output into this example.
+5. Run Composer validation/audit, Pint, PHPUnit contract tests, the image build, non-root inspection, preflight, health/diagnostics checks, shared browser smoke scenarios, gateway-unavailable/redaction probes, and bounded clean-shutdown verification.
+6. Deploy progressively and watch health, authentication/ticket failures, reconnects, Redis operations, and shutdown behavior. Roll back the image and configuration together if any gate fails; restore data only through the deployment's approved Redis recovery procedure.
+
+For a release check from the previous supported example version, build both Git revisions with their recorded pins, run the same external configuration and canonical browser suite against each image, update without changing Redis prefixes, then roll back to the prior image and rerun login, ticket, connect, publish/receive, reconnect, logout, and health. The initial 0.1.0 example has no earlier in-repository version, so this two-revision check begins with its first update.
+
+Deprecations must be announced in README and CHANGELOG before removal. Each notice must name the route, environment key, dependency/runtime line, asset/protocol version, or example behavior; replacement; migration and verification steps; rollback; and the approved removal release or support window. Keep deprecated behavior through that window and test both paths. The current release has no deprecated routes, keys, dependencies, assets, runtime line, or example behavior.

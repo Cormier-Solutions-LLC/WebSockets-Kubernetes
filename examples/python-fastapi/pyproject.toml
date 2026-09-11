@@ -1,0 +1,36 @@
+[project]
+name = "cormier-realtime-example-fastapi"
+version = "0.1.0"
+description = "Minimal FastAPI reference adapter for Cormier.Realtime"
+requires-python = "==3.14.*"
+dependencies = [
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+  "pydantic-settings==2.15.0",
+  "redis==8.1.0",
+  "uvicorn[standard]==0.52.4",
+  "websockets==17.1",
+]
+
+[dependency-groups]
+dev = [
+  "pip-audit==2.10.1",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.16.7",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]

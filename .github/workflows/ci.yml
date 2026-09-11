@@ -10,6 +10,14 @@ permissions:
   contents: read
   security-events: write
 
+env:
+  CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
+  CI_REDIS_BIND_ADDRESS: ${{ vars.CI_REDIS_BIND_ADDRESS || '0.0.0.0' }}
+  CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}
+  CI_PYTHON_IMAGE: ${{ vars.CI_PYTHON_IMAGE || 'python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc' }}
+  CI_RUBY_IMAGE: ${{ vars.CI_RUBY_IMAGE || 'ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc' }}
+  CI_SWIFT_IMAGE: ${{ vars.CI_SWIFT_IMAGE || 'swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c' }}
+
 jobs:
   helm-and-automation:
     runs-on: ubuntu-latest
@@ -59,18 +67,10 @@ jobs:
 
   build-test-aot:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -273,6 +273,537 @@ jobs:
         with:
           fail-on-severity: high
 
+  node-express:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: |
+            examples/node-express/package-lock.json
+            sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Install locked Node.js dependencies
+        working-directory: examples/node-express
+        run: npm ci --ignore-scripts
+      - name: Check the Express reference adapter
+        working-directory: examples/node-express
+        run: npm run check
+      - name: Build the Express reference container
+        run: docker build --file examples/node-express/Dockerfile --tag cormier-node-express:${{ github.sha }} .
+      - name: Scan the Express reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-node-express:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.node-express.config.mjs
+      - name: Upload Express failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-express-${{ github.sha }}
+          path: artifacts/node-express
+
+  java-spring-boot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: examples/java-spring-boot/pom.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Verify the Spring Boot reference adapter
+        working-directory: examples/java-spring-boot
+        run: ./mvnw --batch-mode --no-transfer-progress verify
+      - name: Build the Spring Boot reference container
+        run: docker build --file examples/java-spring-boot/Dockerfile --tag cormier-java-spring:${{ github.sha }} .
+      - name: Scan the Spring Boot reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-java-spring:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.java-spring-boot.config.mjs
+      - name: Upload Spring Boot failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-spring-boot-${{ github.sha }}
+          path: artifacts/java-spring-boot
+
+  kotlin-ktor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Test the locked Ktor reference adapter
+        working-directory: examples/kotlin-ktor
+        run: ./gradlew --no-daemon test buildFatJar
+      - name: Build the Ktor reference container
+        run: docker build --file examples/kotlin-ktor/Dockerfile --tag cormier-kotlin-ktor:${{ github.sha }} .
+      - name: Scan the Ktor reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-kotlin-ktor:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.kotlin-ktor.config.mjs
+      - name: Upload Ktor failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-ktor-${{ github.sha }}
+          path: artifacts/kotlin-ktor
+
+  rust-axum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Axum reference adapter
+        working-directory: examples/rust-axum
+        run: |
+          cargo fmt --check
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Build the Axum reference container
+        run: docker build --file examples/rust-axum/Dockerfile --tag cormier-rust-axum:${{ github.sha }} .
+      - name: Scan the Axum reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-rust-axum:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.rust-axum.config.mjs
+      - name: Upload Axum failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-axum-${{ github.sha }}
+          path: artifacts/rust-axum
+
+  go-gin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.1
+          cache-dependency-path: examples/go-gin/go.sum
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Gin reference adapter
+        working-directory: examples/go-gin
+        run: |
+          test -z "$(gofmt -l *.go)"
+          go test -mod=readonly ./...
+          go vet -mod=readonly ./...
+      - name: Build the Gin reference container
+        run: docker build --file examples/go-gin/Dockerfile --tag cormier-go-gin:${{ github.sha }} .
+      - name: Scan the Gin reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-go-gin:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.go-gin.config.mjs
+      - name: Upload Gin failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-gin-${{ github.sha }}
+          path: artifacts/go-gin
+
+  elixir-phoenix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: 1.20.4
+          otp-version: 29.0.6
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Phoenix reference adapter
+        working-directory: examples/elixir-phoenix
+        run: |
+          mix deps.get --check-locked
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test --no-start
+          mix hex.audit
+      - name: Build the Phoenix reference container
+        run: docker build --file examples/elixir-phoenix/Dockerfile --tag cormier-elixir-phoenix:${{ github.sha }} .
+      - name: Scan the Phoenix reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-elixir-phoenix:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.elixir-phoenix.config.mjs
+      - name: Upload Phoenix failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elixir-phoenix-${{ github.sha }}
+          path: artifacts/elixir-phoenix
+
+  php-laravel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Laravel reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/php-laravel
+          "$CI_COMPOSER_IMAGE"
+          sh -lc 'composer install --no-interaction --no-progress --no-scripts && composer validate --no-check-publish && vendor/bin/pint --test && vendor/bin/phpunit && composer audit --locked --no-interaction'
+      - name: Build the Laravel reference container
+        run: docker build --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
+      - name: Scan the Laravel reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-php-laravel:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          PHP_LARAVEL_IMAGE: cormier-php-laravel:${{ github.sha }}
+        run: npx playwright test --config playwright.php-laravel.config.mjs
+      - name: Upload Laravel failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-laravel-${{ github.sha }}
+          path: artifacts/php-laravel
+
+  python-fastapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked FastAPI reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/python-fastapi
+          "$CI_PYTHON_IMAGE"
+          sh -lc 'pip install --no-cache-dir uv==0.12.13 >/dev/null && uv sync --frozen && uv lock --check && uv run ruff check . && uv run ruff format --check . && uv run pytest && uv run pip-audit --local'
+      - name: Build the FastAPI reference container
+        run: docker build --file examples/python-fastapi/Dockerfile --tag cormier-python-fastapi:${{ github.sha }} .
+      - name: Scan the FastAPI reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-python-fastapi:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          PYTHON_FASTAPI_IMAGE: cormier-python-fastapi:${{ github.sha }}
+        run: npx playwright test --config playwright.python-fastapi.config.mjs
+      - name: Upload FastAPI failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-fastapi-${{ github.sha }}
+          path: artifacts/python-fastapi
+
+  ruby-rails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Rails reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/ruby-rails
+          "$CI_RUBY_IMAGE"
+          sh -lc 'apk add --no-cache build-base git yaml-dev >/dev/null && gem install bundler -v 4.0.20 --no-document >/dev/null && bundle _4.0.20_ config set path /tmp/bundle && BUNDLE_FROZEN=true bundle _4.0.20_ install && bundle _4.0.20_ check && bundle _4.0.20_ exec rubocop && bundle _4.0.20_ exec ruby test/reference_config_test.rb && bundle _4.0.20_ exec brakeman --no-pager --quiet && bundle _4.0.20_ exec bundle-audit check --update'
+      - name: Build the Rails reference container
+        run: docker build --file examples/ruby-rails/Dockerfile --tag cormier-ruby-rails:${{ github.sha }} .
+      - name: Scan the Rails reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-ruby-rails:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          RUBY_RAILS_IMAGE: cormier-ruby-rails:${{ github.sha }}
+        run: npx playwright test --config playwright.ruby-rails.config.mjs
+      - name: Upload Rails failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruby-rails-${{ github.sha }}
+          path: artifacts/ruby-rails
+
+  swift-vapor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Vapor reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/swift-vapor
+          "$CI_SWIFT_IMAGE"
+          sh -lc 'cp Package.resolved /tmp/Package.resolved && swift package resolve --disable-sandbox && diff -u /tmp/Package.resolved Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
+      - name: Build the Vapor reference container
+        run: docker build --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
+      - name: Scan the Vapor reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-swift-vapor:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          SWIFT_VAPOR_IMAGE: cormier-swift-vapor:${{ github.sha }}
+        run: npx playwright test --config playwright.swift-vapor.config.mjs
+      - name: Upload Vapor failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-vapor-${{ github.sha }}
+          path: artifacts/swift-vapor
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:
@@ -280,18 +811,10 @@ jobs:
       matrix:
         shell: [bash, pwsh]
         profile: [non-ha, ha]
-    services:
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Start configured Redis fixture
+        run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x

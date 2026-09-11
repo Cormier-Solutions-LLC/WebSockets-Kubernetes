@@ -1,6 +1,6 @@
 # Rust and Axum reference application
 
-This non-production adapter demonstrates an Axum front end for Cormier.Realtime. Explicit application state holds typed configuration, a Redis session store, and a bounded HTTP client. The adapter forwards tickets and WebSockets while preserving Host/Origin/cookies/query parameters and serves the canonical SDK and UI without copies. `LISTEN_HOST` and `PORT` select the listener explicitly.
+This non-production adapter demonstrates an Axum front end for Cormier.Realtime. Explicit application state holds typed configuration, a Redis session store, and a bounded HTTP client. The adapter forwards tickets and WebSockets while preserving Host/Origin/cookies/query parameters, caps browser WebSocket frames and messages at 64 KiB before relay, and serves the canonical SDK and UI without copies. `LISTEN_HOST` and `PORT` select the listener explicitly.
 
 ## Prerequisites and local run
 
@@ -54,7 +54,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container bases | Rust 1.98.1 Alpine / Alpine 3.24 | Digest-pinned |
 
-The adapter has three stack-specific Rust files and 676 nonblank lines, including tests colocated with typed configuration. Shared assets, fixtures, generated SDK, lock/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has three stack-specific Rust files and 718 nonblank lines, including tests colocated with typed configuration. Shared assets, fixtures, generated SDK, lock/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

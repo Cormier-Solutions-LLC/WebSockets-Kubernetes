@@ -21,8 +21,45 @@ func configure(_ application: Application) throws {
 
 private struct RedisStartupCheck: LifecycleHandler {
   func didBootAsync(_ application: Application) async throws {
-    _ = try await application.redis.send(command: "PING", with: [])
+    _ = try await boundedRedis(application.redis.send(command: "PING", with: []))
   }
+}
+
+enum RedisDeadlineError: Error {
+  case exceeded
+}
+
+private final class RedisDeadlineGate<Value: Sendable>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var completed = false
+
+  func complete(
+    _ result: Result<Value, any Error>, promise: EventLoopPromise<Value>
+  ) {
+    self.lock.lock()
+    guard !self.completed else {
+      self.lock.unlock()
+      return
+    }
+    self.completed = true
+    self.lock.unlock()
+    promise.completeWith(result)
+  }
+}
+
+func boundedRedis<Value: Sendable>(
+  _ future: EventLoopFuture<Value>, deadline: TimeAmount = .seconds(5)
+) async throws -> Value {
+  let promise = future.eventLoop.makePromise(of: Value.self)
+  let gate = RedisDeadlineGate<Value>()
+  let timeout = future.eventLoop.scheduleTask(in: deadline) {
+    gate.complete(.failure(RedisDeadlineError.exceeded), promise: promise)
+  }
+  future.whenComplete { result in
+    gate.complete(result, promise: promise)
+    timeout.cancel()
+  }
+  return try await promise.futureResult.get()
 }
 
 private func validateAssets(_ settings: ReferenceSettings) throws {

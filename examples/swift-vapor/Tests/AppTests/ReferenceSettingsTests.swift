@@ -31,8 +31,21 @@ struct ReferenceSettingsTests {
     let settings = try ReferenceSettings(environment: self.values)
     #expect(settings.listenHost == "127.0.0.1")
     #expect(settings.port == 15_500)
+    #expect(settings.publicScheme == "http")
     #expect(settings.allows(tenant: "tenant-a", user: "user-a"))
     #expect(settings.sessionKey("id") == "cormier:test:sessions:id")
+  }
+
+  @Test("derives the public relay scheme")
+  func derivesPublicRelayScheme() throws {
+    var environment = self.values
+    environment["PUBLIC_ORIGIN"] = "https://example.test"
+    let settings = try ReferenceSettings(environment: environment)
+    #expect(settings.publicScheme == "https")
+
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    let caddyfile = try String(contentsOf: root.appending(path: "Caddyfile"), encoding: .utf8)
+    #expect(caddyfile.contains("header_up X-Forwarded-Proto {$PUBLIC_SCHEME}"))
   }
 
   @Test("rejects unsafe origins")

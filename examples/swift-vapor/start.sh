@@ -6,6 +6,13 @@ failure() {
   exit 1
 }
 
+case "${PUBLIC_ORIGIN:-}" in
+  http://*) PUBLIC_SCHEME=http ;;
+  https://*) PUBLIC_SCHEME=https ;;
+  *) failure ;;
+esac
+export PUBLIC_SCHEME
+
 /app/server --env production >/dev/null &
 server_pid=$!
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &

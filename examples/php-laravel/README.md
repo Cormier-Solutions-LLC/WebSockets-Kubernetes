@@ -26,7 +26,7 @@ docker build -f examples/php-laravel/Dockerfile -t cormier-php-laravel:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 --env-file examples/php-laravel/.env.example -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:16379 cormier-php-laravel:local
 ```
 
-Preflight validates configuration, Redis, and canonical assets before bind. Caddy binds the runtime-supplied `LISTEN_HOST` and port. HTTP dependencies have finite connection/request deadlines, Caddy has bounded request/idle timeouts, and a pinned init forwards termination and reaps workers for clean container shutdown. Logs are structural and deliberately omit configured endpoints, cookies, sessions, tickets, identities, and secrets. The image runs as numeric user/group 65532.
+Preflight validates configuration, Redis, and canonical assets before bind. Caddy binds the runtime-supplied `LISTEN_HOST` and port and rejects ticket bodies larger than 64 KiB before PHP buffers them, including requests without `Content-Length`. HTTP dependencies have finite connection/request deadlines, Caddy has bounded request/idle timeouts, and a pinned init forwards termination and reaps workers for clean container shutdown. Logs are structural and deliberately omit configured endpoints, cookies, sessions, tickets, identities, and secrets. The image runs as numeric user/group 65532.
 
 ## Feature matrix
 
@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has 15 stack-specific PHP/configuration/test files and 551 nonblank lines. Generated dependencies, shared assets/fixtures, lock/build metadata, and documentation are excluded. Recalculate after changes.
+The adapter has 15 stack-specific PHP/configuration/test files and 560 nonblank lines. Generated dependencies, shared assets/fixtures, lock/build metadata, and documentation are excluded. Recalculate after changes.
 
 ## Support and limitations
 

@@ -6,6 +6,7 @@ struct ReferenceSettings: Sendable {
   let applicationHost: String
   let applicationPort: Int
   let publicOrigin: String
+  let publicScheme: String
   let gatewayURL: String
   let redisURL: String
   let sessionSecret: String
@@ -27,6 +28,7 @@ struct ReferenceSettings: Sendable {
     self.applicationPort = try Self.integer(
       Self.required("APPLICATION_PORT", in: environment), range: 1_024...65_535)
     self.publicOrigin = try Self.origin(Self.required("PUBLIC_ORIGIN", in: environment))
+    self.publicScheme = String(self.publicOrigin.prefix { $0 != ":" })
     self.gatewayURL = try Self.origin(Self.required("GATEWAY_URL", in: environment))
     self.redisURL = try Self.validRedisURL(Self.required("REDIS_URL", in: environment))
     self.sessionSecret = Self.required("SESSION_SECRET", in: environment)

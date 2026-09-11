@@ -65,7 +65,7 @@ func routes(_ application: Application, settings: ReferenceSettings) {
 
   application.get("health") { request async -> Response in
     do {
-      _ = try await request.redis.send(command: "PING", with: [])
+      _ = try await boundedRedis(request.redis.send(command: "PING", with: []))
       return try await StatusBody(status: "healthy").encodeResponse(for: request)
     } catch {
       return try! await StatusBody(status: "unavailable").encodeResponse(
@@ -76,7 +76,7 @@ func routes(_ application: Application, settings: ReferenceSettings) {
   application.get("api", "diagnostics") { request async -> Diagnostics in
     let redisStatus: String
     do {
-      _ = try await request.redis.send(command: "PING", with: [])
+      _ = try await boundedRedis(request.redis.send(command: "PING", with: []))
       redisStatus = "ready"
     } catch {
       redisStatus = "unavailable"
@@ -103,9 +103,10 @@ func routes(_ application: Application, settings: ReferenceSettings) {
         tenantId: input.tenantId, userId: input.userId, allowedTopics: ["orders", "notifications"],
         expiresAt: timestamp(expiry), revoked: false)
       let encoded = String(decoding: try JSONEncoder().encode(record), as: UTF8.self)
-      try await request.redis.setex(
-        .init(settings.sessionKey(id)), to: encoded, expirationInSeconds: settings.sessionLifetime
-      ).get()
+      try await boundedRedis(
+        request.redis.setex(
+          .init(settings.sessionKey(id)), to: encoded,
+          expirationInSeconds: settings.sessionLifetime))
       let response = try await record.encodeResponse(for: request)
       response.cookies[sessionCookie] = .init(
         string: id,
@@ -148,8 +149,8 @@ func routes(_ application: Application, settings: ReferenceSettings) {
     }
     do {
       if let id = request.cookies[sessionCookie]?.string, validSessionID(id) {
-        _ = try await request.redis.send(
-          command: "DEL", with: [.init(from: settings.sessionKey(id))])
+        _ = try await boundedRedis(
+          request.redis.send(command: "DEL", with: [.init(from: settings.sessionKey(id))]))
       }
       let response = Response(status: .noContent)
       response.cookies[sessionCookie] = .init(
@@ -184,6 +185,7 @@ func routes(_ application: Application, settings: ReferenceSettings) {
       if let authority = request.headers.first(name: .host) {
         headers.replaceOrAdd(name: .host, value: authority)
       }
+      headers.replaceOrAdd(name: "X-Forwarded-Proto", value: settings.publicScheme)
       let upstream = try await request.client.post(
         URI(string: "\(settings.gatewayURL)/realtime/tickets"), headers: headers
       ) {
@@ -212,8 +214,8 @@ private func readSession(_ request: Request, settings: ReferenceSettings) async 
 {
   guard let id = request.cookies[sessionCookie]?.string,
     validSessionID(id),
-    let encoded = try await request.redis.get(.init(settings.sessionKey(id)), as: String.self)
-      .get(),
+    let encoded = try await boundedRedis(
+      request.redis.get(.init(settings.sessionKey(id)), as: String.self)),
     let data = encoded.data(using: String.Encoding.utf8),
     let record = try? JSONDecoder().decode(SessionRecord.self, from: data),
     !record.revoked,

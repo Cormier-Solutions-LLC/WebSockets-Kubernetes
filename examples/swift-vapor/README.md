@@ -25,7 +25,7 @@ docker build -f examples/swift-vapor/Dockerfile -t cormier-swift-vapor:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 --env-file examples/swift-vapor/.env.example -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:16379 cormier-swift-vapor:local
 ```
 
-Configuration, Redis, and canonical assets are checked before the public listener is considered ready. Vapor binds only to the configured private application listener; Caddy exposes the configured public `LISTEN_HOST` and port and forwards browser authority on the WebSocket route. Redis waits are bounded. Logs contain structural lifecycle/failure events and error types only. Tini supervises graceful shutdown, and the image runs as numeric user/group 65532.
+Configuration, Redis, and canonical assets are checked before the public listener is considered ready. Vapor binds only to the configured private application listener; Caddy exposes the configured public `LISTEN_HOST` and port. The ticket and WebSocket relays forward browser authority and the scheme derived from validated `PUBLIC_ORIGIN`; configure the gateway to trust only the adapter network. Redis commands have five-second response deadlines. Logs contain structural lifecycle/failure events and error types only. Tini supervises graceful shutdown, and the image runs as numeric user/group 65532.
 
 ## Feature matrix
 
@@ -53,7 +53,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has 5 stack-specific Swift source/test files and 488 nonblank lines. SwiftPM build outputs, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has 5 stack-specific Swift source/test files and 543 nonblank lines. SwiftPM build outputs, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Platform support
 

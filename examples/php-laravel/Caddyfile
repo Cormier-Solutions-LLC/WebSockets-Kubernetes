@@ -31,6 +31,10 @@ http://:{$PORT} {
 	reverse_proxy @realtime_websocket {$GATEWAY_URL} {
 		header_up Host {http.request.hostport}
 	}
+	@realtime_ticket path /realtime/tickets
+	request_body @realtime_ticket {
+		max_size 65536
+	}
 	root * {$PUBLIC_ROOT}
 	php_server
 }

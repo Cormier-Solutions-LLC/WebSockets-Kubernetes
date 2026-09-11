@@ -30,6 +30,7 @@ use tracing::{error, info};
 
 const COOKIE: &str = "cormier_session";
 const PROTOCOL: &str = "cormier.realtime.v1";
+const MAXIMUM_WEBSOCKET_BYTES: usize = 64 * 1_024;
 
 #[derive(Clone)]
 struct AppState {
@@ -312,6 +313,8 @@ async fn websocket(
     let query = uri.query().map(str::to_owned);
     Ok(upgrade
         .protocols([PROTOCOL])
+        .max_message_size(MAXIMUM_WEBSOCKET_BYTES)
+        .max_frame_size(MAXIMUM_WEBSOCKET_BYTES)
         .on_upgrade(move |browser| relay(browser, state, cookie, host, query)))
 }
 

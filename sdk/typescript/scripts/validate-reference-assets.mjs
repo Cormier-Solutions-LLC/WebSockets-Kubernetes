@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { dirname } from "node:path";
@@ -79,7 +79,8 @@ assert(optimizedSize.gzipBytes <= config.budgets.optimizedGzipBytes, "Optimized 
 
 for (const profile of Object.keys(manifest.profiles).filter((name) => name !== "readable")) {
   for (const name of ["app.css.map", "app.js.map"]) {
-    const sourceMap = JSON.parse(readFileSync(resolve(outputRoot, profile, name), "utf8"));
+    assert(!existsSync(resolve(outputRoot, profile, name)), `${profile}/${name} must not be placed in a served profile.`);
+    const sourceMap = JSON.parse(readFileSync(resolve(outputRoot, "source-maps", profile, name), "utf8"));
     for (const source of sourceMap.sources ?? []) {
       assert(!isAbsolute(source) && !/^[A-Za-z]:[\\/]/u.test(source) && !source.includes("\\Users\\"),
         `${profile}/${name} contains a source-machine path.`);

@@ -74,14 +74,14 @@
           "integrity": "sha384-ETxayxN6+dPS3ltdhQM81VgwTtayIYrYTzCPWJ4u6Nv0VKZML1hGsQ94Bq4nPOVj"
         },
         {
-          "path": "optimized/app.css.map",
+          "path": "source-maps/optimized/app.css.map",
           "bytes": 585,
           "gzipBytes": 392,
           "sha256": "1860ec90d25dab3abff5e60093496157e7f0eeb893c9ced900170a4e9531a9ce",
           "integrity": "sha384-vUFPdYzFo8w4u7S7wVpmVgMxysMC/47E/DOWIyCLoiSww3WR87fNw8mgVqHDVmTT"
         },
         {
-          "path": "optimized/app.js.map",
+          "path": "source-maps/optimized/app.js.map",
           "bytes": 6695,
           "gzipBytes": 2311,
           "sha256": "96d45e57e94952fc48d5957d3bdbb56a4fe59b009f5554c80e3a435e4ad73ba8",

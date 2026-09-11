@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { gzipSync } from "node:zlib";
+import { parse as parseJavaScript } from "acorn";
 import { transform as transformJavaScript } from "esbuild";
 import { minify as minifyHtml } from "html-minifier-terser";
 import JavaScriptObfuscator from "javascript-obfuscator";
@@ -42,6 +43,50 @@ function replaceSelector(value, prefix, source, target) {
   return value.replace(selector, `${prefix}${target}`);
 }
 
+function memberName(member) {
+  if (member?.type !== "MemberExpression") return undefined;
+  if (!member.computed && member.property.type === "Identifier") return member.property.name;
+  return member.computed && member.property.type === "Literal" ? member.property.value : undefined;
+}
+
+function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
+  const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "module" });
+  const replacements = [];
+  const selectorMethods = new Set(["closest", "matches", "querySelector", "querySelectorAll"]);
+  const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
+
+  function visit(node, parent) {
+    if (node === null || typeof node !== "object") return;
+    if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "CallExpression") {
+      const method = memberName(parent.callee);
+      let mapped = node.value;
+      if (selectorMethods.has(method) || (parent.callee.type === "Identifier" && parent.callee.name === "$")) {
+        for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+        for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
+      } else if (method === "getElementById") {
+        mapped = ids[mapped] ?? mapped;
+      } else if (method === "getElementsByClassName") {
+        mapped = replaceTokenList(mapped, classes);
+      } else if (classListMethods.has(method) && memberName(parent.callee.object) === "classList") {
+        mapped = classes[mapped] ?? mapped;
+      }
+      if (mapped !== node.value) replacements.push({ start: node.start, end: node.end, value: JSON.stringify(mapped) });
+    }
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item, node);
+      } else if (child !== parent) {
+        visit(child, node);
+      }
+    }
+  }
+
+  visit(syntaxTree, undefined);
+  return replacements.sort((left, right) => right.start - left.start)
+    .reduce((result, replacement) =>
+      result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end), javascript);
+}
+
 export function applySelectorMappings({ css, html, javascript }, selectorMangling) {
   if (!selectorMangling.enabled) {
     if (Object.keys(selectorMangling.ids).length > 0 || Object.keys(selectorMangling.classes).length > 0) {
@@ -76,14 +121,13 @@ export function applySelectorMappings({ css, html, javascript }, selectorManglin
     mappedHtml = mappedHtml
       .replace(new RegExp(`(\\bid=["'])${source}(["'])`, "gu"), `$1${target}$2`)
       .replace(new RegExp(`#${escapeRegularExpression(source)}(?![A-Za-z0-9_-])`, "gu"), `#${target}`);
-    mappedJavaScript = replaceSelector(mappedJavaScript, "#", source, target);
   }
   for (const [source, target] of Object.entries(selectorMangling.classes)) {
     mappedCss = replaceSelector(mappedCss, ".", source, target);
     mappedHtml = mappedHtml.replace(/\bclass=(['"])([^'"]*)\1/gu, (match, quote, tokens) =>
       `class=${quote}${replaceTokenList(tokens, { [source]: target })}${quote}`);
-    mappedJavaScript = replaceSelector(mappedJavaScript, ".", source, target);
   }
+  mappedJavaScript = replaceJavaScriptSelectorReferences(mappedJavaScript, selectorMangling.ids, selectorMangling.classes);
   return { css: mappedCss, html: mappedHtml, javascript: mappedJavaScript };
 }
 
@@ -116,6 +160,7 @@ function inventoryFile(outputRoot, profile, name, content) {
 
 async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfuscate }) {
   const profileRoot = resolve(outputRoot, profile);
+  const sourceMapRoot = resolve(outputRoot, "source-maps", profile);
   let javascript;
   let javascriptMap;
   let css;
@@ -200,8 +245,8 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
   write(profileRoot, "app.css", css);
   write(profileRoot, "index.html", html);
   if (profile !== "readable" && config.sourceMaps.emit) {
-    write(profileRoot, "app.js.map", javascriptMap);
-    write(profileRoot, "app.css.map", cssMap);
+    write(sourceMapRoot, "app.js.map", javascriptMap);
+    write(sourceMapRoot, "app.css.map", cssMap);
   }
 
   const files = [
@@ -210,8 +255,8 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     inventoryFile(outputRoot, profile, "index.html", html),
   ];
   if (profile !== "readable" && config.sourceMaps.emit) {
-    files.push(inventoryFile(outputRoot, profile, "app.css.map", cssMap));
-    files.push(inventoryFile(outputRoot, profile, "app.js.map", javascriptMap));
+    files.push(inventoryFile(outputRoot, `source-maps/${profile}`, "app.css.map", cssMap));
+    files.push(inventoryFile(outputRoot, `source-maps/${profile}`, "app.js.map", javascriptMap));
   }
   return { files, sdk: { path: sdkName, sha256: digest(sdkContent, "sha256", "hex"), integrity: sdkSri } };
 }

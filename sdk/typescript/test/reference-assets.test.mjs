@@ -13,6 +13,8 @@ test("the coordinated asset manifest retains readable and optimized profiles", a
   assert.equal(manifest.defaults.production, "optimized");
   assert.equal(manifest.obfuscationEnabled, false);
   assert.match(manifest.profiles.optimized.sdk.path, /\.min\.js$/u);
+  assert(manifest.profiles.optimized.files.some((file) => file.path === "source-maps/optimized/app.js.map"));
+  assert(!manifest.profiles.optimized.files.some((file) => file.path === "optimized/app.js.map"));
 });
 
 test("selector mappings rewrite CSS, HTML, and JavaScript together", () => {
@@ -70,4 +72,18 @@ test("selector mappings preserve identifiers that only share a prefix", () => {
   assert.equal(result.css, ".b .internal-panel #a #private-value {}");
   assert.equal(result.html, '<div class="b internal-panel" id="private-value"><a href="#a">link</a></div>');
   assert.equal(result.javascript, 'document.querySelector("#a .b"); document.querySelector("#private-value .internal-panel")');
+});
+
+test("class mappings change selector APIs without rewriting JavaScript properties", () => {
+  const result = applySelectorMappings({
+    css: ".log {}",
+    html: '<div class="log"></div>',
+    javascript: 'console.log("message"); node.classList.add("log"); document.querySelector(".log")',
+  }, {
+    enabled: true,
+    ids: {},
+    classes: { log: "a" },
+    safelist: [],
+  });
+  assert.equal(result.javascript, 'console.log("message"); node.classList.add("a"); document.querySelector(".a")');
 });

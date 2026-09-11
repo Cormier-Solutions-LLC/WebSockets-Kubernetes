@@ -106,8 +106,10 @@ final class ReferenceConfigTest extends TestCase
         self::assertStringContainsString('cormier-realtime.iife.js', $preflight);
         self::assertStringNotContainsString('cormier-realtime.iife.min.js', $preflight);
         self::assertStringContainsString('readiness_url="http://$readiness_host:$PORT/api/diagnostics"', $startup);
-        self::assertStringContainsString('grep -Fq \'"stack":"PHP / Laravel"\'', $startup);
+        self::assertStringContainsString('json_decode(stream_get_contents(STDIN), true)', $startup);
+        self::assertStringContainsString('=== "PHP / Laravel"', $startup);
         self::assertStringContainsString('if ! kill -0 "$server_pid"', $startup);
+        self::assertStringContainsString('[ "$attempt" -ge 15 ]', $startup);
         self::assertLessThan(
             strpos($startup, 'application_started'),
             strpos($startup, 'readiness_url=')

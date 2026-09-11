@@ -161,7 +161,8 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
         return;
       }
       const record = JSON.parse(stored);
-      if (record.revoked === true || Date.parse(record.expiresAt) <= Date.now()) {
+      const expiresAt = Date.parse(record.expiresAt);
+      if (record.revoked === true || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         await redisClient.del(`${config.redisInstancePrefix}:${config.redisSessionKeyPrefix}:${identity.sessionId}`);
         noStore(response);
         response.status(401).json({ authenticated: false });

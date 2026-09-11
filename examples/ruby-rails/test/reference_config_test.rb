@@ -80,7 +80,23 @@ class ReferenceConfigTest < Minitest::Test
 
   def test_preflight_checks_the_sdk_bundle_loaded_by_the_shared_page
     startup = File.read(File.expand_path("../start.sh", __dir__))
+    %w[index.html app.css app.js].each { |asset| assert_includes startup, asset }
     assert_includes startup, "cormier-realtime.iife.js"
     refute_includes startup, "cormier-realtime.iife.min.js"
+  end
+
+  def test_ticket_responses_are_streamed_through_a_strict_limit
+    controller = File.read(File.expand_path("../app/controllers/reference_controller.rb", __dir__))
+    assert_includes controller, "response.read_body { |chunk| append.call(chunk) }"
+    assert_includes controller, "LimitedBodyReader.collect(limit: MAXIMUM_UPSTREAM_BYTES)"
+
+    boundary = "a" * (64 * 1_024)
+    assert_equal boundary, LimitedBodyReader.collect(limit: boundary.bytesize) { |append| append.call(boundary) }
+    assert_raises(LimitedBodyReader::ResponseTooLarge) do
+      LimitedBodyReader.collect(limit: boundary.bytesize) do |append|
+        append.call(boundary)
+        append.call("b")
+      end
+    end
   end
 end

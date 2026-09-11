@@ -1,10 +1,27 @@
 package main
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 )
+
+type fakeManagedWebSocket struct {
+	closed chan struct{}
+	code   websocket.StatusCode
+}
+
+func (connection *fakeManagedWebSocket) Close(code websocket.StatusCode, _ string) error {
+	connection.code = code
+	close(connection.closed)
+	return nil
+}
+
+func (connection *fakeManagedWebSocket) CloseNow() error { return nil }
 
 func testValues() map[string]string {
 	return map[string]string{"LISTEN_HOST": "127.0.0.1", "PORT": "15500", "PUBLIC_ORIGIN": "http://127.0.0.1:15500", "GATEWAY_URL": "http://127.0.0.1:15501", "REDIS_URL": "redis://127.0.0.1:6379", "SESSION_LIFETIME_SECONDS": "1200", "INSTANCE_NAME": "go-gin-a", "TOPOLOGY": "non-ha", "REDIS_INSTANCE_PREFIX": "cormier:go-test", "REDIS_SESSION_KEY_PREFIX": "sessions", "ALLOWED_TENANTS": "tenant-a", "ALLOWED_USERS": "user-a"}
@@ -61,5 +78,28 @@ func TestLoginDecoderRejectsTrailingData(t *testing.T) {
 		if _, err := decodeLoginRequest(strings.NewReader(payload)); err == nil {
 			t.Fatalf("trailing login data accepted: %q", payload)
 		}
+	}
+}
+
+func TestWebsocketRegistryDrainsAndRejectsNewConnections(t *testing.T) {
+	registry := newWebsocketRegistry()
+	connection := &fakeManagedWebSocket{closed: make(chan struct{})}
+	if !registry.register(connection) {
+		t.Fatal("initial connection was rejected")
+	}
+	go func() {
+		<-connection.closed
+		registry.unregister(connection)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := registry.shutdown(ctx); err != nil {
+		t.Fatalf("drain failed: %v", err)
+	}
+	if connection.code != websocket.StatusGoingAway {
+		t.Fatalf("unexpected close code: %d", connection.code)
+	}
+	if registry.register(&fakeManagedWebSocket{closed: make(chan struct{})}) {
+		t.Fatal("connection registered after shutdown began")
 	}
 }

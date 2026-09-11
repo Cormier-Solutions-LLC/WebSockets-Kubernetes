@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"syscall"
 	"time"
 
@@ -33,10 +34,76 @@ var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,256}$`)
 var sdkAssetPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 type App struct {
-	config Config
-	store  *SessionStore
-	client *http.Client
+	config      Config
+	store       *SessionStore
+	client      *http.Client
+	connections *websocketRegistry
 }
+
+type managedWebSocket interface {
+	Close(websocket.StatusCode, string) error
+	CloseNow() error
+}
+
+type websocketRegistry struct {
+	mu          sync.Mutex
+	connections map[managedWebSocket]struct{}
+	closing     bool
+	wait        sync.WaitGroup
+}
+
+func newWebsocketRegistry() *websocketRegistry {
+	return &websocketRegistry{connections: make(map[managedWebSocket]struct{})}
+}
+
+func (registry *websocketRegistry) register(connection managedWebSocket) bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if registry.closing {
+		return false
+	}
+	registry.connections[connection] = struct{}{}
+	registry.wait.Add(1)
+	return true
+}
+
+func (registry *websocketRegistry) unregister(connection managedWebSocket) {
+	registry.mu.Lock()
+	if _, exists := registry.connections[connection]; exists {
+		delete(registry.connections, connection)
+		registry.wait.Done()
+	}
+	registry.mu.Unlock()
+}
+
+func (registry *websocketRegistry) shutdown(ctx context.Context) error {
+	registry.mu.Lock()
+	registry.closing = true
+	connections := make([]managedWebSocket, 0, len(registry.connections))
+	for connection := range registry.connections {
+		connections = append(connections, connection)
+	}
+	registry.mu.Unlock()
+
+	for _, connection := range connections {
+		go func() { _ = connection.Close(websocket.StatusGoingAway, "server shutting down") }()
+	}
+	drained := make(chan struct{})
+	go func() {
+		registry.wait.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		return nil
+	case <-ctx.Done():
+		for _, connection := range connections {
+			_ = connection.CloseNow()
+		}
+		return ctx.Err()
+	}
+}
+
 type SessionRecord struct {
 	TenantID      string    `json:"tenantId"`
 	UserID        string    `json:"userId"`
@@ -70,7 +137,7 @@ func run() error {
 	}
 	defer store.Close()
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 60 * time.Second}
-	app := &App{config, store, &http.Client{Transport: transport, Timeout: 15 * time.Second}}
+	app := &App{config: config, store: store, client: &http.Client{Transport: transport, Timeout: 15 * time.Second}, connections: newWebsocketRegistry()}
 	server := &http.Server{Addr: net.JoinHostPort(config.ListenHost, fmt.Sprintf("%d", config.Port)), Handler: app.router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
@@ -89,8 +156,13 @@ func run() error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if err = server.Shutdown(shutdownCtx); err != nil {
-			return err
+		shutdownResults := make(chan error, 2)
+		go func() { shutdownResults <- server.Shutdown(shutdownCtx) }()
+		go func() { shutdownResults <- app.connections.shutdown(shutdownCtx) }()
+		for range 2 {
+			if err = <-shutdownResults; err != nil {
+				return err
+			}
 		}
 		if err = <-result; !errors.Is(err, http.ErrServerClosed) {
 			return err
@@ -337,6 +409,11 @@ func (a *App) websocket(c *gin.Context) {
 		_ = browser.Close(websocket.StatusPolicyViolation, "required subprotocol")
 		return
 	}
+	if !a.connections.register(browser) {
+		_ = browser.Close(websocket.StatusGoingAway, "server shutting down")
+		return
+	}
+	defer a.connections.unregister(browser)
 	browser.SetReadLimit(maximumBodyBytes)
 	defer browser.CloseNow()
 	target := *a.config.GatewayURL

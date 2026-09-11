@@ -7,6 +7,7 @@ require_relative "../../lib/limited_body_reader"
 
 class ReferenceController < ApplicationController
   MAXIMUM_BODY_BYTES = 64 * 1_024
+  MAXIMUM_UPSTREAM_BYTES = 64 * 1_024
   SESSION_COOKIE = "cormier_session"
 
   def index
@@ -105,11 +106,11 @@ class ReferenceController < ApplicationController
 
     body = LimitedBodyReader.read(request.body, limit: MAXIMUM_BODY_BYTES)
 
-    upstream = forward_ticket(body)
-    render body: upstream.body, status: upstream.code.to_i, content_type: upstream["Content-Type"] || "application/json"
+    status, content_type, response_body = forward_ticket(body)
+    render body: response_body, status: status, content_type: content_type
   rescue LimitedBodyReader::TooLarge
     render json: { code: "invalid_request", message: "The request is invalid." }, status: :content_too_large
-  rescue IOError, SystemCallError, Timeout::Error, Redis::BaseError, JSON::ParserError
+  rescue IOError, SystemCallError, Timeout::Error, Redis::BaseError, JSON::ParserError, LimitedBodyReader::ResponseTooLarge
     dependency_unavailable
   end
 
@@ -162,6 +163,16 @@ class ReferenceController < ApplicationController
       upstream[header] = value if value.present?
     end
     upstream.body = body
-    http.request(upstream)
+    status = nil
+    content_type = nil
+    response_body = nil
+    http.request(upstream) do |response|
+      status = response.code.to_i
+      content_type = response["Content-Type"] || "application/json"
+      response_body = LimitedBodyReader.collect(limit: MAXIMUM_UPSTREAM_BYTES) do |append|
+        response.read_body { |chunk| append.call(chunk) }
+      end
+    end
+    [ status, content_type, response_body ]
   end
 end

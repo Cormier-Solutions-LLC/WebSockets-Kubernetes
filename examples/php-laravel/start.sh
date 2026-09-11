@@ -30,7 +30,7 @@ case "$LISTEN_HOST" in
   *) readiness_host="$LISTEN_HOST" ;;
 esac
 readiness_url="http://$readiness_host:$PORT/api/diagnostics"
-while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | grep -Fq '"stack":"PHP / Laravel"'; do
+while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | php -r '$payload = json_decode(stream_get_contents(STDIN), true); exit(($payload["stack"] ?? null) === "PHP / Laravel" ? 0 : 1);'; do
   if ! kill -0 "$server_pid" 2>/dev/null; then
     status=0
     wait "$server_pid" || status=$?
@@ -39,7 +39,7 @@ while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | grep -Fq '"stack":"PHP / L
     exit "$status"
   fi
   attempt=$((attempt + 1))
-  if [ "$attempt" -ge 150 ]; then
+  if [ "$attempt" -ge 15 ]; then
     kill -TERM "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
     printf '%s\n' '{"event":"startup_failed","stack":"php-laravel"}' >&2

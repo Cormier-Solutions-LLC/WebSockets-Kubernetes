@@ -127,6 +127,15 @@ test("establishes, validates, forwards, expires, and removes a session", async (
   await agent.get("/api/session").expect(401, { authenticated: false });
   assert.equal(context.values.size, 0);
 
+  for (const expiresAt of [undefined, "not-a-timestamp"]) {
+    await login(agent, context.config).expect(200);
+    const [malformedKey] = context.values.keys();
+    const malformedRecord = JSON.parse(context.values.get(malformedKey));
+    context.values.set(malformedKey, JSON.stringify({ ...malformedRecord, expiresAt }));
+    await agent.get("/api/session").expect(401, { authenticated: false });
+    assert.equal(context.values.size, 0);
+  }
+
   await login(agent, context.config).expect(200);
   await agent.post("/api/logout").set("Origin", context.config.publicOrigin).expect(204);
   assert.equal(context.values.size, 0);

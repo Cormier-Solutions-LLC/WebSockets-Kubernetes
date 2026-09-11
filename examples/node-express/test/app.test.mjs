@@ -93,6 +93,14 @@ test("establishes, validates, forwards, expires, and removes a session", async (
   assert.equal(current.body.authenticated, true);
   assert.equal(current.body.tenantId, "tenant-a");
 
+  const activeRecord = JSON.parse(context.values.get(redisKey));
+  context.values.set(redisKey, JSON.stringify({ ...activeRecord, revoked: true }));
+  await agent.get("/api/session").expect(401, { authenticated: false });
+  assert.equal(context.values.size, 0);
+
+  await login(agent, context.config).expect(200);
+  const [replacementKey] = context.values.keys();
+
   await agent.post("/realtime/tickets")
     .set("Origin", context.config.publicOrigin)
     .expect(202, { forwarded: true });
@@ -101,8 +109,8 @@ test("establishes, validates, forwards, expires, and removes a session", async (
     options: { target: context.config.gatewayUrl, changeOrigin: false, proxyTimeout: 10_000, timeout: 10_000 },
   }]);
 
-  const record = JSON.parse(context.values.get(redisKey));
-  context.values.set(redisKey, JSON.stringify({ ...record, expiresAt: new Date(0).toISOString() }));
+  const record = JSON.parse(context.values.get(replacementKey));
+  context.values.set(replacementKey, JSON.stringify({ ...record, expiresAt: new Date(0).toISOString() }));
   await agent.get("/api/session").expect(401, { authenticated: false });
   assert.equal(context.values.size, 0);
 

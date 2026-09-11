@@ -73,10 +73,12 @@ defmodule CormierRealtimeExample.Config do
       Regex.match?(~r/^http:\/\/[^\/?#]+:80(?:\/|$)/i, value) or
         Regex.match?(~r/^https:\/\/[^\/?#]+:443(?:\/|$)/i, value)
 
+    canonical_casing = value == String.downcase(value)
+
     case URI.parse(value) do
       %URI{scheme: scheme, host: host, userinfo: nil, query: nil, fragment: nil, path: path}
       when scheme in ["http", "https"] and is_binary(host) and path in [nil, "", "/"] and
-             not explicit_default_port ->
+             not explicit_default_port and canonical_casing ->
         {:ok, String.trim_trailing(value, "/")}
 
       _ ->

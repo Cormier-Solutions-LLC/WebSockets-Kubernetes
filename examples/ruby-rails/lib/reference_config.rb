@@ -65,7 +65,7 @@ class ReferenceConfig
     uri = URI.parse(value)
     explicit_default_port = value.match?(%r{\Ahttp://[^/?#]+:80(?:/|\z)}i) ||
       value.match?(%r{\Ahttps://[^/?#]+:443(?:/|\z)}i)
-    unless %w[http https].include?(uri.scheme) && uri.host && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil? &&
+    unless value == value.downcase && %w[http https].include?(uri.scheme) && uri.host && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil? &&
         [ "", "/" ].include?(uri.path) && !explicit_default_port
       raise ArgumentError, "origin configuration is invalid"
     end

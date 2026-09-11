@@ -25,6 +25,8 @@ defmodule CormierRealtimeExample.ConfigTest do
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
     invalid = Map.put(values, "PUBLIC_ORIGIN", "https://example.test:443")
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
+    invalid = Map.put(values, "PUBLIC_ORIGIN", "https://EXAMPLE.TEST")
+    assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
   end
 
   test "consumes canonical contracts" do

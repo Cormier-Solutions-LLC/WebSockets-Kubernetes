@@ -37,6 +37,7 @@ public record ReferenceProperties(
     return value != null
         && ("http".equals(value.getScheme()) || "https".equals(value.getScheme()))
         && value.getHost() != null
+        && value.toString().equals(value.toString().toLowerCase(java.util.Locale.ROOT))
         && value.getUserInfo() == null
         && (value.getPath() == null || value.getPath().isEmpty() || "/".equals(value.getPath()))
         && value.getQuery() == null

@@ -39,6 +39,11 @@ class ReferenceConfigTest < Minitest::Test
     assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
   end
 
+  def test_rejects_noncanonical_origin_casing
+    environment = values.merge("PUBLIC_ORIGIN" => "https://EXAMPLE.TEST")
+    assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
+  end
+
   def test_canonical_contracts
     root = File.expand_path("../../..", __dir__)
     schema = JSON.parse(File.read(File.join(root, "examples/shared-web/reference-app.schema.json")))

@@ -23,6 +23,10 @@ func TestTypedConfiguration(t *testing.T) {
 	if _, err = loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
 		t.Fatal("explicit default origin port was accepted")
 	}
+	values["PUBLIC_ORIGIN"] = "https://EXAMPLE.TEST"
+	if _, err = loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
+		t.Fatal("noncanonical origin casing was accepted")
+	}
 }
 func TestCanonicalContracts(t *testing.T) {
 	values := testValues()

@@ -49,6 +49,13 @@ struct ReferenceSettingsTests {
     #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
   }
 
+  @Test("rejects noncanonical origin casing")
+  func rejectsNoncanonicalOriginCasing() {
+    var environment = self.values
+    environment["PUBLIC_ORIGIN"] = "https://EXAMPLE.TEST"
+    #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+  }
+
   @Test("uses canonical contracts")
   func usesCanonicalContracts() throws {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

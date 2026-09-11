@@ -97,6 +97,7 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
         userId,
         allowedTopics: ["orders", "notifications"],
         expiresAt: expiresAt.toISOString(),
+        revoked: false,
       });
       await redisClient.set(
         `${config.redisInstancePrefix}:${config.redisSessionKeyPrefix}:${sessionId}`,
@@ -153,7 +154,7 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
         return;
       }
       const record = JSON.parse(stored);
-      if (Date.parse(record.expiresAt) <= Date.now()) {
+      if (record.revoked === true || Date.parse(record.expiresAt) <= Date.now()) {
         await redisClient.del(`${config.redisInstancePrefix}:${config.redisSessionKeyPrefix}:${identity.sessionId}`);
         noStore(response);
         response.status(401).json({ authenticated: false });

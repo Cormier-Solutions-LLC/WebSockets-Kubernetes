@@ -68,7 +68,8 @@ struct ReferenceSettings: Sendable {
   }
 
   private static func origin(_ value: String) throws -> String {
-    guard let components = URLComponents(string: value),
+    guard value == value.lowercased(),
+      let components = URLComponents(string: value),
       ["http", "https"].contains(components.scheme),
       components.host != nil,
       components.user == nil,

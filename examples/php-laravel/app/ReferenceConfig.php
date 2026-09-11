@@ -90,7 +90,7 @@ final readonly class ReferenceConfig
     private static function origin(string $value): string
     {
         $parsed = parse_url($value);
-        if ($parsed === false || ! in_array($parsed['scheme'] ?? '', ['http', 'https'], true) || empty($parsed['host'])
+        if ($parsed === false || strtolower($value) !== $value || ! in_array($parsed['scheme'] ?? '', ['http', 'https'], true) || empty($parsed['host'])
             || isset($parsed['user']) || isset($parsed['pass']) || isset($parsed['query']) || isset($parsed['fragment'])
             || ! in_array($parsed['path'] ?? '', ['', '/'], true)
             || (($parsed['scheme'] ?? '') === 'http' && ($parsed['port'] ?? null) === 80)

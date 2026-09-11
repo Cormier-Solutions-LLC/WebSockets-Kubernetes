@@ -28,6 +28,22 @@ test("configuration stays aligned with the canonical reference schema", async ()
   environment.TRUST_PROXY_HOPS = "0";
   assert.equal(Object.keys(environment).length, 14);
   assert.doesNotThrow(() => loadConfig(environment));
+
+  const originSchema = schema.$defs.httpOrigin;
+  const acceptsOrigin = (value) => new RegExp(originSchema.pattern).test(value)
+    && !originSchema.not.anyOf.some(({ pattern }) => new RegExp(pattern).test(value));
+  assert.equal(acceptsOrigin("https://example.test"), true);
+  assert.equal(acceptsOrigin("http://127.0.0.1:15100"), true);
+  for (const value of [
+    "https://user@example.test",
+    "https://example.test/path",
+    "https://example.test?route=x",
+    "https://example.test#fragment",
+    "https://example.test:443",
+    "https://EXAMPLE.TEST",
+  ]) {
+    assert.equal(acceptsOrigin(value), false, value);
+  }
 });
 
 test("generated SDK and canonical protocol fixture versions agree", async () => {

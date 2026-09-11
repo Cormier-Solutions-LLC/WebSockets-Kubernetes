@@ -48,6 +48,7 @@ class ReferenceApplicationTest {
         assertTrue(protocol.contains("\"protocolVersion\": \"1.0\""))
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "file:///tmp")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:443")) }
+        assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://EXAMPLE.TEST")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("ALLOWED_USERS" to "bad user")) }
     }
 

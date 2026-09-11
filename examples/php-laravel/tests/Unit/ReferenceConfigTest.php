@@ -46,6 +46,14 @@ final class ReferenceConfigTest extends TestCase
         ReferenceConfig::fromArray($values);
     }
 
+    public function test_it_rejects_noncanonical_origin_casing(): void
+    {
+        $values = $this->values();
+        $values['public_origin'] = 'https://EXAMPLE.TEST';
+        $this->expectException(InvalidArgumentException::class);
+        ReferenceConfig::fromArray($values);
+    }
+
     #[DataProvider('forbiddenOriginProvider')]
     public function test_it_rejects_each_forbidden_origin_component(string $origin): void
     {

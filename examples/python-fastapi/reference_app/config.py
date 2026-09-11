@@ -15,6 +15,7 @@ def _origin(value: str) -> str:
         or parsed.query
         or parsed.fragment
         or parsed.path not in {"", "/"}
+        or any(character.isupper() for character in value)
         or (parsed.scheme == "http" and parsed.port == 80)
         or (parsed.scheme == "https" and parsed.port == 443)
     ):
@@ -92,22 +93,23 @@ class Settings(BaseSettings):
             raise ValueError("topology configuration is invalid")
         return value
 
-    @property
-    def tenants(self) -> frozenset[str]:
-        return self._allowlist(self.ALLOWED_TENANTS)
-
-    @property
-    def users(self) -> frozenset[str]:
-        return self._allowlist(self.ALLOWED_USERS)
-
-    @staticmethod
-    def _allowlist(value: str) -> frozenset[str]:
+    @field_validator("ALLOWED_TENANTS", "ALLOWED_USERS")
+    @classmethod
+    def validate_allowlist(cls, value: str) -> str:
         items = frozenset(item.strip() for item in value.split(","))
-        if not items:
+        if not items or "" in items:
             raise ValueError("allowlist configuration is invalid")
         for item in items:
             _identifiers(item)
-        return items
+        return value
+
+    @property
+    def tenants(self) -> frozenset[str]:
+        return frozenset(item.strip() for item in self.ALLOWED_TENANTS.split(","))
+
+    @property
+    def users(self) -> frozenset[str]:
+        return frozenset(item.strip() for item in self.ALLOWED_USERS.split(","))
 
     def session_key(self, session_id: str) -> str:
         return f"{self.REDIS_INSTANCE_PREFIX}:{self.REDIS_SESSION_KEY_PREFIX}:{session_id}"

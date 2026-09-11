@@ -40,6 +40,17 @@ def test_unsafe_origin_is_rejected() -> None:
     environment["PUBLIC_ORIGIN"] = "https://example.test:443"
     with pytest.raises(ValidationError):
         Settings.model_validate(environment)
+    environment["PUBLIC_ORIGIN"] = "https://EXAMPLE.TEST"
+    with pytest.raises(ValidationError):
+        Settings.model_validate(environment)
+
+
+def test_invalid_allowlists_are_rejected_during_settings_construction() -> None:
+    for name in ("ALLOWED_TENANTS", "ALLOWED_USERS"):
+        environment = values()
+        environment[name] = "invalid value"
+        with pytest.raises(ValidationError):
+            Settings.model_validate(environment)
 
 
 def test_gateway_default_ports() -> None:
@@ -54,5 +65,8 @@ def test_canonical_contracts() -> None:
     sdk = json.loads((root / "sdk/typescript/dist/version.json").read_text())
     protocol = json.loads((root / "protocol/fixtures/v1/envelopes.json").read_text())
     assert {"PORT", "PUBLIC_ORIGIN", "GATEWAY_URL", "REDIS_URL"} <= set(schema["required"])
+    origin = schema["$defs"]["httpOrigin"]
+    assert origin["pattern"].startswith("^https?://")
+    assert len(origin["not"]["anyOf"]) == 2
     assert sdk["protocolVersion"] == "1.0"
     assert protocol["protocolVersion"] == "1.0"

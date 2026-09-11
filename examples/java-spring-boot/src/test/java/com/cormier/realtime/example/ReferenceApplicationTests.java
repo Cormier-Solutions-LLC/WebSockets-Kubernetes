@@ -142,5 +142,11 @@ final class ReferenceApplicationTests {
         1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
+
+    properties = new ReferenceProperties(
+        "127.0.0.1", URI.create("https://EXAMPLE.TEST"), URI.create("http://gateway.test"),
+        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
+    org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
   }
 }

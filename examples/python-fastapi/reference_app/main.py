@@ -375,16 +375,20 @@ async def browser_to_gateway(browser: WebSocket, gateway) -> None:  # type: igno
             data = message.get("bytes") if message.get("bytes") is not None else message.get("text")
             if data is not None:
                 await gateway.send(data)
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as closed:
+        await gateway.close(code=closed.code, reason=closed.reason or "")
         return
 
 
 async def gateway_to_browser(gateway, browser: WebSocket) -> None:  # type: ignore[no-untyped-def]
-    async for message in gateway:
-        if isinstance(message, bytes):
-            await browser.send_bytes(message)
-        else:
-            await browser.send_text(message)
+    try:
+        async for message in gateway:
+            if isinstance(message, bytes):
+                await browser.send_bytes(message)
+            else:
+                await browser.send_text(message)
+    except websockets.ConnectionClosed as closed:
+        await browser.close(code=closed.code, reason=closed.reason)
 
 
 app = create_app()

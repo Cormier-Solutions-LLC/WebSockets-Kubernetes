@@ -32,8 +32,8 @@ http://:{$PORT} {
 		header_up Host {http.request.hostport}
 		header_up X-Forwarded-Proto {$PUBLIC_SCHEME}
 	}
-	@realtime_ticket path /realtime/tickets
-	request_body @realtime_ticket {
+	@bounded_request path /api/login /realtime/tickets
+	request_body @bounded_request {
 		max_size 65536
 	}
 	root * {$PUBLIC_ROOT}

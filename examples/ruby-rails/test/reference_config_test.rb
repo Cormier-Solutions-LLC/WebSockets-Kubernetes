@@ -70,4 +70,11 @@ class ReferenceConfigTest < Minitest::Test
       LimitedBodyReader.read(stream, limit: 64 * 1_024)
     end
   end
+
+  def test_caddy_caps_login_and_ticket_bodies_before_rack_parses_them
+    caddyfile = File.read(File.expand_path("../Caddyfile", __dir__))
+    assert_includes caddyfile, "@bounded_request path /api/login /realtime/tickets"
+    assert_includes caddyfile, "request_body @bounded_request"
+    assert_includes caddyfile, "max_size 65536"
+  end
 end

@@ -23,5 +23,9 @@ http://:{$PORT} {
 		header_up Host {http.request.hostport}
 		header_up X-Forwarded-Proto {$PUBLIC_SCHEME}
 	}
+	@bounded_request path /api/login /realtime/tickets
+	request_body @bounded_request {
+		max_size 65536
+	}
 	reverse_proxy unix//tmp/cormier-rails.sock
 }

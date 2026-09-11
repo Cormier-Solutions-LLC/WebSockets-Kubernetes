@@ -370,6 +370,10 @@ func relay(ctx context.Context, destination, source *websocket.Conn, done chan<-
 	for {
 		kind, data, err := source.Read(ctx)
 		if err != nil {
+			var closeError websocket.CloseError
+			if errors.As(err, &closeError) {
+				_ = destination.Close(closeError.Code, closeError.Reason)
+			}
 			return
 		}
 		if destination.Write(ctx, kind, data) != nil {

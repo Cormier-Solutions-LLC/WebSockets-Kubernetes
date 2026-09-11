@@ -24,7 +24,6 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
-import io.ktor.server.request.receive
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
@@ -132,7 +131,7 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
         }
         post("/api/login") {
             requireOrigin(call.request.header(HttpHeaders.Origin), config)
-            val request = call.receive<LoginRequest>()
+            val request = json.decodeFromString<LoginRequest>(readLimitedBody(call.receiveChannel()).decodeToString())
             if (!config.allows(request.tenantId, request.userId)) throw ClientFault(
                 HttpStatusCode.BadRequest, "invalid_identity", "Select a configured test tenant and user.")
             val bytes = ByteArray(24).also(SecureRandom()::nextBytes)
@@ -197,6 +196,10 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                         for (frame in this@browser.incoming) when (frame) {
                             is Frame.Text -> this@gateway.send(Frame.Text(frame.readText()))
                             is Frame.Binary -> this@gateway.send(Frame.Binary(true, frame.readBytes()))
+                            is Frame.Close -> {
+                                this@gateway.send(frame)
+                                return@launch
+                            }
                             else -> Unit
                         }
                     }
@@ -204,6 +207,10 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                         for (frame in incoming) when (frame) {
                             is Frame.Text -> this@browser.send(Frame.Text(frame.readText()))
                             is Frame.Binary -> this@browser.send(Frame.Binary(true, frame.readBytes()))
+                            is Frame.Close -> {
+                                this@browser.send(frame)
+                                return@launch
+                            }
                             else -> Unit
                         }
                     }

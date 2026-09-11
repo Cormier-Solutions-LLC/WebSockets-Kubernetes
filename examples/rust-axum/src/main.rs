@@ -308,6 +308,9 @@ async fn websocket(
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
     require_origin(&headers, &state.config)?;
+    if !offers_protocol(&headers) {
+        return Err(AppError::protocol());
+    }
     let cookie = headers.get(header::COOKIE).cloned();
     let host = headers.get(header::HOST).cloned();
     let query = uri.query().map(str::to_owned);
@@ -381,7 +384,14 @@ async fn relay_inner(
                     tokio_tungstenite::tungstenite::Message::Text(value.as_str().into())
                 }
                 Message::Binary(value) => tokio_tungstenite::tungstenite::Message::Binary(value),
-                Message::Close(_) => break,
+                Message::Close(frame) => {
+                    tokio_tungstenite::tungstenite::Message::Close(frame.map(|frame| {
+                        tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                            code: frame.code.into(),
+                            reason: frame.reason.to_string().into(),
+                        }
+                    }))
+                }
                 _ => continue,
             };
             if gateway_tx.send(converted).await.is_err() {
@@ -396,7 +406,12 @@ async fn relay_inner(
                     Message::Text(value.as_str().into())
                 }
                 tokio_tungstenite::tungstenite::Message::Binary(value) => Message::Binary(value),
-                tokio_tungstenite::tungstenite::Message::Close(_) => break,
+                tokio_tungstenite::tungstenite::Message::Close(frame) => {
+                    Message::Close(frame.map(|frame| axum::extract::ws::CloseFrame {
+                        code: frame.code.into(),
+                        reason: frame.reason.to_string().into(),
+                    }))
+                }
                 _ => continue,
             };
             if browser_tx.send(converted).await.is_err() {
@@ -417,6 +432,14 @@ fn require_origin(headers: &HeaderMap, config: &Config) -> Result<(), AppError> 
         return Err(AppError::origin());
     }
     Ok(())
+}
+fn offers_protocol(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|value| value.trim() == PROTOCOL)
 }
 fn cookie(headers: &HeaderMap) -> Option<&str> {
     headers
@@ -454,6 +477,13 @@ impl AppError {
             message: "Select a configured test tenant and user.",
         }
     }
+    fn protocol() -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "subprotocol_required",
+            message: "The required WebSocket subprotocol was not offered.",
+        }
+    }
     fn unauthorized() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
@@ -476,5 +506,21 @@ impl IntoResponse for AppError {
             Json(serde_json::json!({"code": self.code, "message": self.message})),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requires_the_exact_websocket_subprotocol() {
+        let mut headers = HeaderMap::new();
+        assert!(!offers_protocol(&headers));
+        headers.insert(
+            header::SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("example, cormier.realtime.v1"),
+        );
+        assert!(offers_protocol(&headers));
     }
 }

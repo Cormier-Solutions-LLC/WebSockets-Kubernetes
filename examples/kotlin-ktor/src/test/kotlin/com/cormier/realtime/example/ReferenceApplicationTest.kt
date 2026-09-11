@@ -121,6 +121,19 @@ class ReferenceApplicationTest {
     }
 
     @Test
+    fun `login bodies are bounded before deserialization`() = testApplication {
+        val upstream = HttpClient(MockEngine { respond("{}", HttpStatusCode.OK) })
+        application { referenceModule(ReferenceConfig.load(fixtureEnvironment), MemoryStore(), upstream) }
+        val response = client.post("/api/login") {
+            header(HttpHeaders.Origin, fixtureEnvironment.getValue("PUBLIC_ORIGIN"))
+            contentType(ContentType.Application.Json)
+            setBody(ByteArray(64 * 1024 + 1))
+        }
+        assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+        upstream.close()
+    }
+
+    @Test
     fun `ticket forwarding preserves the validated public scheme`() = testApplication {
         var forwardedProto: String? = null
         val upstream = HttpClient(MockEngine { request ->

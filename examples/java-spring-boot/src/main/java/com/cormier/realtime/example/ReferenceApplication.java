@@ -27,13 +27,14 @@ public class ReferenceApplication {
   RouteLocator realtimeRoutes(RouteLocatorBuilder routes, ReferenceProperties properties) {
     var gateway = properties.gatewayUrl().toString();
     var websocket = gateway.replaceFirst("^http", "ws");
+    var publicScheme = properties.publicOrigin().getScheme();
     return routes.routes()
         .route("realtime-tickets", route -> route.path("/realtime/tickets").and().method(HttpMethod.POST)
-            .filters(filters -> filters.preserveHostHeader())
+            .filters(filters -> filters.preserveHostHeader().setRequestHeader("X-Forwarded-Proto", publicScheme))
             .metadata("response-timeout", 15_000L)
             .uri(gateway))
         .route("realtime-websocket", route -> route.path("/realtime/ws")
-            .filters(filters -> filters.preserveHostHeader())
+            .filters(filters -> filters.preserveHostHeader().setRequestHeader("X-Forwarded-Proto", publicScheme))
             .uri(websocket))
         .build();
   }

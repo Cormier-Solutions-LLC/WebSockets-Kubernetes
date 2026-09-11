@@ -87,12 +87,12 @@ final class ReferenceConfigTest extends TestCase
         self::assertStringContainsString('"protocolVersion": "1.0"', (string) $protocol);
     }
 
-    public function test_caddy_rejects_oversized_ticket_bodies_before_php_buffers_them(): void
+    public function test_caddy_rejects_oversized_login_and_ticket_bodies_before_php_buffers_them(): void
     {
         $caddyfile = file_get_contents(__DIR__.'/../../Caddyfile');
         self::assertIsString($caddyfile);
-        self::assertStringContainsString('@realtime_ticket path /realtime/tickets', $caddyfile);
-        self::assertStringContainsString('request_body @realtime_ticket', $caddyfile);
+        self::assertStringContainsString('@bounded_request path /api/login /realtime/tickets', $caddyfile);
+        self::assertStringContainsString('request_body @bounded_request', $caddyfile);
         self::assertStringContainsString('max_size 65536', $caddyfile);
         self::assertStringContainsString('header_up X-Forwarded-Proto {$PUBLIC_SCHEME}', $caddyfile);
     }

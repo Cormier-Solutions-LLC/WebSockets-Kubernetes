@@ -17,12 +17,23 @@ defmodule CormierRealtimeExample.ProxySocket do
 
   @impl true
   def handle_info({:upstream, frame}, state), do: {:push, frame, state}
+
+  def handle_info({:upstream_closed, code, reason}, state),
+    do: {:stop, :normal, {code, reason}, state}
+
   def handle_info(:upstream_closed, state), do: {:stop, :normal, state}
   def handle_info(_, state), do: {:ok, state}
 
   @impl true
-  def terminate(_reason, state) do
-    if state[:upstream], do: GenServer.stop(state.upstream, :normal)
+  def terminate(reason, state) do
+    if state[:upstream] do
+      if reason == :remote do
+        CormierRealtimeExample.UpstreamSocket.send_frame(state.upstream, {:close, 1000, ""})
+      end
+
+      GenServer.stop(state.upstream, :normal)
+    end
+
     :ok
   catch
     :exit, _ -> :ok
@@ -149,8 +160,8 @@ defmodule CormierRealtimeExample.UpstreamSocket do
               {type, payload} when type in [:text, :binary] ->
                 send(state.browser, {:upstream, {type, payload}})
 
-              {:close, _, _} ->
-                send(state.browser, :upstream_closed)
+              {:close, code, reason} ->
+                send(state.browser, {:upstream_closed, code, reason})
 
               _ ->
                 :ok

@@ -9,6 +9,8 @@ This small, non-production adapter demonstrates a Spring Boot front end for Corm
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis instance/session prefixes
 - The generated `sdk/typescript/dist` assets (`npm ci && npm run build` in `sdk/typescript`)
 
+Ticket and WebSocket routes forward the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single trusted forwarding hop; never trust a public or broader network range.
+
 From `examples/java-spring-boot`, supply every value shown in `.env.example`; the application does not load that file or contain deployable network defaults. On PowerShell:
 
 ```powershell
@@ -67,7 +69,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Maven 3.9.12 + Temurin 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has four stack-specific production Java files and 281 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
+The adapter has four stack-specific production Java files and 282 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
 
 ## Support and diagnostics
 

@@ -100,7 +100,7 @@
       "source": "gateway connection registry",
       "aggregation": "rate of sum across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["connection dashboard"]
     },
@@ -128,7 +128,7 @@
       "source": "realtime authenticator",
       "aggregation": "rate of sum across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["security dashboard", "authentication alerts"]
     },
@@ -156,7 +156,7 @@
       "source": "Redis adapter",
       "aggregation": "rate of sum across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["Redis dashboard", "Redis alerts"]
     },
@@ -171,7 +171,7 @@
       "source": "Redis adapter",
       "aggregation": "merge buckets across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["Redis dashboard", "latency alerts"]
     },
@@ -186,7 +186,7 @@
       "source": "protocol handlers",
       "aggregation": "merge buckets across instances",
       "temporality": "cumulative",
-      "availability": ["prometheus", "openmetrics", "otlp", "diagnostics"],
+      "availability": ["prometheus", "openmetrics", "otlp"],
       "stability": "stable",
       "consumers": ["latency dashboard", "latency alerts"]
     },

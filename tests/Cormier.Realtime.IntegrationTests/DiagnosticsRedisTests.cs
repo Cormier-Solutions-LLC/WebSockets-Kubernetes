@@ -73,6 +73,50 @@ public sealed class DiagnosticsRedisTests
     }
 
     [Fact]
+    public async Task ReplicaWideCapacityIsReservedAtomicallyAcrossDistinctCategories()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = Endpoint,
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 1000,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MaximumDetailItems = 1,
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var firstRedis = new RedisConnectionProvider(redisOptions);
+        await using var secondRedis = new RedisConnectionProvider(redisOptions);
+        using var firstControl = new DiagnosticsControlService(
+            new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("capacity-first")),
+            firstRedis,
+            redisOptions,
+            diagnostics);
+        using var secondControl = new DiagnosticsControlService(
+            new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("capacity-second")),
+            secondRedis,
+            redisOptions,
+            diagnostics);
+
+        var outcomes = await Task.WhenAll(
+            firstControl.ApplyAsync(
+                new LogLevelChangeRequest("Cormier.Realtime.Redis", "Debug", 30, "global capacity one", "all"),
+                "operator-one",
+                CancellationToken.None).AsTask(),
+            secondControl.ApplyAsync(
+                new LogLevelChangeRequest("Cormier.Realtime.Gateway", "Debug", 30, "global capacity two", "all"),
+                "operator-two",
+                CancellationToken.None).AsTask());
+
+        Assert.Single(outcomes, outcome => outcome.Succeeded);
+        Assert.Single(outcomes, outcome => !outcome.Succeeded && outcome.Error.Contains("limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task AuditPersistenceRemovesEntriesIndividuallyByAge()
     {
         var redisOptions = new RedisOptions
@@ -244,7 +288,15 @@ public sealed class DiagnosticsRedisTests
                 Assert.Contains(restartedAudit.Items, item => item.Id == applied.Result.Id &&
                     item.Outcome == "applied" && item.InstanceId == "diagnostics-restarted");
 
-                var reverted = await firstControl.RevertAsync(
+                var missedController = new RuntimeLogLevelController(
+                    diagnostics,
+                    new DiagnosticsIdentity("diagnostics-missed-publication"));
+                using var missedControl = new DiagnosticsControlService(
+                    missedController,
+                    firstRedis,
+                    redisOptions,
+                    diagnostics);
+                var reverted = await missedControl.RevertAsync(
                     applied.Result.Id,
                     "integration-operator",
                     CancellationToken.None);

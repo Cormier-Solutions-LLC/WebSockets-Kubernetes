@@ -134,6 +134,27 @@ public sealed class ProtocolSecurityTests
     }
 
     [Fact]
+    public async Task ConnectionTicketPreservesTheOriginatingSessionIdentity()
+    {
+        using var metrics = new GatewayMetrics();
+        var identity = Identity() with { SessionId = "session-ticket-1" };
+        var authenticator = new RealtimeAuthenticator(
+            new FixedSessionResolver(),
+            new FixedTicketStore(identity),
+            new RealtimeOptions(),
+            metrics);
+        var context = new DefaultHttpContext();
+        context.Request.Host = new HostString("gateway.example");
+        context.Request.QueryString = new QueryString("?ticket=valid-ticket");
+
+        var result = await authenticator.AuthenticateAsync(context, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("session-ticket-1", result.SessionId);
+        Assert.Equal("session-ticket-1", result.Identity!.SessionId);
+    }
+
+    [Fact]
     public async Task ConnectionQueueIsBoundedAndTracksDuplicateCorrelations()
     {
         using var metrics = new GatewayMetrics();
@@ -331,6 +352,20 @@ public sealed class ProtocolSecurityTests
             string ticket,
             string audience,
             CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class FixedTicketStore(RealtimeIdentity identity) : IConnectionTicketStore
+    {
+        public ValueTask<string> IssueAsync(
+            RealtimeIdentity identity,
+            string audience,
+            TimeSpan lifetime,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<RealtimeIdentity?> ConsumeAsync(
+            string ticket,
+            string audience,
+            CancellationToken cancellationToken) => ValueTask.FromResult<RealtimeIdentity?>(identity);
     }
 
     private static async Task IgnoreCancellationAsync(Task task)

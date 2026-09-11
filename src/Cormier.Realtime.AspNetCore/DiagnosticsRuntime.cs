@@ -95,10 +95,10 @@ public static partial class DiagnosticRedactor
 {
     private const string Redacted = "[REDACTED]";
 
-    [GeneratedRegex("(?im)\\b(authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?im)\\b(authorization|cookie|set-cookie)[\"']?\\s*[:=]\\s*[^\\r\\n]*", RegexOptions.CultureInvariant)]
     private static partial Regex HeaderPattern();
 
-    [GeneratedRegex("(?i)\\b((?:[a-z0-9]+[-_.])*(?:password|secret|token|ticket))[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?i)\\b((?:(?:[a-z0-9]+[-_.])*(?:password|secret|token|ticket|key)|(?:access|refresh|client|api)(?:Password|Secret|Token|Ticket|Key)))[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
     private static partial Regex SecretPattern();
 
     [GeneratedRegex("(?i)\\b(tenant|user|session)(?:[-_.]?id)?[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
@@ -324,7 +324,8 @@ public sealed class RuntimeLogLevelController(
         }
 
         RemoveExpired(DateTimeOffset.UtcNow);
-        if (_overrides.Values.Count(active => active.Scope == request.Scope) >= _options.MaximumDetailItems)
+        if (request.Scope == "instance" &&
+            _overrides.Values.Count(active => active.Scope == "instance") >= _options.MaximumDetailItems)
         {
             error = "The active diagnostics override limit has been reached.";
             return false;

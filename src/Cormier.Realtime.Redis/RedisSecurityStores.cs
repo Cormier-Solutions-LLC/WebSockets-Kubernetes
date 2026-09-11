@@ -32,7 +32,7 @@ public sealed class RedisSessionStore(
         string sessionId,
         CancellationToken cancellationToken)
     {
-        if (!IsSafeIdentifier(sessionId))
+        if (!SecurityRecordValidator.IsValidSessionId(sessionId))
         {
             return null;
         }
@@ -75,8 +75,6 @@ public sealed class RedisSessionStore(
     private RedisKey SessionKey(string sessionId) =>
         $"{options.InstancePrefix}:{options.SessionKeyPrefix}:{sessionId}";
 
-    private static bool IsSafeIdentifier(string value) =>
-        value.Length is >= 16 and <= 256 && value.All(character => char.IsLetterOrDigit(character) || character is '-' or '_');
 }
 
 public sealed class RedisConnectionTicketStore(
@@ -95,6 +93,10 @@ public sealed class RedisConnectionTicketStore(
         if (lifetime <= TimeSpan.Zero || lifetime > TimeSpan.FromMinutes(5))
         {
             throw new ArgumentOutOfRangeException(nameof(lifetime));
+        }
+        if (identity.SessionId is not null && !SecurityRecordValidator.IsValidSessionId(identity.SessionId))
+        {
+            throw new ArgumentException("The identity contains an invalid session identifier.", nameof(identity));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -117,7 +119,8 @@ public sealed class RedisConnectionTicketStore(
             identity.UserId,
             identity.AllowedTopics,
             expiresAt,
-            audience);
+            audience,
+            identity.SessionId);
         var json = JsonSerializer.Serialize(
             record,
             RealtimeJsonSerializerContext.Default.ConnectionTicketRecord);
@@ -172,6 +175,7 @@ public sealed class RedisConnectionTicketStore(
         if (record is null ||
             record.ExpiresAt <= DateTimeOffset.UtcNow ||
             !string.Equals(record.Audience, audience, StringComparison.OrdinalIgnoreCase) ||
+            (record.SessionId is not null && !SecurityRecordValidator.IsValidSessionId(record.SessionId)) ||
             !SecurityRecordValidator.IsValidIdentity(record.TenantId, record.UserId, record.AllowedTopics))
         {
             return null;
@@ -181,7 +185,8 @@ public sealed class RedisConnectionTicketStore(
             record.TenantId,
             record.UserId,
             record.AllowedTopics,
-            record.ExpiresAt);
+            record.ExpiresAt,
+            record.SessionId);
     }
 
     private RedisKey TicketKey(string ticket) =>
@@ -190,6 +195,10 @@ public sealed class RedisConnectionTicketStore(
 
 internal static class SecurityRecordValidator
 {
+    public static bool IsValidSessionId(string value) =>
+        value.Length is >= 16 and <= 256 &&
+        value.All(character => char.IsLetterOrDigit(character) || character is '-' or '_');
+
     public static bool IsValidIdentity(
         string tenantId,
         string userId,

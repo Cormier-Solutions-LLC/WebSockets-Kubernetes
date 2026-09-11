@@ -37,6 +37,12 @@ public sealed class DiagnosticsEndpointTests
         Assert.Throws<ArgumentException>(() => builder.Services.AddRealtimeDiagnosticsBearer(
             "invalid-token-policy",
             $"{token}\n"));
+        Assert.Throws<ArgumentException>(() => builder.Services.AddRealtimeMetricsBearer(
+            "DIAGNOSTICS-OPERATOR",
+            Convert.ToHexString(RandomNumberGenerator.GetBytes(32))));
+        Assert.Throws<ArgumentException>(() => builder.Services.AddRealtimeMetricsBearer(
+            "other-metrics-policy",
+            token));
         await using var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();

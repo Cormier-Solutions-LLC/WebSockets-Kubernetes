@@ -76,19 +76,30 @@ public sealed class DiagnosticsControlService(
             key = ActiveKey(id);
             var reservationKey = ReservationKey(request.Category);
             var lifetime = TimeSpan.FromSeconds(request.DurationSeconds);
-            var transaction = database.CreateTransaction();
-            transaction.AddCondition(Condition.KeyNotExists(reservationKey));
-            var activeWrite = transaction.StringSetAsync(key, payload, lifetime);
-            var reservationWrite = transaction.StringSetAsync(reservationKey, id, lifetime);
-            var indexWrite = transaction.SortedSetAddAsync(
-                ActiveIndexKey(), id, startedAt.Add(lifetime).ToUnixTimeMilliseconds());
-            if (!await transaction.ExecuteAsync())
+            var reservationResult = (long)await database.ScriptEvaluateAsync(
+                "if redis.call('EXISTS', KEYS[1]) == 1 then return 0; end; " +
+                "redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', ARGV[4]); " +
+                "if redis.call('ZCARD', KEYS[3]) >= tonumber(ARGV[5]) then return -1; end; " +
+                "redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[3]); " +
+                "redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3]); " +
+                "redis.call('ZADD', KEYS[3], ARGV[6], ARGV[1]); return 1;",
+                [reservationKey, key, ActiveIndexKey()],
+                [
+                    id,
+                    payload,
+                    (long)lifetime.TotalMilliseconds,
+                    startedAt.ToUnixTimeMilliseconds(),
+                    _options.MaximumDetailItems,
+                    startedAt.Add(lifetime).ToUnixTimeMilliseconds(),
+                ]);
+            if (reservationResult == 0)
             {
                 return (false, null, "An active replica-wide override already exists for the requested category.");
             }
-            await activeWrite;
-            await reservationWrite;
-            await indexWrite;
+            if (reservationResult < 0)
+            {
+                return (false, null, "The active replica-wide diagnostics override limit has been reached.");
+            }
             if (!controller.TryApply(request, actor, out var result, out var error, id, startedAt))
             {
                 await RemoveActiveAsync(database, id, key, reservationKey);
@@ -136,7 +147,46 @@ public sealed class DiagnosticsControlService(
         var active = controller.GetActive().FirstOrDefault(item => item.Id == id);
         if (active is null)
         {
-            return (false, false, string.Empty);
+            try
+            {
+                var connection = await redis.GetConnectionAsync(cancellationToken);
+                if (!connection.IsConnected)
+                {
+                    return (false, false, "Replica-wide rollback lookup requires an available Redis coordination service.");
+                }
+                var stored = await connection.GetDatabase().StringGetAsync(ActiveKey(id));
+                if (!stored.HasValue)
+                {
+                    return (false, false, string.Empty);
+                }
+                DiagnosticsCoordinationMessage? message;
+                try
+                {
+                    message = JsonSerializer.Deserialize(
+                        stored.ToString(),
+                        DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
+                }
+                catch (JsonException)
+                {
+                    return (false, false, string.Empty);
+                }
+                if (message?.Action != "apply" || message.Id != id || message.Request?.Scope != "all")
+                {
+                    return (false, false, string.Empty);
+                }
+                active = new LogLevelOverrideResponse(
+                    id,
+                    message.Request.Category,
+                    message.Request.Level,
+                    "all",
+                    message.Timestamp,
+                    message.Timestamp.AddSeconds(message.Request.DurationSeconds),
+                    "active");
+            }
+            catch (RedisException)
+            {
+                return (false, false, "Replica-wide rollback lookup requires an available Redis coordination service.");
+            }
         }
         var coordinationPublished = false;
         if (active.Scope == "all")

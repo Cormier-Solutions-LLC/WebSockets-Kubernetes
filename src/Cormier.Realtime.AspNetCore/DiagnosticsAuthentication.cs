@@ -55,6 +55,31 @@ public static class DiagnosticsAuthenticationExtensions
         }
 
         var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        foreach (var descriptor in services.Where(static descriptor =>
+                     descriptor.ServiceType == typeof(DiagnosticsBearerRegistration)))
+        {
+            if (descriptor.ImplementationInstance is not DiagnosticsBearerRegistration registration ||
+                registration.AuthenticationScheme == authenticationScheme)
+            {
+                continue;
+            }
+            if (string.Equals(registration.AuthorizationPolicy, authorizationPolicy, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "The diagnostics and metrics bearer helpers require distinct authorization policy names.",
+                    nameof(authorizationPolicy));
+            }
+            if (CryptographicOperations.FixedTimeEquals(registration.TokenHash, tokenHash))
+            {
+                throw new ArgumentException(
+                    "The diagnostics and metrics bearer helpers require distinct bearer tokens.",
+                    nameof(token));
+            }
+        }
+        services.AddSingleton(new DiagnosticsBearerRegistration(
+            authorizationPolicy,
+            tokenHash,
+            authenticationScheme));
         services.AddAuthentication()
             .AddScheme<DiagnosticsBearerOptions, DiagnosticsBearerAuthenticationHandler>(
                 authenticationScheme,
@@ -70,6 +95,11 @@ public static class DiagnosticsAuthenticationExtensions
                 .RequireAuthenticatedUser());
         return services;
     }
+
+    private sealed record DiagnosticsBearerRegistration(
+        string AuthorizationPolicy,
+        byte[] TokenHash,
+        string AuthenticationScheme);
 }
 
 public sealed class DiagnosticsBearerAuthenticationHandler(

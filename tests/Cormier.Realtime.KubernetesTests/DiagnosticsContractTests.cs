@@ -81,6 +81,39 @@ public sealed class DiagnosticsContractTests
     }
 
     [Fact]
+    public void DiagnosticsMetricNamesMatchSnapshotContract()
+    {
+        string[] expected =
+        [
+            "cormier_realtime_active_connections",
+            "cormier_realtime_peak_connections",
+            "cormier_realtime_active_subscriptions",
+            "cormier_realtime_queue_depth",
+            "cormier_realtime_queue_peak_depth",
+            "cormier_realtime_messages_total",
+            "cormier_realtime_authorization_failures_total",
+            "cormier_realtime_draining",
+            "cormier_realtime_redis_subscription_active",
+            "cormier_realtime_process_managed_memory_bytes",
+            "cormier_realtime_process_cpu_seconds_total",
+            "cormier_realtime_authentication_failures_total",
+            "cormier_realtime_queue_dropped_total",
+            "cormier_realtime_redis_errors_total",
+            "cormier_realtime_handler_cancellations_total",
+            "cormier_realtime_reconnect_authentications_total",
+        ];
+        using var catalog = JsonDocument.Parse(Read("observability/metrics-catalog.json"));
+        var diagnosticsNames = catalog.RootElement.GetProperty("metrics")
+            .EnumerateArray()
+            .Where(metric => metric.GetProperty("availability").EnumerateArray()
+                .Any(value => value.GetString() == "diagnostics"))
+            .Select(metric => metric.GetProperty("name").GetString()!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.True(diagnosticsNames.SetEquals(expected));
+    }
+
+    [Fact]
     public void ChartKeepsDiagnosticsDisabledAndTelemetryCredentialsSecretBacked()
     {
         var values = Read("helm/realtime-gateway/values.yaml");

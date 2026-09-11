@@ -43,7 +43,7 @@ public sealed class RealtimeAuthenticator(
             metrics.RecordAuthentication(identity is not null, "ticket", IsReconnectRequest(request));
             return identity is null
                 ? new AuthenticationResult(null, "invalid_ticket")
-                : new AuthenticationResult(identity, null);
+                : new AuthenticationResult(identity, null, identity.SessionId);
         }
 
         return await AuthenticateSessionAsync(context, cancellationToken);
@@ -77,7 +77,10 @@ public sealed class RealtimeAuthenticator(
         metrics.RecordAuthentication(session is not null, "session", IsReconnectRequest(request));
         return session is null
             ? new AuthenticationResult(null, "session_invalid")
-            : new AuthenticationResult(session.Identity, null, session.SessionId);
+            : new AuthenticationResult(
+                session.Identity with { SessionId = session.SessionId },
+                null,
+                session.SessionId);
     }
 
     public ValueTask<RealtimeIdentity?> RevalidateSessionAsync(

@@ -13,6 +13,7 @@ From `examples/java-spring-boot`, supply every value shown in `.env.example`; th
 
 ```powershell
 $env:PORT = "15200"
+$env:LISTEN_HOST = "127.0.0.1"
 $env:PUBLIC_ORIGIN = "http://127.0.0.1:15200"
 $env:GATEWAY_URL = "http://127.0.0.1:15201"
 $env:REDIS_URL = "redis://127.0.0.1:16379"
@@ -66,7 +67,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Maven 3.9.12 + Temurin 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has four stack-specific production Java files and 276 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
+The adapter has four stack-specific production Java files and 279 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
 
 ## Support and diagnostics
 

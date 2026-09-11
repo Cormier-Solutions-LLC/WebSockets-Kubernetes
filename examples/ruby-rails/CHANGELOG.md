@@ -8,4 +8,6 @@
 - Added exact locked gems, RuboCop/Minitest/Brakeman/bundler-audit gates, digest-pinned non-root image, supervised lifecycle behavior, update/rollback instructions, and non-production limitations.
 - Pinned JSON 2.21.2 because Rails 8.1.3.1 request decoding is not compatible with the JSON 3.0 positional-options API.
 - Security and configuration: every network identity and Redis/session prefix remains runtime-supplied; errors/logs are generic and dependency access logging is suppressed.
+- Made the Caddy listener host runtime-supplied and rejected noncanonical configured origins with explicit default HTTP(S) ports.
+- Added a failing HIGH/CRITICAL image scan, upgraded runtime OS packages, pinned the patched resolver gem, and built Caddy with patched Go dependencies.
 - Breaking changes, operator actions, and deprecations: none; this is the initial example release.

@@ -3,8 +3,19 @@ WORKDIR /source
 COPY examples/php-laravel/composer.json examples/php-laravel/composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader --no-scripts
 
+FROM dunglas/frankenphp:1.12.7-builder-php8.5-alpine@sha256:862bce4c7efe77337d8f8170a262b639e1787141ffe70ae0edd9ec6ef96c6a99 AS frankenphp
+WORKDIR /go/src/app/caddy
+RUN go get github.com/getkin/kin-openapi@v0.144.0 \
+    golang.org/x/crypto@v0.55.0 \
+    golang.org/x/net@v0.58.0 \
+    golang.org/x/text@v0.41.0 \
+    google.golang.org/grpc@v1.83.2 \
+    && cd frankenphp \
+    && GOBIN=/usr/local/bin ../../go.sh install -buildvcs=false -ldflags "-w -s -X 'github.com/caddyserver/caddy/v2.CustomVersion=FrankenPHP v1.12.7 PHP $PHP_VERSION Caddy' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp' -X 'github.com/caddyserver/caddy/v2/modules/caddyhttp.ServerHeader=FrankenPHP Caddy'"
+
 FROM dunglas/frankenphp:1.12.7-php8.5-alpine@sha256:214b541fe30aeed2717d54f74149b71b2bdb0089718f1fbb8b43bc170ab00939
-RUN apk add --no-cache tini=0.19.0-r3
+RUN apk upgrade --no-cache && apk add --no-cache tini=0.19.0-r3
+COPY --from=frankenphp /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 WORKDIR /app
 COPY --from=dependencies /source/vendor ./vendor
 COPY examples/php-laravel/app ./app

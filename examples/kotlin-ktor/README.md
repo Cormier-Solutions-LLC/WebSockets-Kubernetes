@@ -13,6 +13,7 @@ Supply every value shown in `.env.example`; it is a fixture and is not loaded au
 
 ```powershell
 $env:PORT = "15300"
+$env:LISTEN_HOST = "127.0.0.1"
 $env:PUBLIC_ORIGIN = "http://127.0.0.1:15300"
 $env:GATEWAY_URL = "http://127.0.0.1:15301"
 $env:REDIS_URL = "redis://127.0.0.1:16379"
@@ -66,7 +67,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Gradle 9.7.1 JDK 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has three stack-specific production Kotlin files and 325 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
+The adapter has three stack-specific production Kotlin files and 331 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
 
 ## Support and diagnostics
 

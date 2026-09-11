@@ -9,6 +9,7 @@ COPY examples/elixir-phoenix/lib ./lib
 RUN mix release
 
 FROM hexpm/elixir:1.20.4-erlang-29.0.6-alpine-3.24.1@sha256:fec752d2a79fc50dc0a29b4da3c62f0a4925bc318f5391e5e221d01f98be6f22
+RUN apk upgrade --no-cache
 WORKDIR /app
 COPY --from=build /source/_build/prod/rel/cormier_realtime_example ./release
 COPY examples/shared-web/wwwroot ./shared-web

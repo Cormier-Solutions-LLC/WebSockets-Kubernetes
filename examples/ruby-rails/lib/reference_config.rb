@@ -5,7 +5,7 @@ class ReferenceConfig
   IDENTIFIER = /\A[A-Za-z0-9._-]{1,128}\z/
   PREFIX = /\A[A-Za-z0-9._:-]{1,128}\z/
 
-  attr_reader :port, :public_origin, :public_uri, :gateway_url, :gateway_uri, :redis_url,
+  attr_reader :listen_host, :port, :public_origin, :public_uri, :gateway_url, :gateway_uri, :redis_url,
     :session_secret, :session_lifetime, :instance_name, :topology, :redis_instance_prefix,
     :redis_session_key_prefix, :allowed_tenants, :allowed_users, :shared_asset_root, :sdk_asset_root
 
@@ -14,6 +14,7 @@ class ReferenceConfig
   end
 
   def initialize(environment)
+    @listen_host = identifier(required(environment, "LISTEN_HOST"), /\A[A-Za-z0-9._:-]{1,253}\z/)
     @port = integer(required(environment, "PORT"), 1_024..65_535)
     @public_origin, @public_uri = origin(required(environment, "PUBLIC_ORIGIN"))
     @gateway_url, @gateway_uri = origin(required(environment, "GATEWAY_URL"))
@@ -62,7 +63,10 @@ class ReferenceConfig
 
   def origin(value)
     uri = URI.parse(value)
-    unless %w[http https].include?(uri.scheme) && uri.host && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil? && [ "", "/" ].include?(uri.path)
+    explicit_default_port = value.match?(%r{\Ahttp://[^/?#]+:80(?:/|\z)}i) ||
+      value.match?(%r{\Ahttps://[^/?#]+:443(?:/|\z)}i)
+    unless %w[http https].include?(uri.scheme) && uri.host && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil? &&
+        [ "", "/" ].include?(uri.path) && !explicit_default_port
       raise ArgumentError, "origin configuration is invalid"
     end
 

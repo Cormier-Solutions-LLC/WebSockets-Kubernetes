@@ -19,6 +19,10 @@ func TestTypedConfiguration(t *testing.T) {
 	if _, err = loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
 		t.Fatal("unsafe origin was accepted")
 	}
+	values["PUBLIC_ORIGIN"] = "https://example.test:443"
+	if _, err = loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
+		t.Fatal("explicit default origin port was accepted")
+	}
 }
 func TestCanonicalContracts(t *testing.T) {
 	values := testValues()

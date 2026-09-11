@@ -5,6 +5,7 @@ require_relative "../lib/reference_config"
 class ReferenceConfigTest < Minitest::Test
   def values
     {
+      "LISTEN_HOST" => "127.0.0.1",
       "PORT" => "15500",
       "PUBLIC_ORIGIN" => "http://127.0.0.1:15500",
       "GATEWAY_URL" => "http://127.0.0.1:15501",
@@ -22,6 +23,7 @@ class ReferenceConfigTest < Minitest::Test
 
   def test_typed_configuration
     config = ReferenceConfig.load(values)
+    assert_equal "127.0.0.1", config.listen_host
     assert_equal 15_500, config.port
     assert config.allows?("tenant-a", "user-a")
     assert_equal "cormier:test:sessions:id", config.session_key("id")
@@ -29,6 +31,11 @@ class ReferenceConfigTest < Minitest::Test
 
   def test_rejects_unsafe_origin
     environment = values.merge("PUBLIC_ORIGIN" => "file:///tmp")
+    assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
+  end
+
+  def test_rejects_explicit_default_origin_port
+    environment = values.merge("PUBLIC_ORIGIN" => "https://example.test:443")
     assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
   end
 

@@ -23,6 +23,8 @@ defmodule CormierRealtimeExample.ConfigTest do
     assert {:ok, %{listen_host: "127.0.0.1", port: 15_600}} = Config.load(&values[&1])
     invalid = Map.put(values, "PUBLIC_ORIGIN", "file:///tmp")
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
+    invalid = Map.put(values, "PUBLIC_ORIGIN", "https://example.test:443")
+    assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
   end
 
   test "consumes canonical contracts" do

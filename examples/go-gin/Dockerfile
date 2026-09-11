@@ -6,6 +6,7 @@ COPY examples/go-gin/*.go ./
 RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /out/application .
 
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+RUN apk upgrade --no-cache
 WORKDIR /app
 COPY --from=build /out/application ./application
 COPY examples/shared-web/wwwroot ./shared-web

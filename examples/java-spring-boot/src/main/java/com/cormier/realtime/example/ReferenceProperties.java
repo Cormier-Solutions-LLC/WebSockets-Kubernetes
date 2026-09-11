@@ -15,6 +15,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties("cormier.reference")
 public record ReferenceProperties(
+    @NotBlank @Pattern(regexp = "[A-Za-z0-9._:-]{1,253}") String listenHost,
     URI publicOrigin,
     URI gatewayUrl,
     @Min(60) @Max(7200) int sessionLifetimeSeconds,
@@ -39,7 +40,9 @@ public record ReferenceProperties(
         && value.getUserInfo() == null
         && (value.getPath() == null || value.getPath().isEmpty() || "/".equals(value.getPath()))
         && value.getQuery() == null
-        && value.getFragment() == null;
+        && value.getFragment() == null
+        && !("http".equals(value.getScheme()) && value.getPort() == 80)
+        && !("https".equals(value.getScheme()) && value.getPort() == 443);
   }
 
   public boolean allows(String tenantId, String userId) {

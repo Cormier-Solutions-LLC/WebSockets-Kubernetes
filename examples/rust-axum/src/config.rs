@@ -95,6 +95,15 @@ impl Config {
 }
 
 fn origin(value: &str) -> Result<Url, &'static str> {
+    let lower = value.to_ascii_lowercase();
+    let explicit_default_port = lower
+        .strip_prefix("http://")
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|authority| authority.ends_with(":80"))
+        || lower
+            .strip_prefix("https://")
+            .and_then(|rest| rest.split('/').next())
+            .is_some_and(|authority| authority.ends_with(":443"));
     let mut value = Url::parse(value).map_err(|_| "origin is invalid")?;
     if !matches!(value.scheme(), "http" | "https")
         || value.host_str().is_none()
@@ -103,6 +112,7 @@ fn origin(value: &str) -> Result<Url, &'static str> {
         || value.query().is_some()
         || value.fragment().is_some()
         || value.path() != "/"
+        || explicit_default_port
     {
         return Err("origin is invalid");
     }
@@ -171,6 +181,8 @@ mod tests {
         assert_eq!(config.listen_host, "127.0.0.1");
         let mut invalid = values.clone();
         invalid.insert("PUBLIC_ORIGIN", "file:///tmp".into());
+        assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());
+        invalid.insert("PUBLIC_ORIGIN", "https://example.test:443".into());
         assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());
     }
 

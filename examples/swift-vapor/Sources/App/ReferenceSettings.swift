@@ -1,6 +1,7 @@
 import Foundation
 
 struct ReferenceSettings: Sendable {
+  let listenHost: String
   let port: Int
   let applicationHost: String
   let applicationPort: Int
@@ -19,6 +20,8 @@ struct ReferenceSettings: Sendable {
   let sdkAssetRoot: String
 
   init(environment: [String: String]) throws {
+    self.listenHost = try Self.identifier(
+      Self.required("LISTEN_HOST", in: environment), pattern: #"^[A-Za-z0-9._:-]{1,253}$"#)
     self.port = try Self.integer(Self.required("PORT", in: environment), range: 1_024...65_535)
     self.applicationHost = try Self.identifier(Self.required("APPLICATION_HOST", in: environment))
     self.applicationPort = try Self.integer(
@@ -72,7 +75,9 @@ struct ReferenceSettings: Sendable {
       components.password == nil,
       components.query == nil,
       components.fragment == nil,
-      components.path.isEmpty || components.path == "/"
+      components.path.isEmpty || components.path == "/",
+      !(components.scheme == "http" && components.port == 80),
+      !(components.scheme == "https" && components.port == 443)
     else { throw SettingsError.invalid }
     return value.hasSuffix("/") ? String(value.dropLast()) : value
   }

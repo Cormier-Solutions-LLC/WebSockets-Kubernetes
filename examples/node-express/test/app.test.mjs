@@ -25,6 +25,7 @@ function fixture(overrides = {}) {
   const logs = [];
   const logger = { error(entry) { logs.push(entry); } };
   const config = {
+    trustProxyHops: 0,
     publicOrigin: "http://127.0.0.1:15100",
     gatewayUrl: "http://127.0.0.1:15101",
     sessionSecret: "a-runtime-only-secret-that-is-long-enough",
@@ -97,7 +98,7 @@ test("establishes, validates, forwards, expires, and removes a session", async (
     .expect(202, { forwarded: true });
   assert.deepEqual(context.proxyCalls, [{
     path: "/realtime/tickets",
-    options: { target: context.config.gatewayUrl, changeOrigin: false },
+    options: { target: context.config.gatewayUrl, changeOrigin: false, proxyTimeout: 10_000, timeout: 10_000 },
   }]);
 
   const record = JSON.parse(context.values.get(redisKey));
@@ -109,6 +110,18 @@ test("establishes, validates, forwards, expires, and removes a session", async (
   await agent.post("/api/logout").set("Origin", context.config.publicOrigin).expect(204);
   assert.equal(context.values.size, 0);
   await agent.get("/api/session").expect(401, { authenticated: false });
+});
+
+test("honors configured trusted proxy hops for secure session cookies", async () => {
+  const context = fixture({ publicOrigin: "https://example.test", trustProxyHops: 1 });
+  const response = await request(context.app).post("/api/login")
+    .set("Origin", context.config.publicOrigin)
+    .set("X-Forwarded-Proto", "https")
+    .send({ tenantId: "tenant-a", userId: "user-a" })
+    .expect(200);
+  const cookies = response.headers["set-cookie"].join(";");
+  assert.match(cookies, /cormier_example_session=/);
+  assert.match(cookies, /Secure/);
 });
 
 test("serves only the canonical shared UI and generated SDK", async () => {

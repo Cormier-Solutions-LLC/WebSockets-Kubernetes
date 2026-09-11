@@ -17,7 +17,8 @@
 
 ### Changed, fixed, deprecated, removed
 
-- Fixed WebSocket query forwarding and made the listener host explicitly configurable.
+- Fixed WebSocket query forwarding, made the listener host explicitly configurable, and rejected noncanonical origins with explicit default HTTP(S) ports.
+- Added a failing HIGH/CRITICAL image scan and upgraded runtime OS packages during image construction.
 - Future deprecations must identify a replacement, migration and rollback instructions, verification, and the removal release/support window before behavior changes.
 
 ### Operator action

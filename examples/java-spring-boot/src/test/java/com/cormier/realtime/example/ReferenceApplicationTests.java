@@ -4,9 +4,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
-import java.time.Duration;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
 @SpringBootTest(properties = {
+    "LISTEN_HOST=127.0.0.1",
     "PORT=0",
     "PUBLIC_ORIGIN=http://127.0.0.1:15200",
     "GATEWAY_URL=http://127.0.0.1:9",
@@ -122,7 +124,7 @@ final class ReferenceApplicationTests {
     var mapper = new tools.jackson.databind.ObjectMapper();
     var schema = mapper.readTree(Files.readString(Path.of("../shared-web/reference-app.schema.json")));
     var required = schema.get("required").toString();
-    for (var name : new String[] { "PUBLIC_ORIGIN", "GATEWAY_URL", "REDIS_URL", "SESSION_LIFETIME_SECONDS",
+    for (var name : new String[] { "LISTEN_HOST", "PUBLIC_ORIGIN", "GATEWAY_URL", "REDIS_URL", "SESSION_LIFETIME_SECONDS",
         "INSTANCE_NAME", "TOPOLOGY", "REDIS_INSTANCE_PREFIX", "REDIS_SESSION_KEY_PREFIX", "ALLOWED_TENANTS",
         "ALLOWED_USERS" }) {
       org.junit.jupiter.api.Assertions.assertTrue(required.contains("\"" + name + "\""), name);
@@ -131,5 +133,14 @@ final class ReferenceApplicationTests {
     var protocol = mapper.readTree(Files.readString(Path.of("../../protocol/fixtures/v1/envelopes.json")));
     org.junit.jupiter.api.Assertions.assertEquals("1.0", sdk.get("protocolVersion").asText());
     org.junit.jupiter.api.Assertions.assertEquals(sdk.get("protocolVersion"), protocol.get("protocolVersion"));
+  }
+
+  @Test
+  void rejectsExplicitDefaultOriginPorts() {
+    var properties = new ReferenceProperties(
+        "127.0.0.1", URI.create("https://example.test:443"), URI.create("http://gateway.test"),
+        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
+    org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
   }
 }

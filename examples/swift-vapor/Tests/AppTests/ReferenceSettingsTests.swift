@@ -7,9 +7,11 @@ import Testing
 struct ReferenceSettingsTests {
   private var values: [String: String] {
     [
+      "LISTEN_HOST": "127.0.0.1",
       "PORT": "15500",
       "APPLICATION_HOST": "127.0.0.1",
       "APPLICATION_PORT": "15502",
+      "APP_URL": "http://127.0.0.1:15502",
       "PUBLIC_ORIGIN": "http://127.0.0.1:15500",
       "GATEWAY_URL": "http://127.0.0.1:15501",
       "REDIS_URL": "redis://127.0.0.1:6379",
@@ -27,6 +29,7 @@ struct ReferenceSettingsTests {
   @Test("loads typed settings")
   func loadsTypedSettings() throws {
     let settings = try ReferenceSettings(environment: self.values)
+    #expect(settings.listenHost == "127.0.0.1")
     #expect(settings.port == 15_500)
     #expect(settings.allows(tenant: "tenant-a", user: "user-a"))
     #expect(settings.sessionKey("id") == "cormier:test:sessions:id")
@@ -36,6 +39,13 @@ struct ReferenceSettingsTests {
   func rejectsUnsafeOrigin() {
     var environment = self.values
     environment["PUBLIC_ORIGIN"] = "file:///tmp"
+    #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+  }
+
+  @Test("rejects explicit default origin ports")
+  func rejectsExplicitDefaultOriginPort() {
+    var environment = self.values
+    environment["PUBLIC_ORIGIN"] = "https://example.test:443"
     #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
   }
 
@@ -50,7 +60,9 @@ struct ReferenceSettingsTests {
       contentsOf: root.appending(path: "sdk/typescript/dist/version.json"), encoding: .utf8)
     let protocolFixture = try String(
       contentsOf: root.appending(path: "protocol/fixtures/v1/envelopes.json"), encoding: .utf8)
-    #expect(schema.contains("PUBLIC_ORIGIN"))
+    for name in ["APPLICATION_HOST", "APPLICATION_PORT", "APP_URL"] {
+      #expect(schema.contains("\"\(name)\""))
+    }
     #expect(sdk.contains(#""protocolVersion": "1.0""#))
     #expect(protocolFixture.contains(#""protocolVersion": "1.0""#))
   }

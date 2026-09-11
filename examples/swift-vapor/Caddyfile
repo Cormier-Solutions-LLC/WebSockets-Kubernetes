@@ -6,7 +6,7 @@
 	}
 }
 
-:{$PORT} {
+{$LISTEN_HOST}:{$PORT} {
 	log {
 		output discard
 	}

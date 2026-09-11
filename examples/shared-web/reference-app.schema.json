@@ -5,6 +5,7 @@
   "type": "object",
   "additionalProperties": true,
   "required": [
+    "LISTEN_HOST",
     "PORT",
     "PUBLIC_ORIGIN",
     "GATEWAY_URL",
@@ -19,7 +20,12 @@
   ],
   "properties": {
     "LISTEN_HOST": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,253}$" },
+    "TRUST_PROXY_HOPS": { "type": "string", "pattern": "^(?:[0-9]|1[0-6])$" },
     "PORT": { "type": "string", "pattern": "^[0-9]+$" },
+    "APPLICATION_HOST": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,253}$" },
+    "APPLICATION_PORT": { "type": "string", "pattern": "^[0-9]+$" },
+    "APP_URL": { "type": "string", "format": "uri" },
+    "PUBLIC_ROOT": { "type": "string", "minLength": 1 },
     "PUBLIC_ORIGIN": { "type": "string", "format": "uri" },
     "GATEWAY_URL": { "type": "string", "format": "uri" },
     "REDIS_URL": { "type": "string", "format": "uri" },

@@ -63,7 +63,7 @@ fun main() {
         val config = ReferenceConfig.load()
         val store = LettuceSessionStore.connect(config.redisUrl)
         val client = HttpClient(CIO) { install(ClientWebSockets) }
-        val server = embeddedServer(Netty, port = config.port) { referenceModule(config, store, client) }
+        val server = embeddedServer(Netty, host = config.listenHost, port = config.port) { referenceModule(config, store, client) }
         Runtime.getRuntime().addShutdownHook(Thread {
             server.stop(1_000, 15_000)
             client.close()
@@ -169,6 +169,8 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             call.respondBytes(response.body<ByteArray>(), ContentType.Application.Json, response.status)
         }
         webSocket("/realtime/ws", protocol = SUBPROTOCOL) browser@{
+            val browserOrigin = call.request.header(HttpHeaders.Origin)
+            requireOrigin(browserOrigin, config)
             val query = call.request.queryParameters.entries()
                 .flatMap { (name, values) -> values.map { value -> name to value } }
             val upstreamUrl = config.gatewayUrl.resolve("/realtime/ws").toString().replaceFirst("http", "ws")
@@ -177,7 +179,7 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                 url {
                     query.forEach { (name, value) -> parameters.append(name, value) }
                 }
-                header(HttpHeaders.Origin, config.publicOrigin.toString())
+                header(HttpHeaders.Origin, browserOrigin!!)
                 call.request.header(HttpHeaders.Cookie)?.let { header(HttpHeaders.Cookie, it) }
                 call.request.header(HttpHeaders.Host)?.let { header(HttpHeaders.Host, it) }
                 header(HttpHeaders.SecWebSocketProtocol, SUBPROTOCOL)

@@ -14,7 +14,7 @@
 	}
 }
 
-:{$PORT} {
+{$LISTEN_HOST}:{$PORT} {
 	log {
 		output discard
 	}
@@ -30,6 +30,6 @@
 	reverse_proxy @realtime_websocket {$GATEWAY_URL} {
 		header_up Host {http.request.hostport}
 	}
-	root * /app/public
+	root * {$PUBLIC_ROOT}
 	php_server
 }

@@ -12,6 +12,8 @@
 
 - No deployable endpoint, credential, identity, session, or ticket is embedded; errors/logs omit underlying values.
 - The listener host is supplied explicitly and WebSocket ticket/reconnect queries are preserved upstream.
+- `rediss://` now uses Rustls with Web PKI roots, and noncanonical origins with explicit default HTTP(S) ports are rejected.
+- Added a failing HIGH/CRITICAL image scan and upgraded runtime OS packages during image construction.
 - HTTP-only SameSite Strict cookies, restrictive browser headers, no-store responses, Origin validation, and bounded dependency work.
 
 ### Limitations and actions

@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 
 class ReferenceApplicationTest {
     private val fixtureEnvironment = mapOf(
-        "PORT" to "15300", "PUBLIC_ORIGIN" to "http://127.0.0.1:15300",
+        "LISTEN_HOST" to "127.0.0.1", "PORT" to "15300", "PUBLIC_ORIGIN" to "http://127.0.0.1:15300",
         "GATEWAY_URL" to "http://127.0.0.1:15301", "REDIS_URL" to "redis://127.0.0.1:6379",
         "SESSION_LIFETIME_SECONDS" to "1200", "INSTANCE_NAME" to "kotlin-ktor-a", "TOPOLOGY" to "non-ha",
         "REDIS_INSTANCE_PREFIX" to "cormier:kotlin-test", "REDIS_SESSION_KEY_PREFIX" to "sessions",
@@ -36,6 +36,7 @@ class ReferenceApplicationTest {
     @Test
     fun `configuration validates and consumes canonical contracts`() {
         val config = ReferenceConfig.load(fixtureEnvironment)
+        assertEquals("127.0.0.1", config.listenHost)
         assertEquals(15300, config.port)
         assertEquals("http://127.0.0.1:15300", config.publicOrigin.toString())
         for (name in fixtureEnvironment.keys - setOf("SHARED_ASSET_ROOT", "SDK_ASSET_ROOT")) {
@@ -46,6 +47,7 @@ class ReferenceApplicationTest {
         assertTrue(sdk.contains("\"protocolVersion\": \"1.0\""))
         assertTrue(protocol.contains("\"protocolVersion\": \"1.0\""))
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "file:///tmp")) }
+        assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:443")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("ALLOWED_USERS" to "bad user")) }
     }
 

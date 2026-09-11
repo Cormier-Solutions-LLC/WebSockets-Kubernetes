@@ -40,7 +40,7 @@ server.on("upgrade", (request, socket, head) => {
   proxy.ws(request, socket, head, { target: config.gatewayUrl, changeOrigin: false });
 });
 
-await new Promise((resolve) => server.listen(config.port, resolve));
+await new Promise((resolve) => server.listen(config.port, config.listenHost, resolve));
 console.log(JSON.stringify({ event: "started", stack: "node-express", instance: config.instanceName }));
 
 const stop = createShutdown({

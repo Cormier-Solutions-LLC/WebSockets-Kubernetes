@@ -1,0 +1,13 @@
+.git
+**/.build
+**/.gradle
+**/.venv
+**/_build
+**/artifacts
+**/build
+**/deps
+**/node_modules
+**/obj
+**/target
+**/test-results
+**/vendor

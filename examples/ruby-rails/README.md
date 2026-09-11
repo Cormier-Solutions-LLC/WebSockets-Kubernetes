@@ -26,7 +26,7 @@ docker build -f examples/ruby-rails/Dockerfile -t cormier-ruby-rails:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 --env-file examples/ruby-rails/.env.example -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:16379 cormier-ruby-rails:local
 ```
 
-Configuration, Redis, and canonical assets are checked before the public listener binds. Puma remains private on a Unix socket; Caddy exposes the configured port and forwards browser authority on the WebSocket route. HTTP and Redis waits are bounded. Logs contain structural lifecycle/failure events and error types only. Tini supervises graceful shutdown, and the image runs as numeric user/group 65532.
+Configuration, Redis, and canonical assets are checked before the public listener binds. Puma remains private on a Unix socket; Caddy exposes the configured `LISTEN_HOST` and port and forwards browser authority on the WebSocket route. HTTP and Redis waits are bounded. Logs contain structural lifecycle/failure events and error types only. Tini supervises graceful shutdown, and the image runs as numeric user/group 65532.
 
 ## Feature matrix
 
@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has 12 stack-specific Ruby/test files and 349 nonblank lines. Vendored gems, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has 12 stack-specific Ruby/test files and 359 nonblank lines. Vendored gems, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Support
 

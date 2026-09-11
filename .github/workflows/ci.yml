@@ -314,6 +314,13 @@ jobs:
         run: npm run check
       - name: Build the Express reference container
         run: docker build --file examples/node-express/Dockerfile --tag cormier-node-express:${{ github.sha }} .
+      - name: Scan the Express reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-node-express:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -369,6 +376,13 @@ jobs:
         run: ./mvnw --batch-mode --no-transfer-progress verify
       - name: Build the Spring Boot reference container
         run: docker build --file examples/java-spring-boot/Dockerfile --tag cormier-java-spring:${{ github.sha }} .
+      - name: Scan the Spring Boot reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-java-spring:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -423,6 +437,13 @@ jobs:
         run: ./gradlew --no-daemon test buildFatJar
       - name: Build the Ktor reference container
         run: docker build --file examples/kotlin-ktor/Dockerfile --tag cormier-kotlin-ktor:${{ github.sha }} .
+      - name: Scan the Ktor reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-kotlin-ktor:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -475,6 +496,13 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
       - name: Build the Axum reference container
         run: docker build --file examples/rust-axum/Dockerfile --tag cormier-rust-axum:${{ github.sha }} .
+      - name: Scan the Axum reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-rust-axum:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -531,6 +559,13 @@ jobs:
           go vet -mod=readonly ./...
       - name: Build the Gin reference container
         run: docker build --file examples/go-gin/Dockerfile --tag cormier-go-gin:${{ github.sha }} .
+      - name: Scan the Gin reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-go-gin:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -589,6 +624,13 @@ jobs:
           mix hex.audit
       - name: Build the Phoenix reference container
         run: docker build --file examples/elixir-phoenix/Dockerfile --tag cormier-elixir-phoenix:${{ github.sha }} .
+      - name: Scan the Phoenix reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-elixir-phoenix:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -640,6 +682,13 @@ jobs:
           sh -lc 'composer install --no-interaction --no-progress --no-scripts && composer validate --no-check-publish && vendor/bin/pint --test && vendor/bin/phpunit && composer audit --locked --no-interaction'
       - name: Build the Laravel reference container
         run: docker build --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
+      - name: Scan the Laravel reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-php-laravel:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -693,6 +742,13 @@ jobs:
           sh -lc 'pip install --no-cache-dir uv==0.12.13 >/dev/null && uv sync --frozen && uv lock --check && uv run ruff check . && uv run ruff format --check . && uv run pytest && uv run pip-audit --local'
       - name: Build the FastAPI reference container
         run: docker build --file examples/python-fastapi/Dockerfile --tag cormier-python-fastapi:${{ github.sha }} .
+      - name: Scan the FastAPI reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-python-fastapi:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -746,6 +802,13 @@ jobs:
           sh -lc 'apk add --no-cache build-base git yaml-dev >/dev/null && gem install bundler -v 4.0.20 --no-document >/dev/null && bundle _4.0.20_ config set path /tmp/bundle && BUNDLE_FROZEN=true bundle _4.0.20_ install && bundle _4.0.20_ check && bundle _4.0.20_ exec rubocop && bundle _4.0.20_ exec ruby test/reference_config_test.rb && bundle _4.0.20_ exec brakeman --no-pager --quiet && bundle _4.0.20_ exec bundle-audit check --update'
       - name: Build the Rails reference container
         run: docker build --file examples/ruby-rails/Dockerfile --tag cormier-ruby-rails:${{ github.sha }} .
+      - name: Scan the Rails reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-ruby-rails:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
@@ -799,6 +862,13 @@ jobs:
           sh -lc 'cp Package.resolved /tmp/Package.resolved && swift package resolve --disable-sandbox && diff -u /tmp/Package.resolved Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
       - name: Build the Vapor reference container
         run: docker build --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
+      - name: Scan the Vapor reference container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cormier-swift-vapor:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium

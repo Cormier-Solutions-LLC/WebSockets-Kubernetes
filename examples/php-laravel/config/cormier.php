@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'listen_host' => env('LISTEN_HOST'),
     'port' => env('PORT'),
     'public_origin' => env('PUBLIC_ORIGIN'),
     'gateway_url' => env('GATEWAY_URL'),

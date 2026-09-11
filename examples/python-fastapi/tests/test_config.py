@@ -37,6 +37,9 @@ def test_unsafe_origin_is_rejected() -> None:
     environment["PUBLIC_ORIGIN"] = "file:///tmp"
     with pytest.raises(ValidationError):
         Settings.model_validate(environment)
+    environment["PUBLIC_ORIGIN"] = "https://example.test:443"
+    with pytest.raises(ValidationError):
+        Settings.model_validate(environment)
 
 
 def test_gateway_default_ports() -> None:

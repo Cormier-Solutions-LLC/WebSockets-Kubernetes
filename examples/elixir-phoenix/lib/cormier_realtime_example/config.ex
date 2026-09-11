@@ -69,9 +69,14 @@ defmodule CormierRealtimeExample.Config do
   end
 
   defp origin(value) when is_binary(value) do
+    explicit_default_port =
+      Regex.match?(~r/^http:\/\/[^\/?#]+:80(?:\/|$)/i, value) or
+        Regex.match?(~r/^https:\/\/[^\/?#]+:443(?:\/|$)/i, value)
+
     case URI.parse(value) do
       %URI{scheme: scheme, host: host, userinfo: nil, query: nil, fragment: nil, path: path}
-      when scheme in ["http", "https"] and is_binary(host) and path in [nil, "", "/"] ->
+      when scheme in ["http", "https"] and is_binary(host) and path in [nil, "", "/"] and
+             not explicit_default_port ->
         {:ok, String.trim_trailing(value, "/")}
 
       _ ->

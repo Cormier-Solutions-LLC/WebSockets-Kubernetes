@@ -50,7 +50,9 @@ export default defineConfig({
       timeout: readinessTimeout,
       reuseExistingServer: false,
       env: {
+        LISTEN_HOST: "127.0.0.1",
         PORT: "15100",
+        TRUST_PROXY_HOPS: "0",
         PUBLIC_ORIGIN: frontendOrigin,
         GATEWAY_URL: gatewayOrigin,
         REDIS_URL: redisUrl,

@@ -5,6 +5,7 @@ const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
 const exampleDirectory = path.resolve(sourceDirectory, "..");
 const repositoryRoot = path.resolve(exampleDirectory, "..", "..");
 const safeScope = /^[A-Za-z0-9._-]{1,128}$/;
+const safeHost = /^[A-Za-z0-9._:-]{1,253}$/;
 
 function required(environment, name) {
   const value = environment[name]?.trim();
@@ -30,7 +31,23 @@ function parseOrigin(value, name) {
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
     throw new Error(`${name} must be an HTTP or HTTPS origin URL.`);
   }
+  if (/^http:\/\/[^/?#]+:80(?:\/|$)/i.test(value) || /^https:\/\/[^/?#]+:443(?:\/|$)/i.test(value)) {
+    throw new Error(`${name} must omit the default port.`);
+  }
   return parsed;
+}
+
+function parseHost(value) {
+  if (!safeHost.test(value)) throw new Error("LISTEN_HOST must be a safe host name or address.");
+  return value;
+}
+
+function parseTrustProxyHops(value) {
+  const hops = Number(value);
+  if (!Number.isSafeInteger(hops) || hops < 0 || hops > 16) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer between 0 and 16.");
+  }
+  return hops;
 }
 
 function parseRedisUrl(value) {
@@ -80,7 +97,9 @@ export function loadConfig(environment = process.env) {
   }
 
   return Object.freeze({
+    listenHost: parseHost(required(environment, "LISTEN_HOST")),
     port: parsePort(required(environment, "PORT")),
+    trustProxyHops: parseTrustProxyHops(required(environment, "TRUST_PROXY_HOPS")),
     publicOrigin: publicOrigin.origin,
     gatewayUrl: gatewayUrl.origin,
     redisUrl: redisUrl.toString(),

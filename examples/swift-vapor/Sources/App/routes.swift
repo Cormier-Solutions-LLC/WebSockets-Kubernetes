@@ -18,6 +18,14 @@ struct SessionRecord: Content {
   let revoked: Bool
 }
 
+struct SessionResponse: Content {
+  let authenticated: Bool
+  let tenantId: String
+  let userId: String
+  let allowedTopics: [String]
+  let expiresAt: String
+}
+
 struct Diagnostics: Content {
   let stack: String
   let topology: String
@@ -124,7 +132,10 @@ func routes(_ application: Application, settings: ReferenceSettings) {
         return try await errorResponse(
           .unauthorized, "authentication_required", "Authentication is required.", request)
       }
-      return try await record.encodeResponse(for: request)
+      return try await SessionResponse(
+        authenticated: true, tenantId: record.tenantId, userId: record.userId,
+        allowedTopics: record.allowedTopics, expiresAt: record.expiresAt
+      ).encodeResponse(for: request)
     } catch {
       return await dependencyUnavailable(request, caught: error)
     }

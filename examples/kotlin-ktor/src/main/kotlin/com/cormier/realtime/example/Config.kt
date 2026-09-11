@@ -4,6 +4,7 @@ import java.net.URI
 import java.nio.file.Path
 
 data class ReferenceConfig(
+    val listenHost: String,
     val port: Int,
     val publicOrigin: URI,
     val gatewayUrl: URI,
@@ -28,7 +29,8 @@ data class ReferenceConfig(
             fun origin(name: String): URI {
                 val value = URI(required(name)).normalize()
                 require(value.scheme in setOf("http", "https") && value.host != null && value.userInfo == null &&
-                    (value.path.isNullOrEmpty() || value.path == "/") && value.query == null && value.fragment == null) {
+                    (value.path.isNullOrEmpty() || value.path == "/") && value.query == null && value.fragment == null &&
+                    !(value.scheme == "http" && value.port == 80) && !(value.scheme == "https" && value.port == 443)) {
                     "$name must be an HTTP(S) origin"
                 }
                 return URI(value.toString().removeSuffix("/"))
@@ -39,6 +41,8 @@ data class ReferenceConfig(
 
             val port = required("PORT").toIntOrNull()
             require(port != null && port in 1024..65535) { "PORT must be between 1024 and 65535" }
+            val listenHost = required("LISTEN_HOST")
+            require(Regex("[A-Za-z0-9._:-]{1,253}").matches(listenHost)) { "LISTEN_HOST is invalid" }
             val lifetime = required("SESSION_LIFETIME_SECONDS").toLongOrNull()
             require(lifetime != null && lifetime in 60..7200) { "SESSION_LIFETIME_SECONDS must be between 60 and 7200" }
             val instance = required("INSTANCE_NAME")
@@ -55,7 +59,7 @@ data class ReferenceConfig(
             }
 
             return ReferenceConfig(
-                port, origin("PUBLIC_ORIGIN"), origin("GATEWAY_URL"), redis.toString(), lifetime, instance, topology,
+                listenHost, port, origin("PUBLIC_ORIGIN"), origin("GATEWAY_URL"), redis.toString(), lifetime, instance, topology,
                 instancePrefix, sessionPrefix, names("ALLOWED_TENANTS"), names("ALLOWED_USERS"),
                 Path.of(environment["SHARED_ASSET_ROOT"] ?: "../shared-web/wwwroot"),
                 Path.of(environment["SDK_ASSET_ROOT"] ?: "../../sdk/typescript/dist"),

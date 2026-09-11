@@ -9,3 +9,5 @@
 - Security and configuration: every network identity and Redis/session prefix remains runtime-supplied; errors/logs are generic and dependency access logging is suppressed.
 - Breaking changes, operator actions, and deprecations: none; this is the initial example release.
 - Fixed default HTTP(S) gateway port selection and made the listener host explicit.
+- Rejected noncanonical configured origins with explicit default HTTP(S) ports.
+- Added a failing HIGH/CRITICAL image scan, upgraded runtime OS packages, and removed unused package-installer tooling from the runtime image.

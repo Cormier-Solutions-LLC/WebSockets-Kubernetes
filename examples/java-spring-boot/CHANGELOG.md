@@ -16,6 +16,8 @@ Operator-visible changes to the Java/Spring Boot reference application are recor
 - No environment endpoint, credential, identity, session, or ticket is built into source or the image.
 - Session cookies are HTTP-only, SameSite Strict, path-scoped, and Secure when `PUBLIC_ORIGIN` uses HTTPS.
 - API responses are non-cacheable and all responses receive restrictive browser security headers.
+- The listener address is runtime-supplied, and configured origins with explicit default HTTP(S) ports are rejected to match browser Origin serialization.
+- Added a failing HIGH/CRITICAL image scan and upgraded runtime OS packages during image construction.
 
 ### Limitations and operator actions
 

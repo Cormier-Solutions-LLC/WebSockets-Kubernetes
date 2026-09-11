@@ -8,6 +8,7 @@ final readonly class ReferenceConfig
 {
     /** @param list<string> $allowedTenants @param list<string> $allowedUsers */
     private function __construct(
+        public string $listenHost,
         public int $port,
         public string $publicOrigin,
         public string $gatewayUrl,
@@ -69,6 +70,7 @@ final readonly class ReferenceConfig
         };
 
         return new self(
+            self::host($required('listen_host')),
             $port,
             $origin,
             $gateway,
@@ -89,11 +91,23 @@ final readonly class ReferenceConfig
     {
         $parsed = parse_url($value);
         if ($parsed === false || ! in_array($parsed['scheme'] ?? '', ['http', 'https'], true) || empty($parsed['host'])
-            || isset($parsed['user'], $parsed['query'], $parsed['fragment']) || ! in_array($parsed['path'] ?? '', ['', '/'], true)) {
+            || isset($parsed['user']) || isset($parsed['pass']) || isset($parsed['query']) || isset($parsed['fragment'])
+            || ! in_array($parsed['path'] ?? '', ['', '/'], true)
+            || (($parsed['scheme'] ?? '') === 'http' && ($parsed['port'] ?? null) === 80)
+            || (($parsed['scheme'] ?? '') === 'https' && ($parsed['port'] ?? null) === 443)) {
             throw new InvalidArgumentException('Origin configuration is invalid.');
         }
 
         return rtrim($value, '/');
+    }
+
+    private static function host(string $value): string
+    {
+        if (! preg_match('/^[A-Za-z0-9._:-]{1,253}$/D', $value)) {
+            throw new InvalidArgumentException('Listener host configuration is invalid.');
+        }
+
+        return $value;
     }
 
     public function allows(string $tenant, string $user): bool

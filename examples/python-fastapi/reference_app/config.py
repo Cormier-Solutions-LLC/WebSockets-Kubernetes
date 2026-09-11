@@ -15,6 +15,8 @@ def _origin(value: str) -> str:
         or parsed.query
         or parsed.fragment
         or parsed.path not in {"", "/"}
+        or (parsed.scheme == "http" and parsed.port == 80)
+        or (parsed.scheme == "https" and parsed.port == 443)
     ):
         raise ValueError("origin configuration is invalid")
     return value.rstrip("/")

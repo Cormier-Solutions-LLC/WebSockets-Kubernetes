@@ -34,6 +34,7 @@ function requireSession(request, response, next) {
 export function createApp({ config, redisClient, proxy, logger = console }) {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", config.trustProxyHops === 0 ? false : config.trustProxyHops);
   app.use((request, response, next) => {
     response.set({
       "x-content-type-options": "nosniff",
@@ -173,7 +174,12 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
   });
 
   app.post("/realtime/tickets", requireOrigin(config), requireSession, (request, response) => {
-    proxy.web(request, response, { target: config.gatewayUrl, changeOrigin: false });
+    proxy.web(request, response, {
+      target: config.gatewayUrl,
+      changeOrigin: false,
+      proxyTimeout: 10_000,
+      timeout: 10_000,
+    });
   });
 
   app.use("/_content/Cormier.Realtime.Browser", express.static(config.sdkAssetRoot, { index: false, fallthrough: false }));

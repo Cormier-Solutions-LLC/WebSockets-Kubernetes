@@ -10,6 +10,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 test("configuration stays aligned with the canonical reference schema", async () => {
   const schema = JSON.parse(await readFile(path.join(repositoryRoot, "examples/shared-web/reference-app.schema.json"), "utf8"));
   const environment = Object.fromEntries(schema.required.map(name => [name, ({
+    LISTEN_HOST: "127.0.0.1",
     PORT: "15100",
     PUBLIC_ORIGIN: "http://127.0.0.1:15100",
     GATEWAY_URL: "http://127.0.0.1:15101",
@@ -24,7 +25,8 @@ test("configuration stays aligned with the canonical reference schema", async ()
     ALLOWED_USERS: "user-a,user-b",
   })[name]]));
   environment.SESSION_SECRET = "a-runtime-only-secret-that-is-long-enough";
-  assert.equal(Object.keys(environment).length, 12);
+  environment.TRUST_PROXY_HOPS = "0";
+  assert.equal(Object.keys(environment).length, 14);
   assert.doesNotThrow(() => loadConfig(environment));
 });
 

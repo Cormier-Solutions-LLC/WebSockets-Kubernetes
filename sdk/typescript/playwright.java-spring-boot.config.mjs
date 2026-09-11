@@ -48,6 +48,7 @@ export default defineConfig({
       timeout: 60_000,
       reuseExistingServer: process.env.REFERENCE_REUSE_SERVER === "true",
       env: {
+        LISTEN_HOST: "127.0.0.1",
         PORT: "15200",
         PUBLIC_ORIGIN: frontendOrigin,
         GATEWAY_URL: gatewayOrigin,

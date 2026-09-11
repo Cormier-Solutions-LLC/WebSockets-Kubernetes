@@ -27,7 +27,14 @@
       body: JSON.stringify({ tenantId: document.querySelector("#tenant").value, userId: document.querySelector("#user").value }) });
     const value = await response.json(); if (!response.ok) throw new Error(value.message); write("session", value);
   });
-  document.querySelector("#logout").onclick = () => invoke(async () => { await fetch("/api/logout", { method: "POST" }); write("session", "logged out"); });
+  document.querySelector("#logout").onclick = () => invoke(async () => {
+    const response = await fetch("/api/logout", { method: "POST" });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({}));
+      throw new Error(value.message || "Logout failed.");
+    }
+    write("session", "logged out");
+  });
   document.querySelector("#connect").onclick = () => invoke(async () => {
     client = new CormierRealtime.RealtimeClient({ url: "/realtime/ws", authentication: { kind: "ticket" },
       reconnect: { initialDelayMilliseconds: 50, maximumDelayMilliseconds: 500, jitterRatio: 0, maximumAttempts: 20 } });

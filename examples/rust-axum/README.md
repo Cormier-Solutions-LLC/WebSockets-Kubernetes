@@ -23,7 +23,7 @@ docker build -f examples/rust-axum/Dockerfile -t cormier-rust-axum:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15400:15400 --env-file examples/rust-axum/.env.example --env GATEWAY_URL=http://host.docker.internal:15401 --env REDIS_URL=redis://host.docker.internal:16379 cormier-rust-axum:local
 ```
 
-Configuration fails before binding on unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists. Redis connect/readiness, HTTP forwarding, and WebSocket connection have 5–15 second bounds. SIGINT/SIGTERM initiates graceful shutdown with a 15-second completion bound. Logs contain structural event names, never error text or configured dependency details.
+Configuration fails before binding on unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists. Both `redis://` and CA-verified `rediss://` connections are supported. Redis connect/readiness, HTTP forwarding, and WebSocket connection have 5–15 second bounds. SIGINT/SIGTERM initiates graceful shutdown with a 15-second completion bound. Logs contain structural event names, never error text or configured dependency details.
 
 ## Feature matrix
 
@@ -52,7 +52,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container bases | Rust 1.98.1 Alpine / Alpine 3.24 | Digest-pinned |
 
-The adapter has three stack-specific Rust files and 664 nonblank lines, including tests colocated with typed configuration. Shared assets, fixtures, generated SDK, lock/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has three stack-specific Rust files and 676 nonblank lines, including tests colocated with typed configuration. Shared assets, fixtures, generated SDK, lock/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

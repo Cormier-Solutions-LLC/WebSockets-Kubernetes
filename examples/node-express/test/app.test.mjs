@@ -11,6 +11,7 @@ function fixture(overrides = {}) {
   const values = new Map();
   const redisClient = {
     isReady: true,
+    async ping() { return "PONG"; },
     async set(key, value) { values.set(key, value); },
     async get(key) { return values.get(key) ?? null; },
     async del(key) { return values.delete(key) ? 1 : 0; },
@@ -60,6 +61,10 @@ test("reports dependency-aware health and redacted diagnostics", async () => {
   assert.equal(JSON.stringify(diagnostics.body).includes("secret"), false);
 
   ready.redisClient.isReady = false;
+  await request(ready.app).get("/health").expect(503, { status: "unavailable" });
+
+  ready.redisClient.isReady = true;
+  ready.redisClient.ping = async () => { throw new Error("probe timeout"); };
   await request(ready.app).get("/health").expect(503, { status: "unavailable" });
 });
 

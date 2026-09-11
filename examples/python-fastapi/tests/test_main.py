@@ -3,7 +3,13 @@ import pytest
 
 from reference_app import __main__ as entrypoint
 from reference_app.config import Settings
-from reference_app.main import MAXIMUM_BODY_BYTES, create_app, public_forwarding_headers
+from reference_app.main import (
+    MAXIMUM_BODY_BYTES,
+    browser_to_gateway,
+    create_app,
+    offers_protocol,
+    public_forwarding_headers,
+)
 
 
 class Upstream:
@@ -39,6 +45,29 @@ def settings(**overrides: object) -> Settings:
 def test_public_forwarding_headers_use_the_validated_browser_scheme() -> None:
     configured = settings(PUBLIC_ORIGIN="https://public.example.test", GATEWAY_URL="http://gateway.example.test")
     assert public_forwarding_headers(configured) == {"X-Forwarded-Proto": "https"}
+
+
+def test_websocket_requires_the_exact_subprotocol() -> None:
+    assert offers_protocol(None) is False
+    assert offers_protocol("other, cormier.realtime.v10") is False
+    assert offers_protocol("other, cormier.realtime.v1") is True
+
+
+@pytest.mark.asyncio
+async def test_browser_close_details_are_forwarded() -> None:
+    class Browser:
+        async def receive(self) -> dict[str, object]:
+            return {"type": "websocket.disconnect", "code": 1001, "reason": "leaving"}
+
+    class Gateway:
+        closed: tuple[int, str] | None = None
+
+        async def close(self, *, code: int, reason: str) -> None:
+            self.closed = (code, reason)
+
+    gateway = Gateway()
+    await browser_to_gateway(Browser(), gateway)  # type: ignore[arg-type]
+    assert gateway.closed == (1001, "leaving")
 
 
 def test_uvicorn_caps_browser_websocket_messages(monkeypatch: pytest.MonkeyPatch) -> None:

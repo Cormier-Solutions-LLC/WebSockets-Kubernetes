@@ -45,6 +45,8 @@ test("configuration stays aligned with the canonical reference schema", async ()
     "https://example.test:65536",
     "https://example.test:99999",
     "https://EXAMPLE.TEST",
+    "https://a..b",
+    "https://999.999.999.999",
   ]) {
     assert.equal(acceptsOrigin(value), false, value);
   }

@@ -180,15 +180,25 @@ func (a *App) requireOrigin(c *gin.Context) bool {
 func limitBody(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maximumBodyBytes)
 }
+func decodeLoginRequest(reader io.Reader) (LoginRequest, error) {
+	var request LoginRequest
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return LoginRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return LoginRequest{}, errors.New("login request contains trailing data")
+	}
+	return request, nil
+}
 func (a *App) login(c *gin.Context) {
 	if !a.requireOrigin(c) {
 		return
 	}
 	limitBody(c)
-	var request LoginRequest
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || !a.config.Allows(request.TenantID, request.UserID) {
+	request, err := decodeLoginRequest(c.Request.Body)
+	if err != nil || !a.config.Allows(request.TenantID, request.UserID) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "invalid_identity", "message": "Select a configured test tenant and user."})
 		return
 	}

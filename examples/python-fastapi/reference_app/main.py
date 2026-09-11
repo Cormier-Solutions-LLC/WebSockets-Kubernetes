@@ -300,6 +300,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if browser.headers.get("origin") != configured.PUBLIC_ORIGIN:
             await browser.close(code=1008, reason="origin rejected")
             return
+        if not offers_protocol(browser.headers.get("sec-websocket-protocol")):
+            await browser.close(code=1002, reason="subprotocol required")
+            return
         gateway = urlsplit(configured.GATEWAY_URL)
         browser_authority = browser.headers.get("host", "")
         uri = urlunsplit(
@@ -344,6 +347,10 @@ def valid_session_id(value: str) -> bool:
     return 16 <= len(value) <= 256 and all(character.isalnum() or character in "-_" for character in value)
 
 
+def offers_protocol(value: str | None) -> bool:
+    return value is not None and any(token.strip() == PROTOCOL for token in value.split(","))
+
+
 async def read_session(request: Request, settings: Settings) -> dict[str, object] | None:
     session_id = request.cookies.get(SESSION_COOKIE, "")
     if not valid_session_id(session_id):
@@ -371,6 +378,12 @@ async def browser_to_gateway(browser: WebSocket, gateway) -> None:  # type: igno
         while True:
             message = await browser.receive()
             if message.get("type") == "websocket.disconnect":
+                code = message.get("code")
+                reason = message.get("reason")
+                await gateway.close(
+                    code=code if isinstance(code, int) else 1000,
+                    reason=reason if isinstance(reason, str) else "",
+                )
                 return
             data = message.get("bytes") if message.get("bytes") is not None else message.get("text")
             if data is not None:

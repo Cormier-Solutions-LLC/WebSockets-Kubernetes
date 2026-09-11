@@ -51,3 +51,15 @@ func TestCanonicalContracts(t *testing.T) {
 		t.Fatal("fixture protocol contract mismatch")
 	}
 }
+
+func TestLoginDecoderRejectsTrailingData(t *testing.T) {
+	valid := `{"tenantId":"tenant-a","userId":"user-a"}`
+	if _, err := decodeLoginRequest(strings.NewReader(valid)); err != nil {
+		t.Fatalf("valid login request rejected: %v", err)
+	}
+	for _, payload := range []string{valid + ` {}`, valid + ` garbage`} {
+		if _, err := decodeLoginRequest(strings.NewReader(payload)); err == nil {
+			t.Fatalf("trailing login data accepted: %q", payload)
+		}
+	}
+}

@@ -65,8 +65,15 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
     },
   }));
 
-  app.get("/health", (_request, response) => {
-    const ready = redisClient.isReady === true;
+  app.get("/health", async (_request, response) => {
+    let ready = false;
+    if (redisClient.isReady === true) {
+      try {
+        ready = await redisClient.ping() === "PONG";
+      } catch {
+        ready = false;
+      }
+    }
     noStore(response);
     response.status(ready ? 200 : 503).json({ status: ready ? "healthy" : "unavailable" });
   });

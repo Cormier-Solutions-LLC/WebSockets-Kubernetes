@@ -21,7 +21,8 @@ public sealed partial class BrandingConfigurationTests
             AttributesToSkip = FileAttributes.ReparsePoint
         };
         var candidates = Directory.EnumerateFiles(Root, "*", enumeration)
-            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(excludedDirectories.Contains));
+            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(excludedDirectories.Contains)
+                || path.StartsWith(Path.Join(Root, "examples", "ruby-rails", "bin") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
 
         var legacyBrand = string.Concat("pro", "pago");
         var violations = candidates

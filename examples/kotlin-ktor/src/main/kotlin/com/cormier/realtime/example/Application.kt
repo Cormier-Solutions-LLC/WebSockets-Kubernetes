@@ -8,6 +8,7 @@ import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.request.url
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
@@ -25,7 +26,6 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.request.path
-import io.ktor.server.request.queryString
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondFile
@@ -169,10 +169,14 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             call.respondBytes(response.body<ByteArray>(), ContentType.Application.Json, response.status)
         }
         webSocket("/realtime/ws", protocol = SUBPROTOCOL) browser@{
-            val query = call.request.queryString()
-            val upstreamUrl = (config.gatewayUrl.resolve("/realtime/ws").toString() +
-                if (query.isEmpty()) "" else "?$query").replaceFirst("http", "ws")
-            client.webSocket(upstreamUrl, request = {
+            val query = call.request.queryParameters.entries()
+                .flatMap { (name, values) -> values.map { value -> name to value } }
+            val upstreamUrl = config.gatewayUrl.resolve("/realtime/ws").toString().replaceFirst("http", "ws")
+            client.webSocket(request = {
+                url(upstreamUrl)
+                url {
+                    query.forEach { (name, value) -> parameters.append(name, value) }
+                }
                 header(HttpHeaders.Origin, config.publicOrigin.toString())
                 call.request.header(HttpHeaders.Cookie)?.let { header(HttpHeaders.Cookie, it) }
                 call.request.header(HttpHeaders.Host)?.let { header(HttpHeaders.Host, it) }

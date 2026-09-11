@@ -83,6 +83,9 @@ class ReferenceConfigTest < Minitest::Test
     %w[index.html app.css app.js].each { |asset| assert_includes startup, asset }
     assert_includes startup, "cormier-realtime.iife.js"
     refute_includes startup, "cormier-realtime.iife.min.js"
+    assert_includes startup, 'readiness_url="http://$readiness_host:$PORT/api/diagnostics"'
+    assert_includes startup, 'payload["stack"] == "Ruby / Rails"'
+    assert_operator startup.index("readiness_url="), :<, startup.index("application_started")
   end
 
   def test_ticket_responses_are_streamed_through_a_strict_limit

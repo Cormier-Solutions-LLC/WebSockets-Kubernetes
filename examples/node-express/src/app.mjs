@@ -11,6 +11,15 @@ function noStore(response) {
   response.set("cache-control", "no-store");
 }
 
+async function redisReady(redisClient) {
+  if (redisClient.isReady !== true) return false;
+  try {
+    return await redisClient.ping() === "PONG";
+  } catch {
+    return false;
+  }
+}
+
 function requireOrigin(config) {
   return (request, response, next) => {
     if (request.get("origin") !== config.publicOrigin) {
@@ -66,25 +75,19 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
   }));
 
   app.get("/health", async (_request, response) => {
-    let ready = false;
-    if (redisClient.isReady === true) {
-      try {
-        ready = await redisClient.ping() === "PONG";
-      } catch {
-        ready = false;
-      }
-    }
+    const ready = await redisReady(redisClient);
     noStore(response);
     response.status(ready ? 200 : 503).json({ status: ready ? "healthy" : "unavailable" });
   });
 
-  app.get("/api/diagnostics", (_request, response) => {
+  app.get("/api/diagnostics", async (_request, response) => {
+    const ready = await redisReady(redisClient);
     noStore(response);
     response.json({
       stack: "Node.js / Express",
       topology: config.topology,
       instance: config.instanceName,
-      redis: redisClient.isReady ? "ready" : "unavailable",
+      redis: ready ? "ready" : "unavailable",
       timestamp: new Date().toISOString(),
     });
   });
@@ -198,12 +201,17 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
   app.get("/", (_request, response) => response.sendFile(path.join(config.sharedAssetRoot, "index.html")));
 
   app.use((error, _request, response, next) => {
-    logger.error?.({ event: "request_failed", error: error?.name ?? "Error" });
     if (response.headersSent) {
       next(error);
       return;
     }
     noStore(response);
+    if (["entity.parse.failed", "entity.too.large"].includes(error?.type) && [400, 413].includes(error?.status)) {
+      logger.error?.({ event: "request_rejected", error: error.type });
+      response.status(error.status).json({ code: "invalid_request", message: "The request body is invalid." });
+      return;
+    }
+    logger.error?.({ event: "request_failed", error: error?.name ?? "Error" });
     response.status(503).json({ code: "service_unavailable", message: "The reference application dependency is unavailable." });
   });
   return app;

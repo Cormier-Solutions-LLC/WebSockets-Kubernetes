@@ -2,6 +2,8 @@
 set -u
 
 failure() {
+  [ -z "${caddy_pid:-}" ] || kill -TERM "$caddy_pid" 2>/dev/null || true
+  [ -z "${puma_pid:-}" ] || kill -TERM "$puma_pid" 2>/dev/null || true
   printf '%s\n' '{"event":"startup_failed","stack":"ruby-rails"}' >&2
   exit 1
 }
@@ -27,6 +29,22 @@ done
 
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
 caddy_pid=$!
+
+case "$LISTEN_HOST" in
+  *:*) readiness_host="[$LISTEN_HOST]" ;;
+  *) readiness_host="$LISTEN_HOST" ;;
+esac
+readiness_url="http://$readiness_host:$PORT/api/diagnostics"
+attempt=0
+while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | ruby -rjson -e 'payload = JSON.parse($stdin.read); exit(payload["stack"] == "Ruby / Rails" ? 0 : 1)' 2>/dev/null; do
+  kill -0 "$caddy_pid" 2>/dev/null || failure
+  kill -0 "$puma_pid" 2>/dev/null || failure
+  attempt=$((attempt + 1))
+  [ "$attempt" -lt 15 ] || failure
+  sleep 0.1
+done
+kill -0 "$caddy_pid" 2>/dev/null || failure
+kill -0 "$puma_pid" 2>/dev/null || failure
 printf '%s\n' '{"event":"application_started","stack":"ruby-rails"}'
 
 terminate() {

@@ -31,6 +31,7 @@ use tracing::{error, info};
 const COOKIE: &str = "cormier_session";
 const PROTOCOL: &str = "cormier.realtime.v1";
 const MAXIMUM_WEBSOCKET_BYTES: usize = 64 * 1_024;
+const MAXIMUM_TICKET_RESPONSE_BYTES: usize = 64 * 1_024;
 
 #[derive(Clone)]
 struct AppState {
@@ -287,18 +288,33 @@ async fn ticket(
             request = request.header(name, value);
         }
     }
-    let upstream = request.send().await.map_err(|_| AppError::unavailable())?;
+    let mut upstream = request.send().await.map_err(|_| AppError::unavailable())?;
     let status = upstream.status();
     let content_type = upstream.headers().get(header::CONTENT_TYPE).cloned();
-    let bytes = upstream
-        .bytes()
+    let mut body = Vec::new();
+    while let Some(chunk) = upstream
+        .chunk()
         .await
-        .map_err(|_| AppError::unavailable())?;
-    let mut response = (status, bytes).into_response();
+        .map_err(|_| AppError::unavailable())?
+    {
+        append_ticket_chunk(&mut body, &chunk)?;
+    }
+    let mut response = (status, Bytes::from(body)).into_response();
     if let Some(value) = content_type {
         response.headers_mut().insert(header::CONTENT_TYPE, value);
     }
     Ok(response)
+}
+
+fn append_ticket_chunk(body: &mut Vec<u8>, chunk: &Bytes) -> Result<(), AppError> {
+    let remaining = MAXIMUM_TICKET_RESPONSE_BYTES
+        .checked_sub(body.len())
+        .ok_or_else(AppError::unavailable)?;
+    if chunk.len() > remaining {
+        return Err(AppError::unavailable());
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
 }
 
 async fn websocket(
@@ -522,5 +538,19 @@ mod tests {
             HeaderValue::from_static("example, cormier.realtime.v1"),
         );
         assert!(offers_protocol(&headers));
+    }
+
+    #[test]
+    fn bounds_streamed_ticket_responses() {
+        let mut body = Vec::new();
+        append_ticket_chunk(
+            &mut body,
+            &Bytes::from(vec![b'a'; MAXIMUM_TICKET_RESPONSE_BYTES]),
+        )
+        .expect("boundary chunk");
+        assert_eq!(body.len(), MAXIMUM_TICKET_RESPONSE_BYTES);
+        let error = append_ticket_chunk(&mut body, &Bytes::from_static(b"b"))
+            .expect_err("oversized response");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
     }
 }

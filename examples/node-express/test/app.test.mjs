@@ -66,6 +66,24 @@ test("reports dependency-aware health and redacted diagnostics", async () => {
   ready.redisClient.isReady = true;
   ready.redisClient.ping = async () => { throw new Error("probe timeout"); };
   await request(ready.app).get("/health").expect(503, { status: "unavailable" });
+  const unavailableDiagnostics = await request(ready.app).get("/api/diagnostics").expect(200);
+  assert.equal(unavailableDiagnostics.body.redis, "unavailable");
+});
+
+test("preserves bounded body-parser client errors", async () => {
+  const context = fixture();
+  const malformed = await request(context.app).post("/api/login")
+    .set("Content-Type", "application/json")
+    .send('{"tenantId":')
+    .expect(400);
+  assert.equal(malformed.body.code, "invalid_request");
+
+  const oversized = await request(context.app).post("/api/login")
+    .set("Content-Type", "application/json")
+    .send(JSON.stringify({ tenantId: "a".repeat(9_000), userId: "user-a" }))
+    .expect(413);
+  assert.equal(oversized.body.code, "invalid_request");
+  assert.deepEqual(context.logs.map(entry => entry.event), ["request_rejected", "request_rejected"]);
 });
 
 test("rejects missing origins and identities without creating sessions", async () => {

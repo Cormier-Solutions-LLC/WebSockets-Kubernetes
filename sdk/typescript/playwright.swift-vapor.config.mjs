@@ -1,0 +1,49 @@
+import { defineConfig } from "@playwright/test";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const redisEndpoint = process.env.REDIS_TEST_ENDPOINT ?? "127.0.0.1:6379";
+const frontendOrigin = "http://127.0.0.1:15500";
+const gatewayOrigin = "http://127.0.0.1:15501";
+const image = process.env.SWIFT_VAPOR_IMAGE ?? "cormier-swift-vapor:local";
+process.env.REFERENCE_STACK = "Swift / Vapor";
+process.env.REFERENCE_BASE_URL = frontendOrigin;
+
+export default defineConfig({
+  testDir: "./test/reference-adapters",
+  globalTeardown: "./test/reference-adapters/stop-swift-vapor-container.mjs",
+  timeout: 30_000,
+  expect: { timeout: 8_000 },
+  workers: 1,
+  fullyParallel: false,
+  reporter: process.env.CI ? [["line"], ["html", { outputFolder: "../../artifacts/swift-vapor/playwright-report", open: "never" }]] : "line",
+  outputDir: "../../artifacts/swift-vapor/test-results",
+  use: { baseURL: frontendOrigin, trace: "retain-on-failure", screenshot: "only-on-failure", video: "retain-on-failure" },
+  webServer: [
+    {
+      command: "dotnet run --project examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore",
+      cwd: repositoryRoot,
+      url: `${gatewayOrigin}/health`,
+      timeout: 60_000,
+      reuseExistingServer: false,
+      env: {
+        ASPNETCORE_URLS: gatewayOrigin,
+        FullCircle__Topology: "non-ha",
+        FullCircle__InstanceName: "gateway-a",
+        Redis__Endpoint: redisEndpoint,
+        Redis__InstancePrefix: "cormier:swift-vapor-tests",
+        Realtime__SessionSource: "Cookie",
+        Realtime__AllowedOrigins__0: frontendOrigin,
+      },
+    },
+    {
+      command: `docker run --rm --name cormier-swift-vapor-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e PORT=15500 -e APPLICATION_HOST=127.0.0.1 -e APPLICATION_PORT=15502 -e APP_URL=http://127.0.0.1:15502 -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_SECRET=playwright-only-secret-with-at-least-32-characters -e SESSION_LIFETIME_SECONDS=1200 -e INSTANCE_NAME=swift-vapor-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:swift-vapor-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
+      cwd: repositoryRoot,
+      url: `${frontendOrigin}/health`,
+      timeout: 120_000,
+      reuseExistingServer: process.env.REFERENCE_REUSE_SERVER === "true",
+    },
+  ],
+  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+});

@@ -1,0 +1,109 @@
+import Foundation
+
+struct ReferenceSettings: Sendable {
+  let port: Int
+  let applicationHost: String
+  let applicationPort: Int
+  let publicOrigin: String
+  let gatewayURL: String
+  let redisURL: String
+  let sessionSecret: String
+  let sessionLifetime: Int
+  let instanceName: String
+  let topology: String
+  let redisInstancePrefix: String
+  let redisSessionKeyPrefix: String
+  let allowedTenants: Set<String>
+  let allowedUsers: Set<String>
+  let sharedAssetRoot: String
+  let sdkAssetRoot: String
+
+  init(environment: [String: String]) throws {
+    self.port = try Self.integer(Self.required("PORT", in: environment), range: 1_024...65_535)
+    self.applicationHost = try Self.identifier(Self.required("APPLICATION_HOST", in: environment))
+    self.applicationPort = try Self.integer(
+      Self.required("APPLICATION_PORT", in: environment), range: 1_024...65_535)
+    self.publicOrigin = try Self.origin(Self.required("PUBLIC_ORIGIN", in: environment))
+    self.gatewayURL = try Self.origin(Self.required("GATEWAY_URL", in: environment))
+    self.redisURL = try Self.validRedisURL(Self.required("REDIS_URL", in: environment))
+    self.sessionSecret = Self.required("SESSION_SECRET", in: environment)
+    guard (32...4_096).contains(self.sessionSecret.utf8.count) else { throw SettingsError.invalid }
+    self.sessionLifetime = try Self.integer(
+      Self.required("SESSION_LIFETIME_SECONDS", in: environment), range: 60...7_200)
+    self.instanceName = try Self.identifier(Self.required("INSTANCE_NAME", in: environment))
+    self.topology = Self.required("TOPOLOGY", in: environment)
+    guard ["ha", "non-ha"].contains(self.topology) else { throw SettingsError.invalid }
+    self.redisInstancePrefix = try Self.identifier(
+      Self.required("REDIS_INSTANCE_PREFIX", in: environment), pattern: #"^[A-Za-z0-9._:-]{1,128}$"#
+    )
+    self.redisSessionKeyPrefix = try Self.identifier(
+      Self.required("REDIS_SESSION_KEY_PREFIX", in: environment))
+    self.allowedTenants = try Self.allowlist(Self.required("ALLOWED_TENANTS", in: environment))
+    self.allowedUsers = try Self.allowlist(Self.required("ALLOWED_USERS", in: environment))
+    self.sharedAssetRoot = environment["SHARED_ASSET_ROOT"] ?? "../shared-web/wwwroot"
+    self.sdkAssetRoot = environment["SDK_ASSET_ROOT"] ?? "../../sdk/typescript/dist"
+  }
+
+  func allows(tenant: String, user: String) -> Bool {
+    self.allowedTenants.contains(tenant) && self.allowedUsers.contains(user)
+  }
+
+  func sessionKey(_ id: String) -> String {
+    "\(self.redisInstancePrefix):\(self.redisSessionKeyPrefix):\(id)"
+  }
+
+  private static func required(_ name: String, in environment: [String: String]) -> String {
+    guard let value = environment[name],
+      !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else { return "" }
+    return value
+  }
+
+  private static func integer(_ value: String, range: ClosedRange<Int>) throws -> Int {
+    guard let number = Int(value), range.contains(number) else { throw SettingsError.invalid }
+    return number
+  }
+
+  private static func origin(_ value: String) throws -> String {
+    guard let components = URLComponents(string: value),
+      ["http", "https"].contains(components.scheme),
+      components.host != nil,
+      components.user == nil,
+      components.password == nil,
+      components.query == nil,
+      components.fragment == nil,
+      components.path.isEmpty || components.path == "/"
+    else { throw SettingsError.invalid }
+    return value.hasSuffix("/") ? String(value.dropLast()) : value
+  }
+
+  private static func validRedisURL(_ value: String) throws -> String {
+    guard let components = URLComponents(string: value),
+      ["redis", "rediss"].contains(components.scheme),
+      components.host != nil,
+      components.fragment == nil
+    else { throw SettingsError.invalid }
+    return value
+  }
+
+  private static func identifier(_ value: String, pattern: String = #"^[A-Za-z0-9._-]{1,128}$"#)
+    throws -> String
+  {
+    guard value.range(of: pattern, options: .regularExpression) != nil else {
+      throw SettingsError.invalid
+    }
+    return value
+  }
+
+  private static func allowlist(_ value: String) throws -> Set<String> {
+    let items = Set(value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    guard !items.isEmpty, items.allSatisfy({ (try? Self.identifier($0)) != nil }) else {
+      throw SettingsError.invalid
+    }
+    return items
+  }
+}
+
+enum SettingsError: Error {
+  case invalid
+}

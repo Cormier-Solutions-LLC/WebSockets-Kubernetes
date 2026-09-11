@@ -761,6 +761,59 @@ jobs:
           name: ruby-rails-${{ github.sha }}
           path: artifacts/ruby-rails
 
+  swift-vapor:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Vapor reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/swift-vapor
+          swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c
+          sh -lc 'swift package resolve --disable-sandbox && git diff --exit-code Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
+      - name: Build the Vapor reference container
+        run: docker build --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          SWIFT_VAPOR_IMAGE: cormier-swift-vapor:${{ github.sha }}
+        run: npx playwright test --config playwright.swift-vapor.config.mjs
+      - name: Upload Vapor failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-vapor-${{ github.sha }}
+          path: artifacts/swift-vapor
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:

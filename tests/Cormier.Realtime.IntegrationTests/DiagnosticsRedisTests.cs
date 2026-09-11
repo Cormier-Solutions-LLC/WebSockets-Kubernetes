@@ -2,6 +2,7 @@ using Cormier.Realtime.Gateway;
 using Cormier.Realtime.Redis;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using StackExchange.Redis;
 
 namespace Cormier.Realtime.IntegrationTests;
 
@@ -154,6 +155,62 @@ public sealed class DiagnosticsRedisTests
         Assert.All(outcomes, outcome => Assert.True(outcome.Succeeded, outcome.Error));
         var auditKey = $"{redisOptions.InstancePrefix}:{{diagnostics}}:{diagnostics.Value.CoordinationChannel}:audit";
         Assert.Equal(outcomes.Length, await connection.GetDatabase().SortedSetLengthAsync(auditKey));
+    }
+
+    [Fact]
+    public async Task MalformedCoordinationMessagesDoNotStopValidProcessing()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = Endpoint,
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 1000,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        var controller = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("invalid-message"));
+        var coordination = new DiagnosticsCoordinationService(
+            controller,
+            redis,
+            redisOptions,
+            diagnostics,
+            NullLogger<DiagnosticsCoordinationService>.Instance);
+        await coordination.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => redis.CurrentConnection?.IsConnected == true);
+            var subscriber = redis.CurrentConnection!.GetSubscriber();
+            var channel = RedisChannel.Literal($"{redisOptions.InstancePrefix}:{diagnostics.Value.CoordinationChannel}");
+            await subscriber.PublishAsync(
+                channel,
+                "{\"action\":\"revert\",\"id\":null,\"request\":null,\"actor\":\"attacker\",\"timestamp\":\"2026-01-01T00:00:00Z\"}");
+            await Task.Delay(100);
+
+            var id = Guid.NewGuid().ToString("N");
+            var valid = new DiagnosticsCoordinationMessage(
+                "apply",
+                id,
+                new LogLevelChangeRequest("Cormier.Realtime.Redis", "Debug", 30, "valid message verification", "all"),
+                "operator",
+                DateTimeOffset.UtcNow);
+            var payload = System.Text.Json.JsonSerializer.Serialize(
+                valid,
+                DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
+            await subscriber.PublishAsync(channel, payload);
+
+            await WaitUntilAsync(() => controller.Contains(id));
+            Assert.False(coordination.ExecuteTask?.IsFaulted);
+        }
+        finally
+        {
+            await coordination.StopAsync(CancellationToken.None);
+        }
     }
 
     [Fact]

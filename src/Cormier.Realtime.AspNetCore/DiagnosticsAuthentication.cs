@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -53,6 +54,12 @@ public static class DiagnosticsAuthenticationExtensions
         {
             throw new ArgumentOutOfRangeException(nameof(token), "The bearer token must contain between 32 and 4096 characters.");
         }
+        if (HasRegisteredAuthorizationPolicy(services, authorizationPolicy))
+        {
+            throw new ArgumentException(
+                "The diagnostics and metrics bearer helpers cannot replace an existing authorization policy.",
+                nameof(authorizationPolicy));
+        }
 
         var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         foreach (var descriptor in services.Where(static descriptor =>
@@ -88,12 +95,31 @@ public static class DiagnosticsAuthenticationExtensions
                     options.TokenHash = tokenHash;
                     options.PrincipalName = principalName;
                 });
-        services.AddAuthorizationBuilder().AddPolicy(
-            authorizationPolicy,
-            policy => policy
-                .AddAuthenticationSchemes(authenticationScheme)
-                .RequireAuthenticatedUser());
+        var policy = new AuthorizationPolicyBuilder(authenticationScheme)
+            .RequireAuthenticatedUser()
+            .Build();
+        services.AddAuthorizationBuilder().AddPolicy(authorizationPolicy, policy);
+        services.AddOptions<AuthorizationOptions>()
+            .Validate(
+                options => ReferenceEquals(options.GetPolicy(authorizationPolicy), policy),
+                $"The {authorizationPolicy} authorization policy was replaced after its bearer helper registration.");
         return services;
+    }
+
+    private static bool HasRegisteredAuthorizationPolicy(
+        IServiceCollection services,
+        string authorizationPolicy)
+    {
+        var options = new AuthorizationOptions();
+        foreach (var descriptor in services.Where(static descriptor =>
+                     descriptor.ServiceType == typeof(IConfigureOptions<AuthorizationOptions>)))
+        {
+            if (descriptor.ImplementationInstance is IConfigureOptions<AuthorizationOptions> configuration)
+            {
+                configuration.Configure(options);
+            }
+        }
+        return options.GetPolicy(authorizationPolicy) is not null;
     }
 
     private sealed record DiagnosticsBearerRegistration(

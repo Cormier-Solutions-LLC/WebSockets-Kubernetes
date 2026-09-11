@@ -1,8 +1,10 @@
 using Cormier.Realtime.Gateway;
+using Cormier.Realtime.Redis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.FileProviders;
+using StackExchange.Redis;
 
 namespace Cormier.Realtime.UnitTests;
 
@@ -305,6 +307,65 @@ public sealed class DiagnosticsTests
             out _));
 
         Assert.Equal(LogLevel.Trace, controller.EffectiveLevel("Cormier.Realtime.Redis.Connection"));
+    }
+
+    [Fact]
+    public void OverridesMatchOnlyExactCategoriesAndTheirDescendants()
+    {
+        var controller = Controller(new DiagnosticsOptions());
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime", "Trace", 30, "category boundary verification", "instance"),
+            "operator",
+            out _,
+            out _));
+
+        Assert.True(controller.HasOverride("Cormier.Realtime.Redis"));
+        Assert.Equal(LogLevel.Trace, controller.EffectiveLevel("Cormier.Realtime.Redis"));
+        Assert.False(controller.HasOverride("Cormier.RealtimeSecrets"));
+        Assert.Equal(LogLevel.Information, controller.EffectiveLevel("Cormier.RealtimeSecrets"));
+    }
+
+    [Fact]
+    public async Task RedisEventsContainTheOperationLatencyBeingReported()
+    {
+        var hub = new DiagnosticsStreamHub();
+        await using var subscription = hub.SubscribeEvents(4);
+        using var metrics = new GatewayMetrics(new GatewayOptions(), hub, new DiagnosticsIdentity("redis-latency"));
+
+        metrics.RecordRedisOperation("publish", true);
+        Assert.False(subscription.Reader.TryRead(out _));
+        metrics.RecordRedisDuration("publish", TimeSpan.FromMilliseconds(321), true);
+
+        Assert.True(subscription.Reader.TryRead(out var diagnosticEvent));
+        Assert.Equal("redis.state", diagnosticEvent.Kind);
+        Assert.Equal(321, diagnosticEvent.Snapshot.RedisLatencyMilliseconds, precision: 6);
+    }
+
+    [Fact]
+    public async Task CancelledReplicaApplyRevertsLocallyBeforeFallibleCleanup()
+    {
+        var diagnostics = Options.Create(new DiagnosticsOptions());
+        var controller = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("cancelled-replica"));
+        var id = Guid.NewGuid().ToString("N");
+        Assert.True(controller.TryApply(
+            new LogLevelChangeRequest("Cormier.Realtime.Redis", "Debug", 30, "cancelled replica verification", "all"),
+            "operator",
+            out _,
+            out _,
+            id));
+        var redisOptions = new RedisOptions { Endpoint = "redis.invalid:6379" };
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        using var control = new DiagnosticsControlService(controller, redis, redisOptions, diagnostics);
+        var cleanupObservedRollback = false;
+
+        await control.RollbackCancelledApplyAsync(id, () =>
+        {
+            cleanupObservedRollback = !controller.Contains(id);
+            return Task.FromException(new RedisException("simulated cleanup outage"));
+        });
+
+        Assert.True(cleanupObservedRollback);
+        Assert.False(controller.Contains(id));
     }
 
     [Fact]

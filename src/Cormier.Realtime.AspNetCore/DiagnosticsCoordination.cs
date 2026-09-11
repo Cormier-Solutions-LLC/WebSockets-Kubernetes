@@ -113,11 +113,11 @@ public sealed class DiagnosticsControlService(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (database is not null && key is not null)
-            {
-                await RemoveActiveAsync(database, id, key, ReservationKey(request.Category));
-            }
-            controller.Revert(id, "system", "cancelled coordination rollback");
+            await RollbackCancelledApplyAsync(
+                id,
+                database is not null && key is not null
+                    ? () => RemoveActiveAsync(database, id, key, ReservationKey(request.Category))
+                    : null);
             throw;
         }
         catch (RedisException)
@@ -332,6 +332,23 @@ public sealed class DiagnosticsControlService(
             [id]);
     }
 
+    internal async Task RollbackCancelledApplyAsync(string id, Func<Task>? cleanup)
+    {
+        controller.Revert(id, "system", "cancelled coordination rollback");
+        if (cleanup is null)
+        {
+            return;
+        }
+        try
+        {
+            await cleanup();
+        }
+        catch (RedisException)
+        {
+            // Local rollback is complete; the TTL bounds remote cleanup during an outage.
+        }
+    }
+
     private LogLevelAuditPage LocalAuditPage(int offset, int limit) => new(
         DateTimeOffset.UtcNow,
         offset,
@@ -522,26 +539,29 @@ public sealed class DiagnosticsCoordinationService(
             var message = JsonSerializer.Deserialize(
                 value.ToString(),
                 DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
-            if (message is null)
+            if (!IsValidMessage(message))
             {
+                LogInvalidMessage(logger, null);
                 return;
             }
-            if (message.Action == "revert")
+            var validMessage = message!;
+            if (validMessage.Action == "revert")
             {
-                controller.Revert(message.Id, message.Actor, "coordinated rollback");
+                controller.Revert(validMessage.Id, validMessage.Actor, "coordinated rollback");
             }
-            else if (message.Action == "apply" &&
-                message.Request is not null &&
-                !controller.Contains(message.Id) &&
-                message.Timestamp.AddSeconds(message.Request.DurationSeconds) > DateTimeOffset.UtcNow)
+            else if (validMessage.Action == "apply" &&
+                validMessage.Request is not null &&
+                !controller.Contains(validMessage.Id) &&
+                controller.TryValidate(validMessage.Request, out _) &&
+                validMessage.Timestamp.AddSeconds(validMessage.Request.DurationSeconds) > DateTimeOffset.UtcNow)
             {
                 controller.TryApply(
-                    message.Request,
-                    message.Actor,
+                    validMessage.Request,
+                    validMessage.Actor,
                     out _,
                     out _,
-                    message.Id,
-                    message.Timestamp);
+                    validMessage.Id,
+                    validMessage.Timestamp);
             }
         }
         catch (JsonException exception)
@@ -549,6 +569,17 @@ public sealed class DiagnosticsCoordinationService(
             LogInvalidMessage(logger, exception);
         }
     }
+
+    private static bool IsValidMessage(DiagnosticsCoordinationMessage? message) =>
+        message is not null &&
+        message.Id is not null &&
+        Guid.TryParseExact(message.Id, "N", out _) &&
+        !string.IsNullOrWhiteSpace(message.Actor) &&
+        message.Actor.Length <= 128 &&
+        message.Timestamp >= DateTimeOffset.UnixEpoch &&
+        message.Timestamp <= DateTimeOffset.UtcNow.AddMinutes(5) &&
+        (message.Action == "revert" ||
+            (message.Action == "apply" && message.Request is not null));
 
     private readonly record struct CoordinationWork(RedisValue Message, bool Reconcile);
 }

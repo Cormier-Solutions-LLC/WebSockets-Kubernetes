@@ -109,6 +109,38 @@ public sealed class AspNetCoreHostingIntegrationTests
         Assert.Contains(exception.Failures, failure => failure.Contains("distinct authorization policies", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void BearerHelpersRejectExistingApplicationPolicies()
+    {
+        var services = new ServiceCollection();
+        services.AddAuthorization(options => options.AddPolicy(
+            "application-administrator",
+            policy => policy.RequireClaim("role", "administrator")));
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            services.AddRealtimeDiagnosticsBearer(
+                "APPLICATION-ADMINISTRATOR",
+                new string('d', 32)));
+
+        Assert.Contains("existing authorization policy", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BearerHelpersDetectPoliciesReplacedAfterRegistration()
+    {
+        var services = new ServiceCollection();
+        services.AddRealtimeMetricsBearer("metrics-scraper", new string('m', 32));
+        services.AddAuthorization(options => options.AddPolicy(
+            "METRICS-SCRAPER",
+            policy => policy.RequireClaim("role", "application-administrator")));
+        using var provider = services.BuildServiceProvider();
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("replaced", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("Realtime:EndpointPath", "/diagnostics/v1/snapshot")]
     [InlineData("Realtime:TicketEndpointPath", "/diagnostics/v1/logging/overrides")]

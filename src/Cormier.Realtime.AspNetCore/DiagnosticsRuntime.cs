@@ -153,19 +153,24 @@ public sealed class RuntimeLogLevelController(
         var now = DateTimeOffset.UtcNow;
         RemoveExpired(now);
         return _overrides.Values.Any(item => item.ExpiresAt > now &&
-            (item.Category == "*" || category.StartsWith(item.Category, StringComparison.Ordinal)));
+            CategoryMatches(item.Category, category));
     }
 
     private LogLevel EffectiveLevelCore(string category, DateTimeOffset now)
     {
         var selected = _overrides.Values
             .Where(item => item.ExpiresAt > now &&
-                (item.Category == "*" || category.StartsWith(item.Category, StringComparison.Ordinal)))
+                CategoryMatches(item.Category, category))
             .OrderByDescending(item => item.Category.Length)
             .ThenByDescending(item => item.Scope == "instance")
             .FirstOrDefault();
         return selected?.Level ?? BaselineLevel(category);
     }
+
+    private static bool CategoryMatches(string configuredCategory, string category) =>
+        configuredCategory == "*" ||
+        category == configuredCategory ||
+        category.StartsWith($"{configuredCategory}.", StringComparison.Ordinal);
 
     public LogLevelOverrideResponse[] GetActive()
     {

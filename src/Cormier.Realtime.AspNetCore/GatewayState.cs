@@ -405,7 +405,6 @@ public sealed class GatewayMetrics : IDisposable
             1,
             new KeyValuePair<string, object?>("operation", operation),
             new KeyValuePair<string, object?>("outcome", succeeded ? "success" : "failure"));
-        PublishOperational("redis.state");
     }
 
     public void RecordRedisDuration(string operation, TimeSpan duration, bool succeeded)
@@ -418,6 +417,7 @@ public sealed class GatewayMetrics : IDisposable
             duration.TotalSeconds,
             new KeyValuePair<string, object?>("operation", operation),
             new KeyValuePair<string, object?>("outcome", succeeded ? "success" : "failure"));
+        PublishOperational("redis.state");
     }
 
     public void RecordRedisSubscriptionState(bool active)

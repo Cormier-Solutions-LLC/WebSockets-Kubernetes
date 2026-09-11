@@ -176,6 +176,19 @@ public sealed class DiagnosticsContractTests
         Assert.Matches(metricsNetworkPattern, "192.0.2.0/24");
         Assert.Matches(metricsNetworkPattern, "2001:db8::/32");
         Assert.DoesNotMatch(metricsNetworkPattern, "operator-network");
+        var otlpNetworkPattern = schema.RootElement.GetProperty("properties").GetProperty("observability")
+            .GetProperty("properties").GetProperty("otlp").GetProperty("properties")
+            .GetProperty("egressCidrs").GetProperty("items").GetProperty("pattern").GetString()!;
+        Assert.Matches(otlpNetworkPattern, "192.0.2.0/24");
+        Assert.Matches(otlpNetworkPattern, "2001:db8::/32");
+        Assert.DoesNotMatch(otlpNetworkPattern, "operator-network");
+        var diagnosticsOriginPattern = schema.RootElement.GetProperty("properties").GetProperty("diagnostics")
+            .GetProperty("properties").GetProperty("allowedOrigins").GetProperty("items")
+            .GetProperty("pattern").GetString()!;
+        Assert.Matches(diagnosticsOriginPattern, "https://operator.example");
+        Assert.Matches(diagnosticsOriginPattern, "https://operator.example/");
+        Assert.DoesNotMatch(diagnosticsOriginPattern, "ftp://operator.example");
+        Assert.DoesNotMatch(diagnosticsOriginPattern, "https://operator.example/path");
         var otlpCondition = schema.RootElement.GetProperty("properties").GetProperty("observability")
             .GetProperty("properties").GetProperty("otlp").GetProperty("allOf")[0];
         Assert.True(otlpCondition.GetProperty("if").GetProperty("properties")

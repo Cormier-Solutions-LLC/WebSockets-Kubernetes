@@ -158,6 +158,105 @@ public sealed class DiagnosticsRedisTests
     }
 
     [Fact]
+    public async Task InstanceScopedOverridesCanBeRevertedThroughAnotherReplica()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = Endpoint,
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 1000,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var firstRedis = new RedisConnectionProvider(redisOptions);
+        await using var secondRedis = new RedisConnectionProvider(redisOptions);
+        var first = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("instance-owner"));
+        var second = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("instance-router"));
+        using var firstControl = new DiagnosticsControlService(first, firstRedis, redisOptions, diagnostics);
+        using var secondControl = new DiagnosticsControlService(second, secondRedis, redisOptions, diagnostics);
+        var firstCoordination = new DiagnosticsCoordinationService(
+            first, firstRedis, redisOptions, diagnostics, NullLogger<DiagnosticsCoordinationService>.Instance);
+        var secondCoordination = new DiagnosticsCoordinationService(
+            second, secondRedis, redisOptions, diagnostics, NullLogger<DiagnosticsCoordinationService>.Instance);
+
+        await firstCoordination.StartAsync(CancellationToken.None);
+        await secondCoordination.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => firstRedis.CurrentConnection?.IsConnected == true &&
+                secondRedis.CurrentConnection?.IsConnected == true);
+            var applied = await firstControl.ApplyAsync(
+                new LogLevelChangeRequest(
+                    "Cormier.Realtime.Redis",
+                    "Debug",
+                    30,
+                    "targeted rollback verification",
+                    "instance"),
+                "operator",
+                CancellationToken.None);
+
+            Assert.True(applied.Succeeded, applied.Error);
+            Assert.True(first.Contains(applied.Result!.Id));
+            Assert.False(second.Contains(applied.Result.Id));
+
+            var reverted = await secondControl.RevertAsync(
+                applied.Result.Id,
+                "operator",
+                CancellationToken.None);
+
+            Assert.True(reverted.Found);
+            Assert.True(reverted.Succeeded, reverted.Error);
+            await WaitUntilAsync(() => !first.Contains(applied.Result.Id));
+        }
+        finally
+        {
+            await firstCoordination.StopAsync(CancellationToken.None);
+            await secondCoordination.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task InstanceScopedApplyFailsClosedWhenCoordinationIsRequired()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = "redis.invalid:6379",
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 100,
+            RequiredForReadiness = true,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        var controller = new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("required-coordination"));
+        using var control = new DiagnosticsControlService(controller, redis, redisOptions, diagnostics);
+
+        var outcome = await control.ApplyAsync(
+            new LogLevelChangeRequest(
+                "Cormier.Realtime.Redis",
+                "Debug",
+                30,
+                "required coordination verification",
+                "instance"),
+            "operator",
+            CancellationToken.None);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("Redis", outcome.Error, StringComparison.Ordinal);
+        Assert.Empty(controller.GetActive());
+    }
+
+    [Fact]
     public async Task MalformedCoordinationMessagesDoNotStopValidProcessing()
     {
         var redisOptions = new RedisOptions
@@ -243,8 +342,12 @@ public sealed class DiagnosticsRedisTests
 
         _ = await control.GetAuditAsync(0, 10, CancellationToken.None);
         var audit = await control.GetAuditAsync(0, 10, CancellationToken.None);
+        var auditKey = $"{redisOptions.InstancePrefix}:{{diagnostics}}:{diagnostics.Value.CoordinationChannel}:audit";
+        var auditTtl = await redis.CurrentConnection!.GetDatabase().KeyTimeToLiveAsync(auditKey);
 
         Assert.NotNull(applied);
+        Assert.NotNull(auditTtl);
+        Assert.InRange(auditTtl.Value, TimeSpan.Zero, TimeSpan.FromDays(1));
         Assert.DoesNotContain(audit.Items, item => item.Id == applied.Id && item.Outcome == "applied");
         Assert.Contains(audit.Items, item => item.Id == applied.Id && item.Outcome == "expired");
     }

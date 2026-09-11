@@ -123,7 +123,8 @@ public sealed record DiagnosticsCoordinationMessage(
     string Id,
     LogLevelChangeRequest? Request,
     string Actor,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp,
+    string? TargetInstanceId = null);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

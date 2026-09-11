@@ -141,6 +141,8 @@ public sealed class RuntimeLogLevelController(
     private readonly DiagnosticsOptions _options = options.Value;
     private readonly KeyValuePair<string, LogLevel>[] _baselineLevels = ReadBaselineLevels(configuration);
 
+    internal string InstanceId => identity.InstanceId;
+
     public LogLevel EffectiveLevel(string category)
     {
         var now = DateTimeOffset.UtcNow;

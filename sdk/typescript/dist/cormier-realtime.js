@@ -900,15 +900,26 @@ var DiagnosticsClient = class {
     return this.#stream("/events", {}, onEvent);
   }
   tailLogs(filter, onEvent) {
-    return this.#stream("/logs/tail", filter, onEvent);
+    return this.#stream(
+      "/logs/tail",
+      filter,
+      onEvent,
+      filter.durationSeconds
+    );
   }
-  #stream(path, query, onEvent) {
+  #stream(path, query, onEvent, durationSeconds) {
     const parameters = new URLSearchParams();
     for (const [name, value] of Object.entries(query)) if (value !== void 0) parameters.set(name, String(value));
     const suffix = parameters.size === 0 ? "" : `?${parameters}`;
     const cancellation = new AbortController();
-    void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent);
-    return () => cancellation.abort();
+    const durationTimer = durationSeconds !== void 0 && Number.isFinite(durationSeconds) && durationSeconds > 0 ? setTimeout(() => cancellation.abort(), durationSeconds * 1e3) : void 0;
+    void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent).finally(() => {
+      if (durationTimer !== void 0) clearTimeout(durationTimer);
+    });
+    return () => {
+      if (durationTimer !== void 0) clearTimeout(durationTimer);
+      cancellation.abort();
+    };
   }
   async #runStream(url, cancellation, onEvent) {
     while (!cancellation.signal.aborted) {

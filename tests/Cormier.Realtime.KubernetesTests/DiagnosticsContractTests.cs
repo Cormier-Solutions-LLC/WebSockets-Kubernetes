@@ -170,18 +170,37 @@ public sealed class DiagnosticsContractTests
         Assert.Matches(diagnosticsNetworkPattern, "192.0.2.0/24");
         Assert.Matches(diagnosticsNetworkPattern, "2001:db8::/32");
         Assert.DoesNotMatch(diagnosticsNetworkPattern, "operator-network");
+        Assert.DoesNotMatch(diagnosticsNetworkPattern, "::::/64");
+        Assert.DoesNotMatch(diagnosticsNetworkPattern, "deadbeef/64");
         var metricsNetworkPattern = schema.RootElement.GetProperty("properties").GetProperty("metrics")
             .GetProperty("properties").GetProperty("allowedNetworks").GetProperty("items")
             .GetProperty("pattern").GetString()!;
         Assert.Matches(metricsNetworkPattern, "192.0.2.0/24");
         Assert.Matches(metricsNetworkPattern, "2001:db8::/32");
         Assert.DoesNotMatch(metricsNetworkPattern, "operator-network");
+        Assert.DoesNotMatch(metricsNetworkPattern, "::::/64");
+        Assert.DoesNotMatch(metricsNetworkPattern, "deadbeef/64");
         var otlpNetworkPattern = schema.RootElement.GetProperty("properties").GetProperty("observability")
             .GetProperty("properties").GetProperty("otlp").GetProperty("properties")
             .GetProperty("egressCidrs").GetProperty("items").GetProperty("pattern").GetString()!;
         Assert.Matches(otlpNetworkPattern, "192.0.2.0/24");
         Assert.Matches(otlpNetworkPattern, "2001:db8::/32");
         Assert.DoesNotMatch(otlpNetworkPattern, "operator-network");
+        Assert.DoesNotMatch(otlpNetworkPattern, "::::/64");
+        Assert.DoesNotMatch(otlpNetworkPattern, "deadbeef/64");
+        var diagnosticsSecret = schema.RootElement.GetProperty("properties").GetProperty("diagnostics")
+            .GetProperty("properties").GetProperty("operatorTokenSecret").GetProperty("properties");
+        var metricsSecret = schema.RootElement.GetProperty("properties").GetProperty("metrics")
+            .GetProperty("properties").GetProperty("scrapeTokenSecret").GetProperty("properties");
+        foreach (var secret in new[] { diagnosticsSecret, metricsSecret })
+        {
+            var namePattern = secret.GetProperty("name").GetProperty("pattern").GetString()!;
+            var keyPattern = secret.GetProperty("key").GetProperty("pattern").GetString()!;
+            Assert.Matches(namePattern, "operator.credentials");
+            Assert.DoesNotMatch(namePattern, "Bad_Name");
+            Assert.Matches(keyPattern, "token_key.json");
+            Assert.DoesNotMatch(keyPattern, "token key!");
+        }
         var diagnosticsOriginPattern = schema.RootElement.GetProperty("properties").GetProperty("diagnostics")
             .GetProperty("properties").GetProperty("allowedOrigins").GetProperty("items")
             .GetProperty("pattern").GetString()!;

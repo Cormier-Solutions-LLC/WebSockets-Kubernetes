@@ -95,6 +95,32 @@ test("diagnostics streams retry ordinary interruptions with authentication", asy
   disconnect();
 });
 
+test("bounded log tails stop when their requested duration expires", async () => {
+  let requests = 0;
+  const client = new DiagnosticsClient({
+    fetch: async (_url, init) => {
+      requests += 1;
+      const body = new ReadableStream({
+        start(controller) {
+          const timer = setTimeout(() => controller.close(), 1_000);
+          init.signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            controller.close();
+          }, { once: true });
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    },
+    streamRetryMilliseconds: 100,
+  });
+
+  const disconnect = client.tailLogs({ durationSeconds: 1 }, () => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 1_150));
+
+  assert.equal(requests, 1);
+  disconnect();
+});
+
 test("diagnostics streams stop after permanent client responses", async () => {
   let requests = 0;
   const errors = [];

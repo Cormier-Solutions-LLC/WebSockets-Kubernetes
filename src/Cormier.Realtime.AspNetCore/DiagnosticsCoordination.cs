@@ -42,15 +42,66 @@ public sealed class DiagnosticsControlService(
             {
                 return (false, null, localError);
             }
+            IDatabase? instanceDatabase = null;
             try
             {
+                var connection = await redis.GetConnectionAsync(cancellationToken);
+                if (!connection.IsConnected)
+                {
+                    if (redisOptions.RequiredForReadiness)
+                    {
+                        controller.Revert(id, "system", "instance coordination unavailable rollback");
+                        return (false, null, "Instance-scoped changes require an available Redis coordination service.");
+                    }
+                    await FlushLocalAuditAsync(cancellationToken);
+                    return (true, localResult, string.Empty);
+                }
+                instanceDatabase = connection.GetDatabase();
+                var message = new DiagnosticsCoordinationMessage(
+                    "apply",
+                    id,
+                    request,
+                    actor,
+                    startedAt,
+                    controller.InstanceId);
+                var payload = JsonSerializer.Serialize(
+                    message,
+                    DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
+                await instanceDatabase.StringSetAsync(
+                    ActiveKey(id),
+                    payload,
+                    TimeSpan.FromSeconds(request.DurationSeconds));
                 await FlushLocalAuditAsync(cancellationToken);
                 return (true, localResult, string.Empty);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                controller.Revert(id, "system", "cancelled request rollback");
+                await RollbackCancelledApplyAsync(
+                    id,
+                    instanceDatabase is not null
+                        ? async () => { _ = await instanceDatabase.KeyDeleteAsync(ActiveKey(id)); }
+                        : null);
                 throw;
+            }
+            catch (RedisException)
+            {
+                if (redisOptions.RequiredForReadiness)
+                {
+                    controller.Revert(id, "system", "instance coordination failure rollback");
+                    if (instanceDatabase is not null)
+                    {
+                        try
+                        {
+                            _ = await instanceDatabase.KeyDeleteAsync(ActiveKey(id));
+                        }
+                        catch (RedisException)
+                        {
+                            // The metadata key is TTL-bounded if cleanup cannot reach Redis.
+                        }
+                    }
+                    return (false, null, "Instance-scoped changes require an available Redis coordination service.");
+                }
+                return (true, localResult, string.Empty);
             }
         }
         if (!controller.TryValidate(request, out var validationError))
@@ -145,6 +196,7 @@ public sealed class DiagnosticsControlService(
     {
         actor = DiagnosticRedactor.RedactBounded(actor, 128);
         var active = controller.GetActive().FirstOrDefault(item => item.Id == id);
+        var targetInstanceId = active?.Scope == "instance" ? controller.InstanceId : null;
         if (active is null)
         {
             try
@@ -152,7 +204,7 @@ public sealed class DiagnosticsControlService(
                 var connection = await redis.GetConnectionAsync(cancellationToken);
                 if (!connection.IsConnected)
                 {
-                    return (false, false, "Replica-wide rollback lookup requires an available Redis coordination service.");
+                    return (false, false, "Coordinated rollback lookup requires an available Redis coordination service.");
                 }
                 var stored = await connection.GetDatabase().StringGetAsync(ActiveKey(id));
                 if (!stored.HasValue)
@@ -170,48 +222,77 @@ public sealed class DiagnosticsControlService(
                 {
                     return (false, false, string.Empty);
                 }
-                if (message?.Action != "apply" || message.Id != id || message.Request?.Scope != "all")
+                if (!IsValidStoredApply(message, id))
                 {
                     return (false, false, string.Empty);
                 }
+                var validMessage = message!;
+                var validRequest = validMessage.Request!;
+                targetInstanceId = validMessage.TargetInstanceId;
                 active = new LogLevelOverrideResponse(
                     id,
-                    message.Request.Category,
-                    message.Request.Level,
-                    "all",
-                    message.Timestamp,
-                    message.Timestamp.AddSeconds(message.Request.DurationSeconds),
+                    validRequest.Category,
+                    validRequest.Level,
+                    validRequest.Scope,
+                    validMessage.Timestamp,
+                    validMessage.Timestamp.AddSeconds(validRequest.DurationSeconds),
                     "active");
             }
             catch (RedisException)
             {
-                return (false, false, "Replica-wide rollback lookup requires an available Redis coordination service.");
+                return (false, false, "Coordinated rollback lookup requires an available Redis coordination service.");
             }
         }
         var coordinationPublished = false;
-        if (active.Scope == "all")
+        var locallyOwnedOptionalInstance = active.Scope == "instance" &&
+            string.Equals(targetInstanceId, controller.InstanceId, StringComparison.Ordinal) &&
+            !redisOptions.RequiredForReadiness;
+        if (active.Scope is "all" or "instance")
         {
             try
             {
                 var connection = await redis.GetConnectionAsync(cancellationToken);
                 if (!connection.IsConnected)
                 {
-                    return (true, false, "Replica-wide rollback requires an available Redis coordination service.");
+                    if (!locallyOwnedOptionalInstance)
+                    {
+                        return (true, false, "Coordinated rollback requires an available Redis coordination service.");
+                    }
                 }
-                var database = connection.GetDatabase();
-                var message = new DiagnosticsCoordinationMessage("revert", id, null, actor, DateTimeOffset.UtcNow);
-                var payload = JsonSerializer.Serialize(
-                    message,
-                    DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
-                await RemoveActiveAsync(database, id, ActiveKey(id), ReservationKey(active.Category));
-                await connection.GetSubscriber().PublishAsync(
-                    RedisChannel.Literal($"{redisOptions.InstancePrefix}:{_options.CoordinationChannel}"),
-                    payload);
-                coordinationPublished = true;
+                else
+                {
+                    var database = connection.GetDatabase();
+                    var message = new DiagnosticsCoordinationMessage(
+                        "revert",
+                        id,
+                        null,
+                        actor,
+                        DateTimeOffset.UtcNow,
+                        targetInstanceId);
+                    var payload = JsonSerializer.Serialize(
+                        message,
+                        DiagnosticsJsonSerializerContext.Default.DiagnosticsCoordinationMessage);
+                    if (active.Scope == "all")
+                    {
+                        await RemoveActiveAsync(database, id, ActiveKey(id), ReservationKey(active.Category));
+                    }
+                    else
+                    {
+                        _ = await database.KeyDeleteAsync(ActiveKey(id));
+                    }
+                    await connection.GetSubscriber().PublishAsync(
+                        RedisChannel.Literal($"{redisOptions.InstancePrefix}:{_options.CoordinationChannel}"),
+                        payload);
+                    coordinationPublished = true;
+                }
+            }
+            catch (RedisException) when (locallyOwnedOptionalInstance)
+            {
+                // Optional single-instance hosts can still revert their local override during an outage.
             }
             catch (RedisException)
             {
-                return (true, false, "Replica-wide rollback requires an available Redis coordination service.");
+                return (true, false, "Coordinated rollback requires an available Redis coordination service.");
             }
         }
         // The local subscriber can process the published rollback before this call.
@@ -292,9 +373,16 @@ public sealed class DiagnosticsControlService(
                     "local count = redis.call('ZCARD', KEYS[1]); " +
                     "local capacity = tonumber(ARGV[4]); " +
                     "if count > capacity then redis.call('ZREMRANGEBYRANK', KEYS[1], 0, count - capacity - 1); end; " +
+                    "redis.call('PEXPIRE', KEYS[1], ARGV[5]); " +
                     "return 1;",
                     [AuditKey()],
-                    [entry.Timestamp.ToUnixTimeMilliseconds(), payload, auditCutoff, _options.AuditCapacity]);
+                    [
+                        entry.Timestamp.ToUnixTimeMilliseconds(),
+                        payload,
+                        auditCutoff,
+                        _options.AuditCapacity,
+                        (long)retention.TotalMilliseconds,
+                    ]);
                 controller.MarkPendingAuditPersisted(entry);
             }
         }
@@ -310,6 +398,36 @@ public sealed class DiagnosticsControlService(
 
     private string AuditKey() =>
         $"{redisOptions.InstancePrefix}:{{diagnostics}}:{_options.CoordinationChannel}:audit";
+
+    private bool IsValidStoredApply(DiagnosticsCoordinationMessage? message, string id)
+    {
+        var request = message?.Request;
+        return message?.Action == "apply" &&
+            message.Id == id &&
+            request is not null &&
+            request.Scope is "all" or "instance" &&
+            !string.IsNullOrWhiteSpace(request.Category) &&
+            request.Category.Length <= 128 &&
+            _options.LogCategoryAllowlist.Any(allowed =>
+                allowed == "*" ||
+                request.Category == allowed ||
+                request.Category.StartsWith($"{allowed}.", StringComparison.Ordinal)) &&
+            Enum.TryParse<Microsoft.Extensions.Logging.LogLevel>(request.Level, true, out var level) &&
+            Enum.IsDefined(level) &&
+            level is not Microsoft.Extensions.Logging.LogLevel.None &&
+            request.DurationSeconds >= _options.MinimumLogOverrideSeconds &&
+            request.DurationSeconds <= _options.MaximumLogOverrideSeconds &&
+            !string.IsNullOrWhiteSpace(request.Reason) &&
+            request.Reason.Length is >= 3 and <= 256 &&
+            !string.IsNullOrWhiteSpace(message.Actor) &&
+            message.Actor.Length <= 128 &&
+            message.Timestamp >= DateTimeOffset.UnixEpoch &&
+            message.Timestamp <= DateTimeOffset.UtcNow.AddMinutes(5) &&
+            ((request.Scope == "all" && message.TargetInstanceId is null) ||
+                (request.Scope == "instance" &&
+                    !string.IsNullOrWhiteSpace(message.TargetInstanceId) &&
+                    message.TargetInstanceId.Length <= 128));
+    }
 
     private string ActiveKey(string id) =>
         $"{redisOptions.InstancePrefix}:{{diagnostics}}:{_options.CoordinationChannel}:active:{id}";
@@ -547,7 +665,11 @@ public sealed class DiagnosticsCoordinationService(
             var validMessage = message!;
             if (validMessage.Action == "revert")
             {
-                controller.Revert(validMessage.Id, validMessage.Actor, "coordinated rollback");
+                if (validMessage.TargetInstanceId is null ||
+                    string.Equals(validMessage.TargetInstanceId, controller.InstanceId, StringComparison.Ordinal))
+                {
+                    controller.Revert(validMessage.Id, validMessage.Actor, "coordinated rollback");
+                }
             }
             else if (validMessage.Action == "apply" &&
                 validMessage.Request is not null &&
@@ -578,8 +700,12 @@ public sealed class DiagnosticsCoordinationService(
         message.Actor.Length <= 128 &&
         message.Timestamp >= DateTimeOffset.UnixEpoch &&
         message.Timestamp <= DateTimeOffset.UtcNow.AddMinutes(5) &&
-        (message.Action == "revert" ||
-            (message.Action == "apply" && message.Request is not null));
+        (message.TargetInstanceId is null ||
+            (!string.IsNullOrWhiteSpace(message.TargetInstanceId) && message.TargetInstanceId.Length <= 128)) &&
+        ((message.Action == "revert") ||
+            (message.Action == "apply" &&
+                message.Request?.Scope == "all" &&
+                message.TargetInstanceId is null));
 
     private readonly record struct CoordinationWork(RedisValue Message, bool Reconcile);
 }

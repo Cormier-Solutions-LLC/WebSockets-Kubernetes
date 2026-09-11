@@ -175,16 +175,35 @@ export class DiagnosticsClient {
   }
 
   tailLogs(filter: LogTailFilter, onEvent: (event: DiagnosticLogEvent) => void): () => void {
-    return this.#stream<DiagnosticLogEvent>("/logs/tail", filter as Record<string, string | number | undefined>, onEvent);
+    return this.#stream<DiagnosticLogEvent>(
+      "/logs/tail",
+      filter as Record<string, string | number | undefined>,
+      onEvent,
+      filter.durationSeconds,
+    );
   }
 
-  #stream<T>(path: string, query: Record<string, string | number | undefined>, onEvent: (event: T) => void): () => void {
+  #stream<T>(
+    path: string,
+    query: Record<string, string | number | undefined>,
+    onEvent: (event: T) => void,
+    durationSeconds?: number,
+  ): () => void {
     const parameters = new URLSearchParams();
     for (const [name, value] of Object.entries(query)) if (value !== undefined) parameters.set(name, String(value));
     const suffix = parameters.size === 0 ? "" : `?${parameters}`;
     const cancellation = new AbortController();
-    void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent);
-    return () => cancellation.abort();
+    const durationTimer = durationSeconds !== undefined && Number.isFinite(durationSeconds) && durationSeconds > 0
+      ? setTimeout(() => cancellation.abort(), durationSeconds * 1_000)
+      : undefined;
+    void this.#runStream(`${this.#baseUrl}${path}${suffix}`, cancellation, onEvent)
+      .finally(() => {
+        if (durationTimer !== undefined) clearTimeout(durationTimer);
+      });
+    return () => {
+      if (durationTimer !== undefined) clearTimeout(durationTimer);
+      cancellation.abort();
+    };
   }
 
   async #runStream<T>(url: string, cancellation: AbortController, onEvent: (event: T) => void): Promise<void> {

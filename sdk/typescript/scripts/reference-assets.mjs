@@ -21,6 +21,10 @@ function digest(content, algorithm, encoding) {
   return createHash(algorithm).update(content).digest(encoding);
 }
 
+function readNormalizedText(path) {
+  return readFileSync(path, "utf8").replace(/\r\n?/gu, "\n");
+}
+
 function integrity(content) {
   return `sha384-${digest(content, "sha384", "base64")}`;
 }
@@ -227,9 +231,9 @@ export async function buildReferenceAssets({ sdkRoot, obfuscate = false }) {
   mkdirSync(outputRoot, { recursive: true });
 
   const original = {
-    css: readFileSync(resolve(sourceRoot, "app.css"), "utf8"),
-    html: readFileSync(resolve(sourceRoot, "index.html"), "utf8"),
-    javascript: readFileSync(resolve(sourceRoot, "app.js"), "utf8"),
+    css: readNormalizedText(resolve(sourceRoot, "app.css")),
+    html: readNormalizedText(resolve(sourceRoot, "index.html")),
+    javascript: readNormalizedText(resolve(sourceRoot, "app.js")),
   };
   const source = applySelectorMappings(original, config.selectorMangling);
   const profiles = ["readable", "optimized"];

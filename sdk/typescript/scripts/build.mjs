@@ -7,6 +7,15 @@ import { buildReferenceAssets } from "./reference-assets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
+const normalizedTypeScriptPlugin = {
+  name: "normalized-typescript-line-endings",
+  setup(buildContext) {
+    buildContext.onLoad({ filter: /\.ts$/ }, (args) => ({
+      contents: readFileSync(args.path, "utf8").replace(/\r\n?/gu, "\n"),
+      loader: "ts",
+    }));
+  },
+};
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
@@ -26,6 +35,7 @@ const shared = {
   target: ["es2022"],
   charset: "utf8",
   logLevel: "warning",
+  plugins: [normalizedTypeScriptPlugin],
 };
 
 await Promise.all([

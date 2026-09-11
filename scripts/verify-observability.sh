@@ -2,6 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mkdir -p "${root}/artifacts"
 run_id="${GITHUB_RUN_ID:-local}-${RANDOM}"
 network="cormier-observability-${run_id}"
 collector="cormier-observability-collector-${run_id}"

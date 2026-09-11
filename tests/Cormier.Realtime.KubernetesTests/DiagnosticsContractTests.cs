@@ -160,6 +160,16 @@ public sealed class DiagnosticsContractTests
             .GetProperty("diagnostics").GetProperty("allOf")[0];
         Assert.True(diagnosticsCondition.GetProperty("then").GetProperty("properties")
             .GetProperty("productionEnabled").GetProperty("const").GetBoolean());
+        var metricsCredentialCondition = schema.RootElement.GetProperty("allOf")[0]
+            .GetProperty("if").GetProperty("properties").GetProperty("metrics");
+        Assert.True(metricsCredentialCondition.GetProperty("properties")
+            .GetProperty("enabled").GetProperty("const").GetBoolean());
+        var diagnosticsNetworkPattern = schema.RootElement.GetProperty("properties").GetProperty("diagnostics")
+            .GetProperty("properties").GetProperty("allowedNetworks").GetProperty("items")
+            .GetProperty("pattern").GetString()!;
+        Assert.Matches(diagnosticsNetworkPattern, "192.0.2.0/24");
+        Assert.Matches(diagnosticsNetworkPattern, "2001:db8::/32");
+        Assert.DoesNotMatch(diagnosticsNetworkPattern, "operator-network");
         var otlpCondition = schema.RootElement.GetProperty("properties").GetProperty("observability")
             .GetProperty("properties").GetProperty("otlp").GetProperty("allOf")[0];
         Assert.True(otlpCondition.GetProperty("if").GetProperty("properties")
@@ -192,6 +202,7 @@ public sealed class DiagnosticsContractTests
         Assert.Contains("job_name: otlp-backend", conformancePrometheus, StringComparison.Ordinal);
         Assert.Contains("docker stop", conformanceScript, StringComparison.Ordinal);
         Assert.Contains("before_interruption + 5", conformanceScript, StringComparison.Ordinal);
+        Assert.Contains("mkdir -p \"${root}/artifacts\"", conformanceScript, StringComparison.Ordinal);
         Assert.DoesNotContain("Bearer ", conformanceCollector, StringComparison.OrdinalIgnoreCase);
     }
 

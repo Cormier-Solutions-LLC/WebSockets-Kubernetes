@@ -144,7 +144,7 @@ public sealed class DiagnosticsEndpointTests
         {
             ["Diagnostics:Enabled"] = "true",
             ["Diagnostics:AuthorizationPolicy"] = "diagnostics-operator",
-            ["Diagnostics:AllowedOrigins:0"] = "https://operator.example",
+            ["Diagnostics:AllowedOrigins:0"] = "https://operator.example/",
             ["Realtime:AllowedOrigins:0"] = "http://localhost",
             ["Redis:Endpoint"] = "redis.invalid:6379",
         });
@@ -355,7 +355,7 @@ public sealed class DiagnosticsEndpointTests
         using var client = factory.CreateClient();
         using var apply = OperatorRequest(HttpMethod.Post, "/diagnostics/v1/logging/overrides");
         apply.Content = JsonContent.Create(
-            new LogLevelChangeRequest("Cormier.Realtime", "Debug", 30, "Redis interruption verification", "all"),
+            new LogLevelChangeRequest("Cormier.Realtime", "Debug", 30, "Redis interruption verification", " all "),
             DiagnosticsJsonSerializerContext.Default.LogLevelChangeRequest);
 
         using var response = await client.SendAsync(apply, CancellationToken.None);

@@ -11,7 +11,7 @@ public sealed class DiagnosticsTests
     [Fact]
     public void RedactorRemovesCredentialsAndPrivateIdentityValues()
     {
-        const string input = "Authorization: Bearer abc.def\nCookie: theme=dark; sid=victim-secret\ncookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b tenant structured-tenant password=hunter2 secret structured-secret access_token=oauth-secret client_secret=client-credential api-key=hyphen-credential api_key=underscore-credential clientSecret=camel-credential {\"Authorization\":\"Basic structured-basic\"}\n{\"Cookie\":\"structured-cookie\"}\n{\"Set-Cookie\":\"structured-set-cookie\"}\n{\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
+        const string input = "Authorization: Bearer abc.def\nAuthorization Basic whitespace-basic\nCookie: theme=dark; sid=victim-secret\nCookie whitespace-cookie\ncookie=session-value ticket=one tenantId=tenant-a tenant_id=tenant-b user=user-a user_id=user-b session_id=session-b tenant structured-tenant password=hunter2 secret structured-secret access_token=oauth-secret client_secret=client-credential api-key=hyphen-credential api_key=underscore-credential clientSecret=camel-credential {\"Authorization\":\"Basic structured-basic\"}\n{\"Cookie\":\"structured-cookie\"}\n{\"Set-Cookie\":\"structured-set-cookie\"}\n{\"token\":\"json-secret\",\"sessionId\":\"json-session\"}\npassword \"correct horse battery staple\"; secret multi word credential";
 
         var output = DiagnosticRedactor.Redact(input);
 
@@ -38,6 +38,8 @@ public sealed class DiagnosticsTests
         Assert.DoesNotContain("structured-basic", output, StringComparison.Ordinal);
         Assert.DoesNotContain("structured-cookie", output, StringComparison.Ordinal);
         Assert.DoesNotContain("structured-set-cookie", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("whitespace-basic", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("whitespace-cookie", output, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", output, StringComparison.Ordinal);
     }
 
@@ -179,13 +181,16 @@ public sealed class DiagnosticsTests
         logger.Log(
             LogLevel.Warning,
             new EventId(1, "SensitiveFixture"),
-            "Authorization: Bearer credential tenantId=private-tenant",
-            null,
+            "Cookie whitespace-cookie tenantId=private-tenant",
+            new InvalidOperationException("password=exception-credential"),
             static (state, _) => state);
 
         Assert.True(subscription.Reader.TryRead(out var item));
         Assert.DoesNotContain("credential", item.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("private-tenant", item.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("whitespace-cookie", item.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("exception-credential", item.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(InvalidOperationException), item.Message, StringComparison.Ordinal);
         Assert.Equal(identity.InstanceId, item.InstanceId);
     }
 

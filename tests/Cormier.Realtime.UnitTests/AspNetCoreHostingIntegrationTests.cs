@@ -107,6 +107,7 @@ public sealed class AspNetCoreHostingIntegrationTests
     [Theory]
     [InlineData("/diagnostics/v1/snapshot", false)]
     [InlineData("/diagnostics/v1/logging/overrides/{id}", true)]
+    [InlineData("/diagnostics/v1/logging/overrides/{overrideId}", true)]
     public async Task MapRealtimeDiagnosticsRejectsAConflictingApplicationRoute(string route, bool delete)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -134,6 +135,38 @@ public sealed class AspNetCoreHostingIntegrationTests
         var exception = Assert.Throws<InvalidOperationException>(() => app.MapRealtimeDiagnostics());
 
         Assert.Contains("already mapped", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MapRealtimeDiagnosticsAllowsAnEquivalentParameterizedRouteForAnotherMethod()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development,
+        });
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Diagnostics:Enabled"] = "true",
+            ["Diagnostics:AuthorizationPolicy"] = "diagnostics-operator",
+            ["Realtime:AllowedOrigins:0"] = "https://app.example",
+            ["Redis:Endpoint"] = "redis.example:6379",
+        });
+        builder.Services.AddRealtimeGateway(builder.Configuration);
+        await using var app = builder.Build();
+        app.MapGet("/diagnostics/v1/logging/overrides/{overrideId}", () => Results.Ok());
+
+        app.MapRealtimeDiagnostics();
+    }
+
+    [Fact]
+    public void DiagnosticsNetworkAllowsIpv4MappedAddressesInsideIpv4Cidrs()
+    {
+        Assert.True(DiagnosticsEndpointExtensions.IsNetworkAllowed(
+            System.Net.IPAddress.Parse("::ffff:192.0.2.10"),
+            ["192.0.2.0/24"]));
+        Assert.False(DiagnosticsEndpointExtensions.IsNetworkAllowed(
+            System.Net.IPAddress.Parse("::ffff:198.51.100.10"),
+            ["192.0.2.0/24"]));
     }
 
     [Fact]

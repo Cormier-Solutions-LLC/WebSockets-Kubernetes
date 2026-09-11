@@ -95,7 +95,7 @@ public static partial class DiagnosticRedactor
 {
     private const string Redacted = "[REDACTED]";
 
-    [GeneratedRegex("(?im)\\b(authorization|cookie|set-cookie)[\"']?\\s*[:=]\\s*[^\\r\\n]*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("(?im)\\b(authorization|cookie|set-cookie)[\"']?(?:\\s*[:=]\\s*|\\s+)[^\\r\\n]*", RegexOptions.CultureInvariant)]
     private static partial Regex HeaderPattern();
 
     [GeneratedRegex("(?i)\\b((?:(?:[a-z0-9]+[-_.])*(?:password|secret|token|ticket|key)|(?:access|refresh|client|api)(?:Password|Secret|Token|Ticket|Key)))[\"']?(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\\r\\n,;}]+)", RegexOptions.CultureInvariant)]
@@ -476,11 +476,10 @@ public sealed class DiagnosticsLoggerProvider(
                 return;
             }
 
-            var message = DiagnosticRedactor.Redact(formatter(state, exception));
-            if (message.Length > 8192)
-            {
-                message = message[..8192];
-            }
+            var formatted = formatter(state, exception);
+            var message = DiagnosticRedactor.RedactBounded(
+                exception is null ? formatted : $"{formatted}{Environment.NewLine}{exception}",
+                8192);
             hub.Publish(new DiagnosticLogEvent(
                 hub.NextLogSequence(),
                 DateTimeOffset.UtcNow,

@@ -174,7 +174,7 @@ public static class RealtimeGatewayHostingExtensions
             var origins = configuration.GetSection($"{DiagnosticsOptions.SectionName}:AllowedOrigins").Get<string[]>() ?? [];
             if (origins.Length > 0)
             {
-                policy.WithOrigins(origins)
+                policy.WithOrigins(origins.Select(NormalizeOrigin).ToArray())
                     .AllowAnyMethod()
                     .AllowAnyHeader();
             }
@@ -295,7 +295,7 @@ public static class RealtimeGatewayHostingExtensions
             HttpMethods.IsOptions(context.Request.Method) &&
             context.Request.Path.StartsWithSegments(options.BasePath) &&
             requestedMethod.Length > 0 &&
-            options.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+            options.AllowedOrigins.Select(NormalizeOrigin).Contains(NormalizeOrigin(origin), StringComparer.OrdinalIgnoreCase))
         {
             context.Response.StatusCode = StatusCodes.Status204NoContent;
             context.Response.Headers.AccessControlAllowOrigin = origin;
@@ -324,8 +324,8 @@ public static class RealtimeGatewayHostingExtensions
         }
 
         var options = endpoints.ServiceProvider.GetRequiredService<RealtimeOptions>();
-        EnsureRouteAvailable(endpoints, options.EndpointPath);
-        EnsureRouteAvailable(endpoints, options.TicketEndpointPath);
+        EnsureRouteAvailable(endpoints, options.EndpointPath, HttpMethods.Get);
+        EnsureRouteAvailable(endpoints, options.TicketEndpointPath, HttpMethods.Post);
         var socket = endpoints.MapGet(options.EndpointPath, (RequestDelegate)HandleSocketAsync);
         var tickets = endpoints.MapPost(options.TicketEndpointPath, (RequestDelegate)IssueTicketAsync);
         if (!string.IsNullOrWhiteSpace(options.AuthorizationPolicy))
@@ -368,13 +368,68 @@ public static class RealtimeGatewayHostingExtensions
             context.RequestAborted);
     }
 
-    internal static void EnsureRouteAvailable(IEndpointRouteBuilder endpoints, string route)
+    internal static void EnsureRouteAvailable(IEndpointRouteBuilder endpoints, string route, string method)
     {
+        var requestedPattern = RoutePatternFactory.Parse(route);
         if (endpoints.DataSources.SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
-            .Any(endpoint => string.Equals(endpoint.RoutePattern.RawText, route, StringComparison.OrdinalIgnoreCase)))
+            .Any(endpoint => RoutesEquivalent(endpoint.RoutePattern, requestedPattern) &&
+                (endpoint.Metadata.GetMetadata<IHttpMethodMetadata>() is not { } methods ||
+                    methods.HttpMethods.Contains(method, StringComparer.OrdinalIgnoreCase))))
         {
             throw new InvalidOperationException($"The endpoint route '{route}' is already mapped.");
         }
+    }
+
+    private static bool RoutesEquivalent(RoutePattern left, RoutePattern right)
+    {
+        if (left.PathSegments.Count != right.PathSegments.Count)
+        {
+            return false;
+        }
+        for (var segmentIndex = 0; segmentIndex < left.PathSegments.Count; segmentIndex++)
+        {
+            var leftParts = left.PathSegments[segmentIndex].Parts;
+            var rightParts = right.PathSegments[segmentIndex].Parts;
+            if (leftParts.Count != rightParts.Count)
+            {
+                return false;
+            }
+            for (var partIndex = 0; partIndex < leftParts.Count; partIndex++)
+            {
+                var leftPart = leftParts[partIndex];
+                var rightPart = rightParts[partIndex];
+                if (leftPart is RoutePatternLiteralPart leftLiteral && rightPart is RoutePatternLiteralPart rightLiteral)
+                {
+                    if (!string.Equals(leftLiteral.Content, rightLiteral.Content, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                else if (leftPart is RoutePatternSeparatorPart leftSeparator && rightPart is RoutePatternSeparatorPart rightSeparator)
+                {
+                    if (!string.Equals(leftSeparator.Content, rightSeparator.Content, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                else if (leftPart is RoutePatternParameterPart leftParameter && rightPart is RoutePatternParameterPart rightParameter)
+                {
+                    if (leftParameter.IsCatchAll != rightParameter.IsCatchAll ||
+                        leftParameter.IsOptional != rightParameter.IsOptional ||
+                        !Equals(leftParameter.Default, rightParameter.Default) ||
+                        !leftParameter.ParameterPolicies.Select(policy => policy.Content)
+                            .SequenceEqual(rightParameter.ParameterPolicies.Select(policy => policy.Content), StringComparer.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static bool IsValidRoute(string route)
@@ -435,6 +490,11 @@ public static class RealtimeGatewayHostingExtensions
     private static bool IsAbsoluteOrigin(string value) => Uri.TryCreate(value, UriKind.Absolute, out var origin) &&
         (origin.Scheme == Uri.UriSchemeHttp || origin.Scheme == Uri.UriSchemeHttps) &&
         origin.AbsolutePath == "/" && string.IsNullOrEmpty(origin.Query) && string.IsNullOrEmpty(origin.Fragment);
+
+    internal static string NormalizeOrigin(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var origin)
+            ? origin.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped)
+            : value;
 
     private sealed class CompositeEndpointConventionBuilder(params IEndpointConventionBuilder[] builders) : IEndpointConventionBuilder
     {

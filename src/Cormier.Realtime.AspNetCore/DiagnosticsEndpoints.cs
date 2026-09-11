@@ -51,7 +51,7 @@ public static class DiagnosticsEndpointExtensions
         var metricsOptions = endpoints.ServiceProvider.GetRequiredService<IOptions<MetricsOptions>>().Value;
         if (metricsOptions.Enabled)
         {
-            RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, metricsOptions.Path);
+            RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, metricsOptions.Path, HttpMethods.Get);
             var metrics = endpoints.MapGet(metricsOptions.Path, HandleMetricsAsync);
             if (!string.IsNullOrWhiteSpace(metricsOptions.AuthorizationPolicy))
             {
@@ -65,9 +65,9 @@ public static class DiagnosticsEndpointExtensions
             return;
         }
 
-        foreach (var route in ConcreteRoutes(options.BasePath))
+        foreach (var (route, method) in ConcreteRouteMethods(options.BasePath))
         {
-            RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, route);
+            RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, route, method);
         }
         var group = endpoints.MapGroup(options.BasePath)
             .RequireCors(RealtimeGatewayHostingExtensions.DiagnosticsCorsPolicy)
@@ -267,7 +267,8 @@ public static class DiagnosticsEndpointExtensions
                 .ApplyAsync(request, actor, context.RequestAborted);
             if (!outcome.Succeeded)
             {
-                var status = request.Scope == "all" && outcome.Error.Contains("Redis", StringComparison.Ordinal)
+                var status = string.Equals(request.Scope?.Trim(), "all", StringComparison.Ordinal) &&
+                    outcome.Error.Contains("Redis", StringComparison.Ordinal)
                     ? StatusCodes.Status503ServiceUnavailable
                     : StatusCodes.Status400BadRequest;
                 await WriteErrorAsync(context, status, "log_level_rejected", outcome.Error);
@@ -469,6 +470,18 @@ public static class DiagnosticsEndpointExtensions
         $"{basePath}/logging/audit",
     ];
 
+    private static (string Route, string Method)[] ConcreteRouteMethods(string basePath) =>
+    [
+        ($"{basePath}/snapshot", HttpMethods.Get),
+        ($"{basePath}/connections", HttpMethods.Get),
+        ($"{basePath}/events", HttpMethods.Get),
+        ($"{basePath}/logs/tail", HttpMethods.Get),
+        ($"{basePath}/logging/overrides", HttpMethods.Get),
+        ($"{basePath}/logging/audit", HttpMethods.Get),
+        ($"{basePath}/logging/overrides", HttpMethods.Post),
+        ($"{basePath}/logging/overrides/{{id}}", HttpMethods.Delete),
+    ];
+
     private static Task PrepareEventStreamAsync(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
@@ -523,7 +536,8 @@ public static class DiagnosticsEndpointExtensions
             return false;
         }
         var origin = context.Request.Headers.Origin.ToString();
-        return origin.Length == 0 || options.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
+        return origin.Length == 0 || options.AllowedOrigins.Select(RealtimeGatewayHostingExtensions.NormalizeOrigin)
+            .Contains(RealtimeGatewayHostingExtensions.NormalizeOrigin(origin), StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool IsNetworkAllowed(HttpContext context, string[] networks)
@@ -532,10 +546,21 @@ public static class DiagnosticsEndpointExtensions
         {
             return true;
         }
-        var address = context.Connection.RemoteIpAddress;
-        return address is not null && networks.Any(network =>
-            IPNetwork.TryParse(network, out var parsed) && parsed.Contains(address));
+        return IsNetworkAllowed(context.Connection.RemoteIpAddress, networks);
     }
+
+    internal static bool IsNetworkAllowed(IPAddress? address, string[] networks) =>
+        address is not null && networks.Any(network =>
+        {
+            if (!IPNetwork.TryParse(network, out var parsed))
+            {
+                return false;
+            }
+            var candidate = address.IsIPv4MappedToIPv6 && parsed.BaseAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                ? address.MapToIPv4()
+                : address;
+            return parsed.Contains(candidate);
+        });
 
     private static int? ParseBoundedInt(string value, int fallback, int minimum, int maximum)
     {

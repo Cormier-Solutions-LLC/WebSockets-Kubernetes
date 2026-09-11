@@ -40,7 +40,7 @@ while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | ruby -rjson -e 'payload = 
   kill -0 "$caddy_pid" 2>/dev/null || failure
   kill -0 "$puma_pid" 2>/dev/null || failure
   attempt=$((attempt + 1))
-  [ "$attempt" -lt 15 ] || failure
+  [ "$attempt" -lt 150 ] || failure
   sleep 0.1
 done
 kill -0 "$caddy_pid" 2>/dev/null || failure

@@ -53,7 +53,7 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
     });
     next();
   });
-  app.use(express.json({ limit: "8kb", strict: true }));
+  const parseLoginJson = express.json({ limit: "8kb", strict: true });
   app.use(rateLimit({
     windowMs: 60_000,
     limit: 120,
@@ -92,7 +92,7 @@ export function createApp({ config, redisClient, proxy, logger = console }) {
     });
   });
 
-  app.post("/api/login", requireOrigin(config), async (request, response, next) => {
+  app.post("/api/login", requireOrigin(config), parseLoginJson, async (request, response, next) => {
     try {
       const { tenantId, userId } = request.body ?? {};
       if (!config.allowedTenants.includes(tenantId) || !config.allowedUsers.includes(userId)) {

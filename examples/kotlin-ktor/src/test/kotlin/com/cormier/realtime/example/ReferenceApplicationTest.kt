@@ -9,6 +9,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -117,6 +118,21 @@ class ReferenceApplicationTest {
         }
         assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
         assertEquals(0, upstreamCalls)
+        upstream.close()
+    }
+
+    @Test
+    fun `gateway ticket responses are bounded while streaming`() = testApplication {
+        val upstream = HttpClient(MockEngine {
+            respond(ByteReadChannel(ByteArray(64 * 1024 + 1)), HttpStatusCode.OK)
+        })
+        application { referenceModule(ReferenceConfig.load(fixtureEnvironment), MemoryStore(), upstream) }
+        val response = client.post("/realtime/tickets") {
+            header(HttpHeaders.Origin, fixtureEnvironment.getValue("PUBLIC_ORIGIN"))
+            setBody("{}")
+        }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertTrue(response.bodyAsText().contains("service_unavailable"))
         upstream.close()
     }
 

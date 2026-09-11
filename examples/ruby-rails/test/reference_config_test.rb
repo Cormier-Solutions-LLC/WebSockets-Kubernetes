@@ -84,6 +84,7 @@ class ReferenceConfigTest < Minitest::Test
     assert_includes startup, "cormier-realtime.iife.js"
     refute_includes startup, "cormier-realtime.iife.min.js"
     assert_includes startup, 'readiness_url="http://$readiness_host:$PORT/api/diagnostics"'
+    assert_includes startup, '--header "Host: $public_authority"'
     assert_includes startup, 'payload["stack"] == "Ruby / Rails"'
     assert_equal 2, startup.scan('[ "$attempt" -lt 150 ] || failure').length
     assert_operator startup.index("readiness_url="), :<, startup.index("application_started")

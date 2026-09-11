@@ -1,7 +1,6 @@
 package com.cormier.realtime.example
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
@@ -9,6 +8,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
@@ -172,7 +172,8 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                 call.request.header(HttpHeaders.ContentType)?.let { header(HttpHeaders.ContentType, it) }
                 setBody(body)
             }
-            call.respondBytes(response.body<ByteArray>(), ContentType.Application.Json, response.status)
+            val responseBody = readLimitedBody(response.bodyAsChannel()) { DependencyFault() }
+            call.respondBytes(responseBody, ContentType.Application.Json, response.status)
         }
         webSocket("/realtime/ws", protocol = SUBPROTOCOL) browser@{
             val browserOrigin = call.request.header(HttpHeaders.Origin)
@@ -224,14 +225,18 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
     }
 }
 
-private suspend fun readLimitedBody(channel: io.ktor.utils.io.ByteReadChannel): ByteArray {
+private suspend fun readLimitedBody(
+    channel: io.ktor.utils.io.ByteReadChannel,
+    overflow: () -> RuntimeException = {
+        ClientFault(HttpStatusCode.PayloadTooLarge, "invalid_request", "The request is invalid.")
+    },
+): ByteArray {
     val output = ByteArrayOutputStream()
     val buffer = ByteArray(16 * 1024)
     while (true) {
         val count = channel.readAvailable(buffer, 0, buffer.size)
         if (count == -1) break
-        if (output.size() + count > MAXIMUM_BODY_BYTES) throw ClientFault(
-            HttpStatusCode.PayloadTooLarge, "invalid_request", "The request is invalid.")
+        if (output.size() + count > MAXIMUM_BODY_BYTES) throw overflow()
         output.write(buffer, 0, count)
     }
     return output.toByteArray()
@@ -253,6 +258,7 @@ private fun safeAsset(root: Path, name: String?): Path {
 }
 
 private class ClientFault(val status: HttpStatusCode, val code: String, message: String) : RuntimeException(message)
+private class DependencyFault : RuntimeException("The reference application dependency is unavailable.")
 @Serializable private data class LoginRequest(val tenantId: String? = null, val userId: String? = null)
 @Serializable private data class SessionRecord(val tenantId: String, val userId: String, val allowedTopics: List<String>, val expiresAt: String, val revoked: Boolean)
 @Serializable private data class LoginResponse(val tenantId: String, val userId: String, val expiresAt: String)

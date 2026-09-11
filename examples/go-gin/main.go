@@ -376,7 +376,7 @@ func (a *App) ticket(c *gin.Context) {
 		return
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, maximumBodyBytes))
+	body, err := readLimitedResponse(response.Body)
 	if err != nil {
 		unavailable(c)
 		return
@@ -385,6 +385,17 @@ func (a *App) ticket(c *gin.Context) {
 		c.Header("Content-Type", contentType)
 	}
 	c.Data(response.StatusCode, c.Writer.Header().Get("Content-Type"), body)
+}
+
+func readLimitedResponse(reader io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, maximumBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maximumBodyBytes {
+		return nil, errors.New("upstream response exceeds limit")
+	}
+	return body, nil
 }
 
 type hostTransport struct {

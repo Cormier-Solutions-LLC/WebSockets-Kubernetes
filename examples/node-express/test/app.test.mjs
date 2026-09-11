@@ -19,8 +19,12 @@ function fixture(overrides = {}) {
   const proxyCalls = [];
   const proxy = {
     web(incoming, response, options) {
-      proxyCalls.push({ path: incoming.url, options });
-      response.status(202).json({ forwarded: true });
+      const chunks = [];
+      incoming.on("data", chunk => chunks.push(chunk));
+      incoming.on("end", () => {
+        proxyCalls.push({ path: incoming.url, body: Buffer.concat(chunks).toString("utf8"), options });
+        response.status(202).json({ forwarded: true });
+      });
     },
   };
   const logs = [];
@@ -73,12 +77,14 @@ test("reports dependency-aware health and redacted diagnostics", async () => {
 test("preserves bounded body-parser client errors", async () => {
   const context = fixture();
   const malformed = await request(context.app).post("/api/login")
+    .set("Origin", context.config.publicOrigin)
     .set("Content-Type", "application/json")
     .send('{"tenantId":')
     .expect(400);
   assert.equal(malformed.body.code, "invalid_request");
 
   const oversized = await request(context.app).post("/api/login")
+    .set("Origin", context.config.publicOrigin)
     .set("Content-Type", "application/json")
     .send(JSON.stringify({ tenantId: "a".repeat(9_000), userId: "user-a" }))
     .expect(413);
@@ -125,11 +131,14 @@ test("establishes, validates, forwards, expires, and removes a session", async (
   await login(agent, context.config).expect(200);
   const [replacementKey] = context.values.keys();
 
+  const ticketBody = { topics: ["orders"] };
   await agent.post("/realtime/tickets")
     .set("Origin", context.config.publicOrigin)
+    .send(ticketBody)
     .expect(202, { forwarded: true });
   assert.deepEqual(context.proxyCalls, [{
     path: "/realtime/tickets",
+    body: JSON.stringify(ticketBody),
     options: {
       target: context.config.gatewayUrl,
       changeOrigin: false,

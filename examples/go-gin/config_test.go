@@ -81,6 +81,17 @@ func TestLoginDecoderRejectsTrailingData(t *testing.T) {
 	}
 }
 
+func TestTicketResponseLimitRejectsOverflow(t *testing.T) {
+	boundary := strings.Repeat("a", maximumBodyBytes)
+	body, err := readLimitedResponse(strings.NewReader(boundary))
+	if err != nil || len(body) != maximumBodyBytes {
+		t.Fatalf("boundary response rejected: size=%d error=%v", len(body), err)
+	}
+	if _, err = readLimitedResponse(strings.NewReader(boundary + "b")); err == nil {
+		t.Fatal("oversized response was truncated instead of rejected")
+	}
+}
+
 func TestWebsocketRegistryDrainsAndRejectsNewConnections(t *testing.T) {
 	registry := newWebsocketRegistry()
 	connection := &fakeManagedWebSocket{closed: make(chan struct{})}

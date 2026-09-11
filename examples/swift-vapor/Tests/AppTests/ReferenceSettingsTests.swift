@@ -109,4 +109,15 @@ struct ReferenceSettingsTests {
     #expect(source.contains("cormier-realtime.iife.js"))
     #expect(!source.contains("cormier-realtime.iife.min.js"))
   }
+
+  @Test("launcher waits for the stack-specific public endpoint")
+  func launcherWaitsForPublicEndpoint() throws {
+    let source = try String(contentsOfFile: "start.sh", encoding: .utf8)
+    #expect(source.contains("/api/diagnostics"))
+    #expect(source.contains(#"--header "Host: $public_authority""#))
+    #expect(source.contains(#"grep -F '"stack":"Swift'"#))
+    #expect(
+      source.firstRange(of: "readiness_url=")!.lowerBound
+        < source.firstRange(of: "application_started")!.lowerBound)
+  }
 }

@@ -18,7 +18,7 @@ RUN go mod init caddy-build \
 FROM swift:6.3.3-noble-slim@sha256:d20e340aeaf7109919b2a15c95569470070cca4d34dae40dfa58339a2aa734df
 RUN apt-get update \
     && apt-get upgrade --yes \
-    && apt-get install --yes --no-install-recommends tini=0.19.0-1 \
+    && apt-get install --yes --no-install-recommends curl tini=0.19.0-1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=caddy /out/caddy /usr/local/bin/caddy
 WORKDIR /app

@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container bases | Go 1.27.1 Alpine / Alpine 3.24 | Digest-pinned |
 
-The adapter has four stack-specific Go files and 739 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has four stack-specific Go files and 759 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

@@ -81,7 +81,7 @@ test("configuration stays aligned with the canonical reference schema", async ()
   assert.equal(redisPattern.test("redis://user:password@cache.example.test:6379/2"), true);
   assert.equal(redisPattern.test("redis://[::1]:6379/0"), true);
   assert.equal(redisPattern.test("rediss://[2001:db8::1]:6380"), true);
-  for (const value of ["https://cache.example.test", "redis:///0", "redis://cache.example.test/0#fragment", "redis://cache.example.test:99999", "redis://[:::]", "redis://[.]", "redis://[1:2:3]"]) {
+  for (const value of ["https://cache.example.test", "redis:///0", "redis://a..b", "redis://999.999.999.999", "redis://999.999.999", "redis://cache.example.test/0#fragment", "redis://cache.example.test:99999", "redis://[:::]", "redis://[.]", "redis://[1:2:3]"]) {
     assert.equal(redisPattern.test(value), false, value);
   }
 

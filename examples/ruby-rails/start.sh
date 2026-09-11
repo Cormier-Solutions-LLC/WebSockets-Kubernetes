@@ -35,8 +35,10 @@ case "$LISTEN_HOST" in
   *) readiness_host="$LISTEN_HOST" ;;
 esac
 readiness_url="http://$readiness_host:$PORT/api/diagnostics"
+public_authority=${PUBLIC_ORIGIN#*://}
+public_authority=${public_authority%%/*}
 attempt=0
-while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | ruby -rjson -e 'payload = JSON.parse($stdin.read); exit(payload["stack"] == "Ruby / Rails" ? 0 : 1)' 2>/dev/null; do
+while ! wget -qO- -T 1 --header "Host: $public_authority" "$readiness_url" 2>/dev/null | ruby -rjson -e 'payload = JSON.parse($stdin.read); exit(payload["stack"] == "Ruby / Rails" ? 0 : 1)' 2>/dev/null; do
   kill -0 "$caddy_pid" 2>/dev/null || failure
   kill -0 "$puma_pid" 2>/dev/null || failure
   attempt=$((attempt + 1))

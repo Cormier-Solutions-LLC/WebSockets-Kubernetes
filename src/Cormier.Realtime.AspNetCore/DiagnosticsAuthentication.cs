@@ -111,13 +111,13 @@ public static class DiagnosticsAuthenticationExtensions
         string authorizationPolicy)
     {
         var options = new AuthorizationOptions();
-        foreach (var descriptor in services.Where(static descriptor =>
-                     descriptor.ServiceType == typeof(IConfigureOptions<AuthorizationOptions>)))
+        foreach (var configuration in services
+                     .Where(static descriptor =>
+                         descriptor.ServiceType == typeof(IConfigureOptions<AuthorizationOptions>))
+                     .Select(static descriptor => descriptor.ImplementationInstance)
+                     .OfType<IConfigureOptions<AuthorizationOptions>>())
         {
-            if (descriptor.ImplementationInstance is IConfigureOptions<AuthorizationOptions> configuration)
-            {
-                configuration.Configure(options);
-            }
+            configuration.Configure(options);
         }
         return options.GetPolicy(authorizationPolicy) is not null;
     }

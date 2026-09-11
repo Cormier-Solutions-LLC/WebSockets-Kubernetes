@@ -18,4 +18,11 @@
     <PackageReference Include="Cormier.Realtime.Browser" Version="$(BrowserPackageVersion)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\shared-web\wwwroot\**\*"
+             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -273,6 +273,60 @@ jobs:
         with:
           fail-on-severity: high
 
+  node-express:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: |
+            examples/node-express/package-lock.json
+            sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Install locked Node.js dependencies
+        working-directory: examples/node-express
+        run: npm ci --ignore-scripts
+      - name: Check the Express reference adapter
+        working-directory: examples/node-express
+        run: npm run check
+      - name: Build the Express reference container
+        run: docker build --file examples/node-express/Dockerfile --tag cormier-node-express:${{ github.sha }} .
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.node-express.config.mjs
+      - name: Upload Express failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-express-${{ github.sha }}
+          path: artifacts/node-express
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:

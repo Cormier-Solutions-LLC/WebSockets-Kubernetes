@@ -1,0 +1,25 @@
+{
+  "name": "@cormier/realtime-example-node-express",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal Node.js and Express reference adapter for Cormier.Realtime",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "start": "node ./src/server.mjs",
+    "test": "node --test ./test/*.test.mjs",
+    "check": "node --check ./src/app.mjs && node --check ./src/config.mjs && node --check ./src/lifecycle.mjs && node --check ./src/server.mjs && npm test"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "express-session": "1.19.0",
+    "http-proxy": "1.18.1",
+    "redis": "6.2.1"
+  },
+  "devDependencies": {
+    "supertest": "7.2.2"
+  }
+}

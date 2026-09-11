@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cormier.example/schemas/reference-app.schema.json",
+  "title": "Cormier.Realtime reference application environment",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "PORT",
+    "PUBLIC_ORIGIN",
+    "GATEWAY_URL",
+    "REDIS_URL",
+    "SESSION_SECRET",
+    "SESSION_LIFETIME_SECONDS",
+    "INSTANCE_NAME",
+    "TOPOLOGY",
+    "REDIS_INSTANCE_PREFIX",
+    "REDIS_SESSION_KEY_PREFIX",
+    "ALLOWED_TENANTS",
+    "ALLOWED_USERS"
+  ],
+  "properties": {
+    "PORT": { "type": "string", "pattern": "^[0-9]+$" },
+    "PUBLIC_ORIGIN": { "type": "string", "format": "uri" },
+    "GATEWAY_URL": { "type": "string", "format": "uri" },
+    "REDIS_URL": { "type": "string", "format": "uri" },
+    "SESSION_SECRET": { "type": "string", "minLength": 32, "maxLength": 4096 },
+    "SESSION_LIFETIME_SECONDS": { "type": "string", "pattern": "^[0-9]+$" },
+    "INSTANCE_NAME": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "TOPOLOGY": { "enum": ["non-ha", "ha"] },
+    "REDIS_INSTANCE_PREFIX": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+    "REDIS_SESSION_KEY_PREFIX": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "ALLOWED_TENANTS": { "type": "string" },
+    "ALLOWED_USERS": { "type": "string" }
+  }
+}

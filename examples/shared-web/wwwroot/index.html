@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cormier.Realtime full-circle test app</title>
+  <title>Cormier.Realtime reference application</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <main>
     <h1>Cormier.Realtime full circle</h1>
-    <p id="diagnostics">Loading topology…</p>
+    <p id="diagnostics">Loading application details…</p>
     <section>
       <h2>Session</h2>
       <label>Tenant <select id="tenant"><option>tenant-a</option><option>tenant-b</option></select></label>
@@ -26,8 +26,7 @@
       <button id="publish">Publish</button>
     </section>
     <section><h2>Events and diagnostics</h2><pre id="events" aria-live="polite"></pre></section>
-    <p><a href="/esm.html">Run the ESM variant</a></p>
-    <p><a href="/operator.html">Open the operator diagnostics workflow</a></p>
+    <div id="stack-links"></div>
   </main>
   <script src="/_content/Cormier.Realtime.Browser/cormier-realtime.iife.js"></script>
   <script src="/app.js"></script>

@@ -26,5 +26,6 @@ module CormierRealtimeExample
       same_site: :strict,
       secure: reference.public_origin.start_with?("https://")
     config.hosts << reference.public_uri.host
+    config.host_authorization = { exclude: ->(request) { request.path == "/health" } }
   end
 end

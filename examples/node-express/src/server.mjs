@@ -4,10 +4,11 @@ import { createClient } from "redis";
 import { createApp } from "./app.mjs";
 import { loadConfig } from "./config.mjs";
 import { connectWithDeadline, createShutdown } from "./lifecycle.mjs";
+import { createRedisOptions } from "./redis.mjs";
 import { createUpgradeHandler } from "./upgrade.mjs";
 
 const config = loadConfig();
-const redisClient = createClient({ url: config.redisUrl });
+const redisClient = createClient(createRedisOptions(config.redisUrl));
 redisClient.on("error", (error) => console.error(JSON.stringify({ event: "redis_error", error: error.name })));
 try {
   await connectWithDeadline(redisClient, 15_000);

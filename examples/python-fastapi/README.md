@@ -7,6 +7,8 @@ This non-production adapter demonstrates a typed, asynchronous FastAPI front end
 - Python 3.14.7 and uv 0.12.13
 - FastAPI 0.141.1, Uvicorn 0.52.4, Redis 8.1.0, HTTPX 0.28.1, WebSockets 17.1, and Pydantic Settings 2.15.0 from `uv.lock`
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway sharing the configured prefixes and trusted `PUBLIC_ORIGIN`
+
+When the adapter forwards an HTTPS public origin to an internal HTTP gateway, it supplies the validated public scheme in `X-Forwarded-Proto` for ticket and WebSocket requests. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so the gateway accepts that single trusted forwarding hop; never trust a public or broader network range.
 - Generated `sdk/typescript/dist` assets
 
 Supply every `.env.example` value externally, including the explicit `LISTEN_HOST` and `PORT`, and adjust all network values for the target environment; the application does not load the fixture. From this directory run `uv sync --frozen`, `uv run python -m reference_app`, and this repeatable gate:

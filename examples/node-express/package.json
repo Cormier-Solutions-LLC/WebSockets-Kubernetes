@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node ./src/server.mjs",
     "test": "node --test ./test/*.test.mjs",
-    "check": "node --check ./src/app.mjs && node --check ./src/config.mjs && node --check ./src/lifecycle.mjs && node --check ./src/upgrade.mjs && node --check ./src/server.mjs && npm test"
+    "check": "node --check ./src/app.mjs && node --check ./src/config.mjs && node --check ./src/lifecycle.mjs && node --check ./src/redis.mjs && node --check ./src/upgrade.mjs && node --check ./src/server.mjs && npm test"
   },
   "dependencies": {
     "express": "5.2.1",

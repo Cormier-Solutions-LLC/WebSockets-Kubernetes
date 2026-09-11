@@ -1,6 +1,8 @@
 require "json"
 require "minitest/autorun"
+require "stringio"
 require_relative "../lib/reference_config"
+require_relative "../lib/limited_body_reader"
 
 class ReferenceConfigTest < Minitest::Test
   def values
@@ -52,5 +54,17 @@ class ReferenceConfigTest < Minitest::Test
     assert_includes schema.fetch("required"), "PUBLIC_ORIGIN"
     assert_equal "1.0", sdk.fetch("protocolVersion")
     assert_equal "1.0", protocol.fetch("protocolVersion")
+  end
+
+  def test_limited_body_reader_accepts_the_boundary
+    body = "a" * (64 * 1_024)
+    assert_equal body, LimitedBodyReader.read(StringIO.new(body), limit: body.bytesize)
+  end
+
+  def test_limited_body_reader_rejects_a_chunked_oversized_body
+    stream = StringIO.new("a" * (64 * 1_024) + "b")
+    assert_raises(LimitedBodyReader::TooLarge) do
+      LimitedBodyReader.read(stream, limit: 64 * 1_024)
+    end
   end
 end

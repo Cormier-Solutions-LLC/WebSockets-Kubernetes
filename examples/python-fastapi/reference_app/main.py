@@ -45,6 +45,10 @@ def safe_headers(response: Response) -> None:
     )
 
 
+def public_forwarding_headers(settings: Settings) -> dict[str, str]:
+    return {"X-Forwarded-Proto": urlsplit(settings.PUBLIC_ORIGIN).scheme}
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings or Settings()  # type: ignore[call-arg]
 
@@ -237,6 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for name in ("host", "origin", "cookie", "content-type")
             if name in request.headers
         }
+        headers.update(public_forwarding_headers(configured))
         try:
             upstream = await request.app.state.http.post(
                 f"{configured.GATEWAY_URL}/realtime/tickets", content=bytes(body), headers=headers
@@ -259,7 +264,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         uri = urlunsplit(
             ("wss" if gateway.scheme == "https" else "ws", browser_authority, "/realtime/ws", browser.url.query, "")
         )
-        headers = {"Cookie": browser.headers.get("cookie", "")}
+        headers = {"Cookie": browser.headers.get("cookie", ""), **public_forwarding_headers(configured)}
         try:
             async with websockets.connect(
                 uri,

@@ -3,6 +3,7 @@ require "net/http"
 require "securerandom"
 require "time"
 require "timeout"
+require_relative "../../lib/limited_body_reader"
 
 class ReferenceController < ApplicationController
   MAXIMUM_BODY_BYTES = 64 * 1_024
@@ -102,11 +103,12 @@ class ReferenceController < ApplicationController
     return render(json: { code: "authentication_required", message: "Authentication is required." }, status: :unauthorized) unless read_session
     return render(json: { code: "invalid_request", message: "The request is invalid." }, status: :content_too_large) if request.content_length.to_i > MAXIMUM_BODY_BYTES
 
-    body = request.raw_post
-    return render(json: { code: "invalid_request", message: "The request is invalid." }, status: :content_too_large) if body.bytesize > MAXIMUM_BODY_BYTES
+    body = LimitedBodyReader.read(request.body, limit: MAXIMUM_BODY_BYTES)
 
     upstream = forward_ticket(body)
     render body: upstream.body, status: upstream.code.to_i, content_type: upstream["Content-Type"] || "application/json"
+  rescue LimitedBodyReader::TooLarge
+    render json: { code: "invalid_request", message: "The request is invalid." }, status: :content_too_large
   rescue IOError, SystemCallError, Timeout::Error, Redis::BaseError, JSON::ParserError
     dependency_unavailable
   end

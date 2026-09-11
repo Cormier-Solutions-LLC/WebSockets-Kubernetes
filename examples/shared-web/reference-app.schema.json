@@ -30,7 +30,7 @@
     "GATEWAY_URL": { "$ref": "#/$defs/httpOrigin" },
     "REDIS_URL": { "$ref": "#/$defs/redisUrl" },
     "SESSION_SECRET": { "type": "string", "minLength": 32, "maxLength": 4096 },
-    "SESSION_LIFETIME_SECONDS": { "type": "string", "pattern": "^[0-9]+$" },
+    "SESSION_LIFETIME_SECONDS": { "$ref": "#/$defs/sessionLifetime" },
     "INSTANCE_NAME": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
     "TOPOLOGY": { "enum": ["non-ha", "ha"] },
     "REDIS_INSTANCE_PREFIX": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
@@ -47,6 +47,10 @@
       "type": "string",
       "format": "uri",
       "pattern": "^rediss?://"
+    },
+    "sessionLifetime": {
+      "type": "string",
+      "pattern": "^(?:[6-9][0-9]|[1-9][0-9]{2}|[1-6][0-9]{3}|7(?:[01][0-9]{2}|200))$"
     },
     "httpOrigin": {
       "type": "string",

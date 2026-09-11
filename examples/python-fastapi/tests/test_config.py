@@ -71,5 +71,6 @@ def test_canonical_contracts() -> None:
     assert schema["properties"]["PORT"] == {"$ref": "#/$defs/port"}
     assert schema["properties"]["APPLICATION_PORT"] == {"$ref": "#/$defs/port"}
     assert schema["properties"]["REDIS_URL"] == {"$ref": "#/$defs/redisUrl"}
+    assert schema["properties"]["SESSION_LIFETIME_SECONDS"] == {"$ref": "#/$defs/sessionLifetime"}
     assert sdk["protocolVersion"] == "1.0"
     assert protocol["protocolVersion"] == "1.0"

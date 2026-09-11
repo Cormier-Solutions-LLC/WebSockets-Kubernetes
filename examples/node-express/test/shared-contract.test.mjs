@@ -53,6 +53,10 @@ test("configuration stays aligned with the canonical reference schema", async ()
   assert.equal(redisPattern.test("redis://127.0.0.1:6379"), true);
   assert.equal(redisPattern.test("rediss://cache.example.test:6380"), true);
   assert.equal(redisPattern.test("https://cache.example.test"), false);
+
+  const lifetimePattern = new RegExp(schema.$defs.sessionLifetime.pattern);
+  for (const value of ["60", "1200", "7200"]) assert.equal(lifetimePattern.test(value), true, value);
+  for (const value of ["0", "59", "7201", "999999"]) assert.equal(lifetimePattern.test(value), false, value);
 });
 
 test("generated SDK and canonical protocol fixture versions agree", async () => {

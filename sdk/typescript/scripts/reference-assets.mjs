@@ -55,29 +55,105 @@ function staticStringValue(node) {
   return undefined;
 }
 
+function mapJavaScriptValue(value, call, ids, classes, selectorMethods, classListMethods) {
+  const method = memberName(call.callee);
+  let mapped = value;
+  if (selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$")) {
+    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+    for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
+  } else if (method === "getElementById") {
+    mapped = ids[mapped] ?? mapped;
+  } else if (method === "getElementsByClassName") {
+    mapped = replaceTokenList(mapped, classes);
+  } else if (classListMethods.has(method) && memberName(call.callee.object) === "classList") {
+    mapped = classes[mapped] ?? mapped;
+  }
+  return mapped;
+}
+
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "module" });
   const replacements = [];
   const selectorMethods = new Set(["closest", "matches", "querySelector", "querySelectorAll"]);
   const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
+  const bindingCounts = new Map();
+  const staticBindings = new Map();
+
+  function recordBindingPattern(pattern) {
+    if (pattern === null) return;
+    if (pattern.type === "Identifier") {
+      bindingCounts.set(pattern.name, (bindingCounts.get(pattern.name) ?? 0) + 1);
+    } else if (pattern.type === "RestElement") {
+      recordBindingPattern(pattern.argument);
+    } else if (pattern.type === "AssignmentPattern") {
+      recordBindingPattern(pattern.left);
+    } else if (pattern.type === "ArrayPattern") {
+      for (const element of pattern.elements) recordBindingPattern(element);
+    } else if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        recordBindingPattern(property.type === "RestElement" ? property.argument : property.value);
+      }
+    }
+  }
+
+  function collectBindings(node, parent) {
+    if (node === null || typeof node !== "object") return;
+    if (node.type === "VariableDeclarator") {
+      recordBindingPattern(node.id);
+      const value = node.init === null ? undefined : staticStringValue(node.init);
+      if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const" && value !== undefined) {
+        staticBindings.set(node.id.name, { node: node.init, value });
+      }
+    } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
+      if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
+      for (const parameter of node.params) recordBindingPattern(parameter);
+    } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
+      if (node.id !== null) recordBindingPattern(node.id);
+    } else if (node.type === "CatchClause") {
+      recordBindingPattern(node.param);
+    } else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") {
+      recordBindingPattern(node.local);
+    }
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) {
+        for (const item of child) collectBindings(item, node);
+      } else if (child !== parent) {
+        collectBindings(child, node);
+      }
+    }
+  }
+
+  collectBindings(syntaxTree, undefined);
+  const bindingReplacements = new Map();
 
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
     const value = staticStringValue(node);
     if (value !== undefined && parent?.type === "CallExpression") {
-      const method = memberName(parent.callee);
-      let mapped = value;
-      if (selectorMethods.has(method) || (parent.callee.type === "Identifier" && parent.callee.name === "$")) {
-        for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
-        for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
-      } else if (method === "getElementById") {
-        mapped = ids[mapped] ?? mapped;
-      } else if (method === "getElementsByClassName") {
-        mapped = replaceTokenList(mapped, classes);
-      } else if (classListMethods.has(method) && memberName(parent.callee.object) === "classList") {
-        mapped = classes[mapped] ?? mapped;
-      }
+      const mapped = mapJavaScriptValue(value, parent, ids, classes, selectorMethods, classListMethods);
       if (mapped !== value) replacements.push({ start: node.start, end: node.end, value: JSON.stringify(mapped) });
+    } else if (node.type === "Identifier" && parent?.type === "CallExpression" && parent.arguments.includes(node)) {
+      const binding = staticBindings.get(node.name);
+      const method = memberName(parent.callee);
+      const selectorCall = selectorMethods.has(method)
+        || (parent.callee.type === "Identifier" && parent.callee.name === "$")
+        || method === "getElementById"
+        || method === "getElementsByClassName"
+        || (classListMethods.has(method) && memberName(parent.callee.object) === "classList");
+      if (binding !== undefined && selectorCall) {
+        if (bindingCounts.get(node.name) !== 1) {
+          throw new Error(`Static selector binding ${node.name} must not be shadowed when selector mangling is enabled.`);
+        }
+        const previous = bindingReplacements.get(binding.node.start)?.mapped ?? binding.value;
+        const mapped = mapJavaScriptValue(previous, parent, ids, classes, selectorMethods, classListMethods);
+        if (mapped !== previous) {
+          bindingReplacements.set(binding.node.start, {
+            start: binding.node.start,
+            end: binding.node.end,
+            mapped,
+          });
+        }
+      }
     }
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {
@@ -89,6 +165,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   }
 
   visit(syntaxTree, undefined);
+  for (const replacement of bindingReplacements.values()) {
+    replacements.push({ ...replacement, value: JSON.stringify(replacement.mapped) });
+  }
   return replacements.sort((left, right) => right.start - left.start)
     .reduce((result, replacement) =>
       result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end), javascript);

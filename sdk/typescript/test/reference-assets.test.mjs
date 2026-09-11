@@ -102,3 +102,30 @@ test("selector mappings rewrite static template-literal selector arguments", () 
   });
   assert.equal(result.javascript, 'document.querySelector("#a .b"); node.classList.add("b")');
 });
+
+test("selector mappings rewrite statically bound selector arguments", () => {
+  const result = applySelectorMappings({
+    css: ".internal #private {}",
+    html: '<div class="internal" id="private"></div>',
+    javascript: 'const target = "#private .internal"; document.querySelector(target)',
+  }, {
+    enabled: true,
+    ids: { private: "a" },
+    classes: { internal: "b" },
+    safelist: [],
+  });
+  assert.equal(result.javascript, 'const target = "#a .b"; document.querySelector(target)');
+});
+
+test("selector mappings reject ambiguous static selector bindings", () => {
+  assert.throws(() => applySelectorMappings({
+    css: "#private {}",
+    html: '<div id="private"></div>',
+    javascript: 'const target = "#private"; { const target = "#public"; document.querySelector(target) }',
+  }, {
+    enabled: true,
+    ids: { private: "a" },
+    classes: {},
+    safelist: [],
+  }), /must not be shadowed/u);
+});

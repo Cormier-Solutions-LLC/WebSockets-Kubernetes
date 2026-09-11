@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.ReactiveValueOperations;
+import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -41,6 +42,7 @@ final class ReferenceApplicationTests {
   @Autowired private WebTestClient client;
   @MockitoBean private ReactiveStringRedisTemplate redis;
   @MockitoBean private ReactiveValueOperations<String, String> values;
+  @Autowired private RouteLocator routes;
 
   @BeforeEach
   void configureRedis() {
@@ -133,6 +135,14 @@ final class ReferenceApplicationTests {
     var protocol = mapper.readTree(Files.readString(Path.of("../../protocol/fixtures/v1/envelopes.json")));
     org.junit.jupiter.api.Assertions.assertEquals("1.0", sdk.get("protocolVersion").asText());
     org.junit.jupiter.api.Assertions.assertEquals(sdk.get("protocolVersion"), protocol.get("protocolVersion"));
+  }
+
+  @Test
+  void ticketRouteHasFiniteResponseTimeout() {
+    var route = routes.getRoutes().filter(candidate -> candidate.getId().equals("realtime-tickets"))
+        .blockFirst(Duration.ofSeconds(1));
+    org.junit.jupiter.api.Assertions.assertNotNull(route);
+    org.junit.jupiter.api.Assertions.assertEquals(15_000L, route.getMetadata().get("response-timeout"));
   }
 
   @Test

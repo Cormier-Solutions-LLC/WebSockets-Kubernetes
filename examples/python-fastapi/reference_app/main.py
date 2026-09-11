@@ -15,14 +15,13 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from .config import Settings, gateway_port
+from .config import MAXIMUM_BODY_BYTES, Settings, gateway_port
 
 logging.basicConfig(level=logging.INFO, format='{"event":"%(message)s","stack":"python-fastapi"}')
 logger = logging.getLogger("reference")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.CRITICAL)
 logging.getLogger("websockets").setLevel(logging.CRITICAL)
-MAXIMUM_BODY_BYTES = 64 * 1024
 SESSION_COOKIE = "cormier_session"
 PROTOCOL = "cormier.realtime.v1"
 

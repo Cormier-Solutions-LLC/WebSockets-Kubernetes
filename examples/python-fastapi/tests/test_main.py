@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from reference_app import __main__ as entrypoint
 from reference_app.config import Settings
 from reference_app.main import MAXIMUM_BODY_BYTES, create_app, public_forwarding_headers
 
@@ -38,6 +39,15 @@ def settings(**overrides: object) -> Settings:
 def test_public_forwarding_headers_use_the_validated_browser_scheme() -> None:
     configured = settings(PUBLIC_ORIGIN="https://public.example.test", GATEWAY_URL="http://gateway.example.test")
     assert public_forwarding_headers(configured) == {"X-Forwarded-Proto": "https"}
+
+
+def test_uvicorn_caps_browser_websocket_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, object] = {}
+    monkeypatch.setattr(entrypoint, "Settings", lambda: settings())
+    monkeypatch.setattr(entrypoint.uvicorn, "run", lambda *_args, **kwargs: options.update(kwargs))
+
+    assert entrypoint.main() == 0
+    assert options["ws_max_size"] == MAXIMUM_BODY_BYTES
 
 
 @pytest.mark.asyncio

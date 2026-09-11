@@ -7,6 +7,12 @@ failure() {
 }
 
 bundle exec rails runner 'raise "asset" unless [Rails.configuration.x.reference.shared_asset_root + "/index.html", Rails.configuration.x.reference.sdk_asset_root + "/cormier-realtime.iife.min.js"].all? { |path| File.file?(path) }' >/dev/null 2>&1 || failure
+case "${PUBLIC_ORIGIN:-}" in
+  http://*) PUBLIC_SCHEME=http ;;
+  https://*) PUBLIC_SCHEME=https ;;
+  *) failure ;;
+esac
+export PUBLIC_SCHEME
 rm -f /tmp/cormier-rails.sock
 bundle exec puma --config config/puma.rb >/dev/null &
 puma_pid=$!

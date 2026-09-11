@@ -25,7 +25,7 @@ docker build -f examples/go-gin/Dockerfile -t cormier-go-gin:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 --env-file examples/go-gin/.env.example --env GATEWAY_URL=http://host.docker.internal:15501 --env REDIS_URL=redis://host.docker.internal:16379 cormier-go-gin:local
 ```
 
-Configuration fails before binding on unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists. Redis, HTTP, and WebSocket operations have 5–15 second bounds. HTTP headers and bodies are bounded, and SIGINT/SIGTERM initiates graceful shutdown with a 15-second deadline. Logs contain structural event names and never dependency error text or configured endpoints.
+Configuration fails before binding on unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists. Redis, HTTP, and WebSocket operations have 5–15 second bounds. Both WebSocket relay directions use the gateway's 64 KiB message boundary; HTTP headers and bodies are also bounded. SIGINT/SIGTERM initiates graceful shutdown with a 15-second deadline. Logs contain structural event names and never dependency error text or configured endpoints.
 
 ## Feature matrix
 
@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container bases | Go 1.27.1 Alpine / Alpine 3.24 | Digest-pinned |
 
-The adapter has four stack-specific Go files and 594 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has four stack-specific Go files and 610 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

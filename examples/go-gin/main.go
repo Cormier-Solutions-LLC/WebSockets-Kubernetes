@@ -323,6 +323,7 @@ func (a *App) websocket(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	browser.SetReadLimit(maximumBodyBytes)
 	defer browser.CloseNow()
 	target := *a.config.GatewayURL
 	if target.Scheme == "https" {
@@ -349,6 +350,7 @@ func (a *App) websocket(c *gin.Context) {
 		_ = browser.Close(websocket.StatusTryAgainLater, "dependency unavailable")
 		return
 	}
+	gateway.SetReadLimit(maximumBodyBytes)
 	defer gateway.CloseNow()
 	relayCtx, stop := context.WithCancel(c.Request.Context())
 	defer stop()

@@ -31,8 +31,8 @@ class ReferenceConfig
     @redis_session_key_prefix = identifier(required(environment, "REDIS_SESSION_KEY_PREFIX"))
     @allowed_tenants = allowlist(required(environment, "ALLOWED_TENANTS"))
     @allowed_users = allowlist(required(environment, "ALLOWED_USERS"))
-    @shared_asset_root = File.expand_path(environment.fetch("SHARED_ASSET_ROOT", "../shared-web/wwwroot"), __dir__)
-    @sdk_asset_root = File.expand_path(environment.fetch("SDK_ASSET_ROOT", "../../sdk/typescript/dist"), __dir__)
+    @shared_asset_root = File.expand_path(environment.fetch("SHARED_ASSET_ROOT", "../../shared-web/wwwroot"), __dir__)
+    @sdk_asset_root = File.expand_path(environment.fetch("SDK_ASSET_ROOT", "../../../sdk/typescript/dist"), __dir__)
   end
 
   def allows?(tenant, user)

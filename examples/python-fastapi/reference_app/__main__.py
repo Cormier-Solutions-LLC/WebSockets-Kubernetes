@@ -3,7 +3,7 @@ import sys
 
 import uvicorn
 
-from .config import Settings
+from .config import MAXIMUM_BODY_BYTES, Settings
 
 
 def main() -> int:
@@ -19,6 +19,7 @@ def main() -> int:
         access_log=False,
         log_config=None,
         log_level="error",
+        ws_max_size=MAXIMUM_BODY_BYTES,
         timeout_graceful_shutdown=15,
     )
     return 0

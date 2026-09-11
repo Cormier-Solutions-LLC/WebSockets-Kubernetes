@@ -30,6 +30,7 @@ http://:{$PORT} {
 	@realtime_websocket path /realtime/ws
 	reverse_proxy @realtime_websocket {$GATEWAY_URL} {
 		header_up Host {http.request.hostport}
+		header_up X-Forwarded-Proto {$PUBLIC_SCHEME}
 	}
 	@realtime_ticket path /realtime/tickets
 	request_body @realtime_ticket {

@@ -119,4 +119,9 @@ final readonly class ReferenceConfig
     {
         return "$this->redisInstancePrefix:$this->redisSessionKeyPrefix:$id";
     }
+
+    public function publicScheme(): string
+    {
+        return (string) parse_url($this->publicOrigin, PHP_URL_SCHEME);
+    }
 }

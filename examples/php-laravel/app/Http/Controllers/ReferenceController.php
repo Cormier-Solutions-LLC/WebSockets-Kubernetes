@@ -138,6 +138,7 @@ final class ReferenceController
                     'Origin' => $request->header('Origin'),
                     'Cookie' => $request->header('Cookie'),
                     'Content-Type' => $request->header('Content-Type'),
+                    'X-Forwarded-Proto' => $this->config->publicScheme(),
                 ]))
                 ->withBody($request->getContent(), $request->header('Content-Type', 'application/json'))
                 ->post($this->config->gatewayUrl.'/realtime/tickets');

@@ -156,6 +156,7 @@ class ReferenceController < ApplicationController
     http.write_timeout = 5
     upstream = Net::HTTP::Post.new(uri)
     upstream["Host"] = request.host_with_port
+    upstream["X-Forwarded-Proto"] = settings.public_uri.scheme
     %w[Origin Cookie Content-Type].each do |header|
       value = request.headers[header]
       upstream[header] = value if value.present?

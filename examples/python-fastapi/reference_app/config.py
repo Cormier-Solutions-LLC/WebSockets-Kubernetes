@@ -4,6 +4,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+MAXIMUM_BODY_BYTES = 64 * 1024
+
 
 def _origin(value: str) -> str:
     parsed = urlsplit(value)

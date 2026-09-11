@@ -24,7 +24,7 @@
     "PORT": { "$ref": "#/$defs/port" },
     "APPLICATION_HOST": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,253}$" },
     "APPLICATION_PORT": { "$ref": "#/$defs/port" },
-    "APP_URL": { "type": "string", "format": "uri" },
+    "APP_URL": { "$ref": "#/$defs/httpUpstream" },
     "PUBLIC_ROOT": { "type": "string", "minLength": 1 },
     "PUBLIC_ORIGIN": { "$ref": "#/$defs/httpOrigin" },
     "GATEWAY_URL": { "$ref": "#/$defs/httpOrigin" },
@@ -66,6 +66,12 @@
           { "pattern": "^https://(?:[^/]+):443/?$" }
         ]
       }
+    },
+    "httpUpstream": {
+      "allOf": [
+        { "$ref": "#/$defs/httpOrigin" },
+        { "type": "string", "pattern": "^http://" }
+      ]
     }
   }
 }

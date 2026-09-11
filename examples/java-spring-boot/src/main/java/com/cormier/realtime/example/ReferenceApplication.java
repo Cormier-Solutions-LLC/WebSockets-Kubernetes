@@ -30,6 +30,7 @@ public class ReferenceApplication {
     return routes.routes()
         .route("realtime-tickets", route -> route.path("/realtime/tickets").and().method(HttpMethod.POST)
             .filters(filters -> filters.preserveHostHeader())
+            .metadata("response-timeout", 15_000L)
             .uri(gateway))
         .route("realtime-websocket", route -> route.path("/realtime/ws")
             .filters(filters -> filters.preserveHostHeader())

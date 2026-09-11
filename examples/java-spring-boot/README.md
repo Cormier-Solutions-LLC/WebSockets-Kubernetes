@@ -34,7 +34,7 @@ docker build -f examples/java-spring-boot/Dockerfile -t cormier-java-spring:loca
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15200:15200 --env-file examples/java-spring-boot/.env.example --env GATEWAY_URL=http://host.docker.internal:15201 --env REDIS_URL=redis://host.docker.internal:16379 cormier-java-spring:local
 ```
 
-Configuration-property validation fails startup with a nonzero exit when an origin, topology, identifier, TTL, or allowlist is unsafe. Spring Boot graceful shutdown has a 15-second bound. `/health` returns 200 only when Redis is reachable. Errors expose generic codes while logs contain exception classes rather than request data, cookies, session identifiers, tickets, credentials, or endpoints.
+Configuration-property validation fails startup with a nonzero exit when an origin, topology, identifier, TTL, or allowlist is unsafe. The ticket route has a 15-second response timeout without imposing that deadline on long-lived WebSockets, and Spring Boot graceful shutdown has a 15-second bound. `/health` returns 200 only when Redis is reachable. Errors expose generic codes while logs contain exception classes rather than request data, cookies, session identifiers, tickets, credentials, or endpoints.
 
 ## Feature matrix
 
@@ -67,7 +67,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Maven 3.9.12 + Temurin 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has four stack-specific production Java files and 279 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
+The adapter has four stack-specific production Java files and 281 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
 
 ## Support and diagnostics
 

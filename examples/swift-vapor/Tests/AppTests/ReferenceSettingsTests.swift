@@ -69,6 +69,15 @@ struct ReferenceSettingsTests {
     #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
   }
 
+  @Test("aligns private listener hosts with the shared contract")
+  func alignsPrivateListenerHosts() throws {
+    var environment = self.values
+    environment["APPLICATION_HOST"] = "::1"
+    #expect(try ReferenceSettings(environment: environment).applicationHost == "::1")
+    environment["APPLICATION_HOST"] = String(repeating: "a", count: 254)
+    #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+  }
+
   @Test("uses canonical contracts")
   func usesCanonicalContracts() throws {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

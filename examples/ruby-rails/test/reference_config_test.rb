@@ -29,6 +29,9 @@ class ReferenceConfigTest < Minitest::Test
     assert_equal 15_500, config.port
     assert config.allows?("tenant-a", "user-a")
     assert_equal "cormier:test:sessions:id", config.session_key("id")
+    root = File.expand_path("../../..", __dir__)
+    assert_equal File.join(root, "examples/shared-web/wwwroot"), config.shared_asset_root
+    assert_equal File.join(root, "sdk/typescript/dist"), config.sdk_asset_root
   end
 
   def test_rejects_unsafe_origin

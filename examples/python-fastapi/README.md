@@ -28,7 +28,7 @@ docker build -f examples/python-fastapi/Dockerfile -t cormier-python-fastapi:loc
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 --env-file examples/python-fastapi/.env.example -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:16379 cormier-python-fastapi:local
 ```
 
-FastAPI lifespan validation checks configuration, Redis, and canonical assets before bind. Redis, HTTP, WebSocket open/close, request, and graceful-shutdown waits are bounded. Logs contain structural lifecycle/failure events only; dependency request logs are suppressed. The image runs as numeric user/group 65532.
+FastAPI lifespan validation checks configuration, Redis, and canonical assets before bind. Uvicorn rejects browser WebSocket messages above the gateway's 64 KiB boundary before the relay materializes them. Redis, HTTP, WebSocket open/close, request, and graceful-shutdown waits are bounded. Logs contain structural lifecycle/failure events only; dependency request logs are suppressed. The image runs as numeric user/group 65532.
 
 ## Feature matrix
 
@@ -56,7 +56,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has five stack-specific Python/test files and 467 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has five stack-specific Python/test files and 558 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Support
 

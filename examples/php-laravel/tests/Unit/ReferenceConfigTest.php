@@ -28,6 +28,7 @@ final class ReferenceConfigTest extends TestCase
         self::assertSame(15500, $config->port);
         self::assertTrue($config->allows('tenant-a', 'user-a'));
         self::assertSame('cormier:test:sessions:id', $config->sessionKey('id'));
+        self::assertSame('http', $config->publicScheme());
     }
 
     public function test_it_rejects_unsafe_origins(): void
@@ -93,5 +94,6 @@ final class ReferenceConfigTest extends TestCase
         self::assertStringContainsString('@realtime_ticket path /realtime/tickets', $caddyfile);
         self::assertStringContainsString('request_body @realtime_ticket', $caddyfile);
         self::assertStringContainsString('max_size 65536', $caddyfile);
+        self::assertStringContainsString('header_up X-Forwarded-Proto {$PUBLIC_SCHEME}', $caddyfile);
     }
 }

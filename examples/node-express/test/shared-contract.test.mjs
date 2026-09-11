@@ -44,6 +44,12 @@ test("configuration stays aligned with the canonical reference schema", async ()
   ]) {
     assert.equal(acceptsOrigin(value), false, value);
   }
+  assert.deepEqual(schema.properties.APP_URL, { $ref: "#/$defs/httpUpstream" });
+  const acceptsHttpUpstream = value => acceptsOrigin(value) && /^http:\/\//.test(value);
+  assert.equal(acceptsHttpUpstream("http://127.0.0.1:15502"), true);
+  for (const value of ["https://app.example.test", "ftp://app.example.test", "http://app.example.test/path"]) {
+    assert.equal(acceptsHttpUpstream(value), false, value);
+  }
 
   const portPattern = new RegExp(schema.$defs.port.pattern);
   for (const value of ["1024", "15100", "65535"]) assert.equal(portPattern.test(value), true, value);

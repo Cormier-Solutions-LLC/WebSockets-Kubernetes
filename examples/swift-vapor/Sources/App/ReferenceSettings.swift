@@ -24,7 +24,8 @@ struct ReferenceSettings: Sendable {
     self.listenHost = try Self.identifier(
       Self.required("LISTEN_HOST", in: environment), pattern: #"^[A-Za-z0-9._:-]{1,253}$"#)
     self.port = try Self.integer(Self.required("PORT", in: environment), range: 1_024...65_535)
-    self.applicationHost = try Self.identifier(Self.required("APPLICATION_HOST", in: environment))
+    self.applicationHost = try Self.identifier(
+      Self.required("APPLICATION_HOST", in: environment), pattern: #"^[A-Za-z0-9._:-]{1,253}$"#)
     self.applicationPort = try Self.integer(
       Self.required("APPLICATION_PORT", in: environment), range: 1_024...65_535)
     self.publicOrigin = try Self.origin(Self.required("PUBLIC_ORIGIN", in: environment))

@@ -184,7 +184,7 @@ defmodule CormierRealtimeExample.Web do
   defp route("GET", ["realtime", "ws"], conn, config) do
     with :ok <- origin(conn, config) do
       state = %{
-        url: websocket_url(config.gateway_url),
+        url: websocket_url(config.gateway_url, conn.query_string),
         origin: config.public_origin,
         cookie: get_req_header(conn, "cookie") |> List.first(),
         host: conn.host <> port_suffix(conn),
@@ -221,12 +221,14 @@ defmodule CormierRealtimeExample.Web do
   defp port_suffix(%{port: port, scheme: :https}) when port == 443, do: ""
   defp port_suffix(conn), do: ":#{conn.port}"
 
-  defp websocket_url(url),
-    do:
-      url
-      |> String.replace_prefix("https://", "wss://")
-      |> String.replace_prefix("http://", "ws://")
-      |> Kernel.<>("/realtime/ws")
+  defp websocket_url(url, query) do
+    suffix = if query == "", do: "", else: "?" <> query
+
+    url
+    |> String.replace_prefix("https://", "wss://")
+    |> String.replace_prefix("http://", "ws://")
+    |> Kernel.<>("/realtime/ws" <> suffix)
+  end
 
   defp load_session(conn, config) do
     conn = fetch_cookies(conn)

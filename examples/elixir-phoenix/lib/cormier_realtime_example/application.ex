@@ -4,7 +4,8 @@ defmodule CormierRealtimeExample.Application do
 
   @impl true
   def start(_type, _args) do
-    with {:ok, config} <- CormierRealtimeExample.Config.load() do
+    with {:ok, config} <- CormierRealtimeExample.Config.load(),
+         {:ok, listen_address} <- CormierRealtimeExample.Config.listen_address(config.listen_host) do
       Application.put_env(:cormier_realtime_example, :runtime_config, config)
 
       Application.put_env(
@@ -12,7 +13,7 @@ defmodule CormierRealtimeExample.Application do
         CormierRealtimeExample.Endpoint,
         Keyword.merge(
           Application.get_env(:cormier_realtime_example, CormierRealtimeExample.Endpoint),
-          http: [ip: {0, 0, 0, 0}, port: config.port],
+          http: [ip: listen_address, port: config.port],
           secret_key_base: :crypto.strong_rand_bytes(64) |> Base.encode64()
         )
       )

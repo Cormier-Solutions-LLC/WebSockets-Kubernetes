@@ -3,6 +3,7 @@ use url::Url;
 
 #[derive(Clone)]
 pub struct Config {
+    pub listen_host: String,
     pub port: u16,
     pub public_origin: Url,
     pub gateway_url: Url,
@@ -29,6 +30,7 @@ impl Config {
                 .filter(|value| !value.trim().is_empty())
                 .ok_or("required configuration is missing")
         };
+        let listen_host = safe_host(required("LISTEN_HOST")?)?;
         let port = required("PORT")?.parse().map_err(|_| "PORT is invalid")?;
         if !(1024..=65535).contains(&port) {
             return Err("PORT is invalid");
@@ -59,6 +61,7 @@ impl Config {
         let allowed_tenants = list(required("ALLOWED_TENANTS")?)?;
         let allowed_users = list(required("ALLOWED_USERS")?)?;
         Ok(Self {
+            listen_host,
             port,
             public_origin,
             gateway_url,
@@ -119,6 +122,18 @@ fn safe(value: String, colon: bool) -> Result<String, &'static str> {
     Ok(value)
 }
 
+fn safe_host(value: String) -> Result<String, &'static str> {
+    if value.len() > 253
+        || value.is_empty()
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ".:_-".contains(c))
+    {
+        return Err("LISTEN_HOST is invalid");
+    }
+    Ok(value)
+}
+
 fn list(value: String) -> Result<HashSet<String>, &'static str> {
     value
         .split(',')
@@ -133,6 +148,7 @@ mod tests {
 
     fn values() -> HashMap<&'static str, String> {
         HashMap::from([
+            ("LISTEN_HOST", "127.0.0.1".into()),
             ("PORT", "15400".into()),
             ("PUBLIC_ORIGIN", "http://127.0.0.1:15400".into()),
             ("GATEWAY_URL", "http://127.0.0.1:15401".into()),
@@ -152,6 +168,7 @@ mod tests {
         let values = values();
         let config = Config::from_values(|key| values.get(key).cloned()).unwrap();
         assert_eq!(config.port, 15400);
+        assert_eq!(config.listen_host, "127.0.0.1");
         let mut invalid = values.clone();
         invalid.insert("PUBLIC_ORIGIN", "file:///tmp".into());
         assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());

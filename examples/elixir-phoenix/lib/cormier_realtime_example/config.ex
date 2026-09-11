@@ -4,6 +4,7 @@ defmodule CormierRealtimeExample.Config do
 
   def load(getter \\ &System.get_env/1) do
     with {:ok, port} <- integer(getter, "PORT", 1024..65_535),
+         {:ok, listen_host} <- host(required(getter, "LISTEN_HOST")),
          {:ok, origin} <- origin(required(getter, "PUBLIC_ORIGIN")),
          {:ok, gateway} <- origin(required(getter, "GATEWAY_URL")),
          {:ok, redis} <- redis(required(getter, "REDIS_URL")),
@@ -17,6 +18,7 @@ defmodule CormierRealtimeExample.Config do
       {:ok,
        %{
          port: port,
+         listen_host: listen_host,
          public_origin: origin,
          gateway_url: gateway,
          redis_url: redis,
@@ -37,6 +39,20 @@ defmodule CormierRealtimeExample.Config do
 
   def session_key(config, id),
     do: Enum.join([config.redis_instance_prefix, config.redis_session_key_prefix, id], ":")
+
+  def listen_address(host) do
+    with {:error, _} <- :inet.parse_address(String.to_charlist(host)),
+         {:ok, address} <- :inet.getaddr(String.to_charlist(host), :inet),
+         do: {:ok, address}
+  end
+
+  defp host(value) when is_binary(value) and byte_size(value) in 1..253 do
+    if Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value),
+      do: {:ok, value},
+      else: {:error, :invalid_host}
+  end
+
+  defp host(_), do: {:error, :invalid_host}
 
   defp required(getter, name) do
     case getter.(name) do

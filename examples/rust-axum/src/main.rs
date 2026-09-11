@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{
-        State, WebSocketUpgrade,
+        OriginalUri, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     http::{HeaderMap, HeaderValue, StatusCode, header},
@@ -86,7 +86,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             HeaderValue::from_static("default-src 'self'; connect-src 'self' ws: wss:; img-src 'self'; style-src 'self'; script-src 'self'")))
         .layer(SetResponseHeaderLayer::if_not_present(header::CACHE_CONTROL, HeaderValue::from_static("no-store")))
         .with_state(state);
-    let listener = TcpListener::bind(("0.0.0.0", config.port)).await?;
+    let listener = TcpListener::bind((config.listen_host.as_str(), config.port)).await?;
     let (stopping, stopped) = tokio::sync::oneshot::channel();
     let signal = async move {
         shutdown().await;
@@ -301,15 +301,17 @@ async fn ticket(
 
 async fn websocket(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
     require_origin(&headers, &state.config)?;
     let cookie = headers.get(header::COOKIE).cloned();
     let host = headers.get(header::HOST).cloned();
+    let query = uri.query().map(str::to_owned);
     Ok(upgrade
         .protocols([PROTOCOL])
-        .on_upgrade(move |browser| relay(browser, state, cookie, host)))
+        .on_upgrade(move |browser| relay(browser, state, cookie, host, query)))
 }
 
 async fn relay(
@@ -317,8 +319,9 @@ async fn relay(
     state: Arc<AppState>,
     cookie: Option<HeaderValue>,
     host: Option<HeaderValue>,
+    query: Option<String>,
 ) {
-    if let Err(error) = relay_inner(browser, state, cookie, host).await {
+    if let Err(error) = relay_inner(browser, state, cookie, host, query).await {
         error!(event="websocket_proxy_failed", kind=%error.code);
     }
 }
@@ -328,6 +331,7 @@ async fn relay_inner(
     state: Arc<AppState>,
     cookie: Option<HeaderValue>,
     host: Option<HeaderValue>,
+    query: Option<String>,
 ) -> Result<(), AppError> {
     let mut url = state
         .config
@@ -336,6 +340,7 @@ async fn relay_inner(
         .map_err(|_| AppError::unavailable())?;
     url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
         .map_err(|_| AppError::unavailable())?;
+    url.set_query(query.as_deref());
     let mut request = url
         .as_str()
         .into_client_request()

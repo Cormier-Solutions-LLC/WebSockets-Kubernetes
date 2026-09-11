@@ -71,7 +71,7 @@ func run() error {
 	defer store.Close()
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 60 * time.Second}
 	app := &App{config, store, &http.Client{Transport: transport, Timeout: 15 * time.Second}}
-	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", config.Port), Handler: app.router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: net.JoinHostPort(config.ListenHost, fmt.Sprintf("%d", config.Port)), Handler: app.router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		return err
@@ -330,6 +330,7 @@ func (a *App) websocket(c *gin.Context) {
 		target.Scheme = "ws"
 	}
 	target.Path = "/realtime/ws"
+	target.RawQuery = c.Request.URL.RawQuery
 	headers := http.Header{"Origin": []string{a.config.PublicOrigin}}
 	if cookie := c.GetHeader("Cookie"); cookie != "" {
 		headers.Set("Cookie", cookie)

@@ -9,7 +9,7 @@ This non-production adapter demonstrates a typed, asynchronous FastAPI front end
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway sharing the configured prefixes and trusted `PUBLIC_ORIGIN`
 - Generated `sdk/typescript/dist` assets
 
-Supply every `.env.example` value externally and adjust all network values for the target environment; the application does not load the fixture. From this directory run `uv sync --frozen`, `uv run python -m reference_app`, and this repeatable gate:
+Supply every `.env.example` value externally, including the explicit `LISTEN_HOST` and `PORT`, and adjust all network values for the target environment; the application does not load the fixture. From this directory run `uv sync --frozen`, `uv run python -m reference_app`, and this repeatable gate:
 
 ```text
 uv lock --check
@@ -54,7 +54,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has five stack-specific Python/test files and 445 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has five stack-specific Python/test files and 462 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Support
 

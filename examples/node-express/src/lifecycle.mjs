@@ -14,7 +14,7 @@ export async function connectWithDeadline(redisClient, timeoutMilliseconds) {
   }
 }
 
-export function createShutdown({ server, proxy, redisClient, log, timeoutMilliseconds = 15_000, forceExit }) {
+export function createShutdown({ server, proxy, redisClient, upgradedSockets = new Set(), log, timeoutMilliseconds = 15_000, forceExit }) {
   let stopping = false;
   return async function stop(signal) {
     if (stopping) return;
@@ -23,8 +23,10 @@ export function createShutdown({ server, proxy, redisClient, log, timeoutMillise
     const timeout = setTimeout(() => forceExit(1), timeoutMilliseconds);
     timeout.unref?.();
     try {
-      await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      const serverClosed = new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
       proxy.close();
+      for (const socket of upgradedSockets) socket.destroy();
+      await serverClosed;
       if (redisClient.isOpen) await redisClient.quit();
     } finally {
       clearTimeout(timeout);

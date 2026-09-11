@@ -25,6 +25,7 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.request.path
+import io.ktor.server.request.queryString
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondFile
@@ -168,7 +169,9 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             call.respondBytes(response.body<ByteArray>(), ContentType.Application.Json, response.status)
         }
         webSocket("/realtime/ws", protocol = SUBPROTOCOL) browser@{
-            val upstreamUrl = config.gatewayUrl.resolve("/realtime/ws").toString().replaceFirst("http", "ws")
+            val query = call.request.queryString()
+            val upstreamUrl = (config.gatewayUrl.resolve("/realtime/ws").toString() +
+                if (query.isEmpty()) "" else "?$query").replaceFirst("http", "ws")
             client.webSocket(upstreamUrl, request = {
                 header(HttpHeaders.Origin, config.publicOrigin.toString())
                 call.request.header(HttpHeaders.Cookie)?.let { header(HttpHeaders.Cookie, it) }

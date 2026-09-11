@@ -4,6 +4,7 @@ defmodule CormierRealtimeExample.ConfigTest do
 
   defp values,
     do: %{
+      "LISTEN_HOST" => "127.0.0.1",
       "PORT" => "15600",
       "PUBLIC_ORIGIN" => "http://127.0.0.1:15600",
       "GATEWAY_URL" => "http://127.0.0.1:15601",
@@ -19,7 +20,7 @@ defmodule CormierRealtimeExample.ConfigTest do
 
   test "validates typed configuration" do
     values = values()
-    assert {:ok, %{port: 15_600}} = Config.load(&values[&1])
+    assert {:ok, %{listen_host: "127.0.0.1", port: 15_600}} = Config.load(&values[&1])
     invalid = Map.put(values, "PUBLIC_ORIGIN", "file:///tmp")
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
   end

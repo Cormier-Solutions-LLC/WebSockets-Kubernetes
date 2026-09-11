@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from .config import Settings
+from .config import Settings, gateway_port
 
 logging.basicConfig(level=logging.INFO, format='{"event":"%(message)s","stack":"python-fastapi"}')
 logger = logging.getLogger("reference")
@@ -262,7 +262,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with websockets.connect(
                 uri,
                 host=gateway.hostname,
-                port=gateway.port,
+                port=gateway_port(configured.GATEWAY_URL),
                 server_hostname=gateway.hostname if gateway.scheme == "https" else None,
                 origin=browser.headers.get("origin"),
                 additional_headers=headers,

@@ -10,6 +10,7 @@ const gatewayOrigin = "http://127.0.0.1:15101";
 const readinessTimeout = 60_000;
 process.env.REFERENCE_STACK = "Node.js / Express";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
+process.env.REFERENCE_GATEWAY_URL = gatewayOrigin;
 
 export default defineConfig({
   testDir: "./test/reference-adapters",

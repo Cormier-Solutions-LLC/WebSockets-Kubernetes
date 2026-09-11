@@ -8,3 +8,4 @@
 - Added exact `uv.lock` dependencies, Ruff/Pytest/pip-audit gates, digest-pinned non-root image, explicit lifespan behavior, update/rollback instructions, and non-production limitations.
 - Security and configuration: every network identity and Redis/session prefix remains runtime-supplied; errors/logs are generic and dependency access logging is suppressed.
 - Breaking changes, operator actions, and deprecations: none; this is the initial example release.
+- Fixed default HTTP(S) gateway port selection and made the listener host explicit.

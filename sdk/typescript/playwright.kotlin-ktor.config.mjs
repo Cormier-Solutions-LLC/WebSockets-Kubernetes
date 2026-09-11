@@ -8,6 +8,7 @@ const frontendOrigin = "http://127.0.0.1:15300";
 const gatewayOrigin = "http://127.0.0.1:15301";
 process.env.REFERENCE_STACK = "Kotlin / Ktor";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
+process.env.REFERENCE_GATEWAY_URL = gatewayOrigin;
 
 export default defineConfig({
   testDir: "./test/reference-adapters",

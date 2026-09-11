@@ -58,7 +58,7 @@ defmodule CormierRealtimeExample.UpstreamSocket do
 
     with {:ok, connection} <- Mint.HTTP.connect(transport, uri.host, port, connect_options),
          {:ok, connection, reference} <-
-           Mint.WebSocket.upgrade(websocket_scheme, connection, uri.path, headers),
+           Mint.WebSocket.upgrade(websocket_scheme, connection, request_path(uri), headers),
          {:ok, connection, websocket} <-
            await_upgrade(
              connection,
@@ -73,6 +73,9 @@ defmodule CormierRealtimeExample.UpstreamSocket do
       _ -> {:stop, :dependency_unavailable}
     end
   end
+
+  defp request_path(%URI{path: path, query: nil}), do: path
+  defp request_path(%URI{path: path, query: query}), do: path <> "?" <> query
 
   defp await_upgrade(connection, reference, status, headers, deadline) do
     remaining = max(deadline - System.monotonic_time(:millisecond), 0)

@@ -10,6 +10,7 @@ const gatewayListenOrigin = "http://0.0.0.0:15501";
 const image = process.env.PHP_LARAVEL_IMAGE ?? "cormier-php-laravel:local";
 process.env.REFERENCE_STACK = "PHP / Laravel";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
+process.env.REFERENCE_GATEWAY_URL = gatewayOrigin;
 
 export default defineConfig({
   testDir: "./test/reference-adapters",

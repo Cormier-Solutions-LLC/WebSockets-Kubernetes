@@ -1,6 +1,6 @@
 # Go and Gin reference application
 
-This non-production adapter demonstrates a Gin front end for Cormier.Realtime. Explicit application state holds typed configuration, a Redis session store, and a bounded HTTP client. It forwards tickets and WebSockets while preserving Host, Origin, cookies, and the subprotocol, and serves the canonical SDK and UI without copies.
+This non-production adapter demonstrates a Gin front end for Cormier.Realtime. Explicit application state holds typed configuration, a Redis session store, and a bounded HTTP client. It forwards tickets and WebSockets while preserving Host, Origin, cookies, query parameters, and the subprotocol, and serves the canonical SDK and UI without copies. `LISTEN_HOST` and `PORT` select the listener explicitly.
 
 ## Prerequisites and local run
 
@@ -30,7 +30,7 @@ Configuration fails before binding on unsafe origins, Redis schemes, identifiers
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Login/session/logout | Example | Allowlisted identities; gateway-compatible record in Redis |
-| Ticket and WebSocket forwarding | Available | Host, Origin, cookie, and subprotocol preserved |
+| Ticket and WebSocket forwarding | Available | Host, Origin, cookie, query, and subprotocol preserved |
 | Connect/subscribe/publish/receive/reconnect | Available | Canonical browser SDK and shared UI |
 | Expiry/rejected Origin/gateway outage | Available | Adapter checks, bounded generic failures, gateway policy |
 | Health and diagnostics | Available | Redis-aware and redacted |
@@ -53,7 +53,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container bases | Go 1.27.1 Alpine / Alpine 3.24 | Digest-pinned |
 
-The adapter has four stack-specific Go files and 584 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has four stack-specific Go files and 590 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

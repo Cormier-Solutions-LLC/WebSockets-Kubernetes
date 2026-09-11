@@ -22,16 +22,21 @@ proxy.on("error", (error, _request, response) => {
   if (response && "writeHead" in response && !response.headersSent) {
     response.writeHead(502, { "content-type": "application/json", "cache-control": "no-store" });
     response.end(JSON.stringify({ code: "gateway_unavailable", message: "The realtime gateway is unavailable." }));
+  } else {
+    response?.destroy?.();
   }
 });
 
 const app = createApp({ config, redisClient, proxy });
 const server = http.createServer(app);
+const upgradedSockets = new Set();
 server.on("upgrade", (request, socket, head) => {
   if (new URL(request.url ?? "/", config.publicOrigin).pathname !== "/realtime/ws") {
     socket.destroy();
     return;
   }
+  upgradedSockets.add(socket);
+  socket.once("close", () => upgradedSockets.delete(socket));
   proxy.ws(request, socket, head, { target: config.gatewayUrl, changeOrigin: false });
 });
 
@@ -42,6 +47,7 @@ const stop = createShutdown({
   server,
   proxy,
   redisClient,
+  upgradedSockets,
   log: entry => console.log(JSON.stringify(entry)),
   forceExit: code => process.exit(code),
 });

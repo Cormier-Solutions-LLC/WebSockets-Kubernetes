@@ -17,7 +17,8 @@
 
 ### Changed, fixed, deprecated, removed
 
-- None. Future deprecations must identify a replacement, migration and rollback instructions, verification, and the removal release/support window before behavior changes.
+- Fixed WebSocket query forwarding and made the listener host explicitly configurable.
+- Future deprecations must identify a replacement, migration and rollback instructions, verification, and the removal release/support window before behavior changes.
 
 ### Operator action
 

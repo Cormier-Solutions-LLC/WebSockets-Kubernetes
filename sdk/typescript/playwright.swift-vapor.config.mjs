@@ -10,6 +10,7 @@ const gatewayListenOrigin = "http://0.0.0.0:15501";
 const image = process.env.SWIFT_VAPOR_IMAGE ?? "cormier-swift-vapor:local";
 process.env.REFERENCE_STACK = "Swift / Vapor";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
+process.env.REFERENCE_GATEWAY_URL = gatewayOrigin;
 
 export default defineConfig({
   testDir: "./test/reference-adapters",

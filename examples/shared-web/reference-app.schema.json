@@ -18,6 +18,7 @@
     "ALLOWED_USERS"
   ],
   "properties": {
+    "LISTEN_HOST": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,253}$" },
     "PORT": { "type": "string", "pattern": "^[0-9]+$" },
     "PUBLIC_ORIGIN": { "type": "string", "format": "uri" },
     "GATEWAY_URL": { "type": "string", "format": "uri" },

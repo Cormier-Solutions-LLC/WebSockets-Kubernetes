@@ -14,7 +14,7 @@ def main() -> int:
         return 1
     uvicorn.run(
         "reference_app.main:app",
-        host="0.0.0.0",  # noqa: S104 - container listener; publishing is deployment-controlled.
+        host=settings.LISTEN_HOST,
         port=settings.PORT,
         access_log=False,
         log_config=None,

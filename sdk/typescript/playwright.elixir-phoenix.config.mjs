@@ -8,6 +8,7 @@ const frontendOrigin = "http://127.0.0.1:15600";
 const gatewayOrigin = "http://127.0.0.1:15601";
 process.env.REFERENCE_STACK = "Elixir / Phoenix";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
+process.env.REFERENCE_GATEWAY_URL = gatewayOrigin;
 
 export default defineConfig({
   testDir: "./test/reference-adapters",
@@ -42,7 +43,7 @@ export default defineConfig({
       timeout: 120_000,
       reuseExistingServer: process.env.REFERENCE_REUSE_SERVER === "true",
       env: {
-        PORT: "15600", PUBLIC_ORIGIN: frontendOrigin, GATEWAY_URL: gatewayOrigin,
+        LISTEN_HOST: "127.0.0.1", PORT: "15600", PUBLIC_ORIGIN: frontendOrigin, GATEWAY_URL: gatewayOrigin,
         REDIS_URL: `redis://${redisEndpoint}`, SESSION_LIFETIME_SECONDS: "1200",
         INSTANCE_NAME: "elixir-phoenix-a", TOPOLOGY: "non-ha",
         REDIS_INSTANCE_PREFIX: "cormier:elixir-phoenix-tests", REDIS_SESSION_KEY_PREFIX: "sessions",

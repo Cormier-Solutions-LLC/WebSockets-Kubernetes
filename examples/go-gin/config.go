@@ -15,6 +15,7 @@ var safeIdentifier = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 var safePrefix = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
 type Config struct {
+	ListenHost            string
 	Port                  int
 	PublicOrigin          string
 	GatewayURL            *url.URL
@@ -39,6 +40,10 @@ func loadConfig(lookup func(string) (string, bool)) (Config, error) {
 			return "", fmt.Errorf("required configuration is missing")
 		}
 		return value, nil
+	}
+	listenHost, err := required("LISTEN_HOST")
+	if err != nil || !safePrefix.MatchString(listenHost) || len(listenHost) > 253 {
+		return Config{}, fmt.Errorf("LISTEN_HOST is invalid")
 	}
 	portValue, err := required("PORT")
 	if err != nil {
@@ -120,7 +125,7 @@ func loadConfig(lookup func(string) (string, bool)) (Config, error) {
 	if value, ok := lookup("SDK_ASSET_ROOT"); ok && value != "" {
 		sdkRoot = value
 	}
-	return Config{port, publicOrigin, gatewayURL, redisURL, time.Duration(lifetime) * time.Second, instance, topology, prefix, sessionPrefix, tenants, users, filepath.Clean(sharedRoot), filepath.Clean(sdkRoot)}, nil
+	return Config{listenHost, port, publicOrigin, gatewayURL, redisURL, time.Duration(lifetime) * time.Second, instance, topology, prefix, sessionPrefix, tenants, users, filepath.Clean(sharedRoot), filepath.Clean(sdkRoot)}, nil
 }
 
 func parseOrigin(value string) (string, *url.URL, error) {

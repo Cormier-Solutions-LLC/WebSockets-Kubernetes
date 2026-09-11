@@ -1,6 +1,6 @@
 # Elixir and Phoenix reference application
 
-This non-production adapter demonstrates a supervised Phoenix front end for Cormier.Realtime. It keeps typed configuration in explicit application state, stores gateway-compatible sessions through Redix, and uses Bandit/WebSock plus Mint.WebSocket to forward the canonical protocol without copying browser assets.
+This non-production adapter demonstrates a supervised Phoenix front end for Cormier.Realtime. It keeps typed configuration in explicit application state, stores gateway-compatible sessions through Redix, and uses Bandit/WebSock plus Mint.WebSocket to forward the canonical protocol without copying browser assets. `LISTEN_HOST` and `PORT` select the listener explicitly.
 
 ## Prerequisites and local run
 
@@ -31,7 +31,7 @@ Configuration and the synchronous Redis connection fail before the endpoint star
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Login/session/logout | Example | Allowlisted identities; gateway-compatible Redis record |
-| Ticket and WebSocket forwarding | Available | Original Host, Origin, cookie, and subprotocol preserved |
+| Ticket and WebSocket forwarding | Available | Original Host, Origin, cookie, query, and subprotocol preserved |
 | Connect/subscribe/publish/receive/reconnect | Available | Canonical browser SDK and shared UI |
 | Expiry/rejected Origin/gateway outage | Available | Adapter checks, bounded generic failures, gateway policy |
 | Health and diagnostics | Available | Redis-aware and redacted |
@@ -53,7 +53,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container base | Hex Elixir 1.20.4, OTP 29.0.6, Alpine 3.24.1 | Digest-pinned amd64/arm64 index |
 
-The adapter has nine stack-specific Elixir/config files and 559 nonblank lines, including tests. Shared assets, fixtures, generated SDK, dependency/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has nine stack-specific Elixir/config files and 577 nonblank lines, including tests. Shared assets, fixtures, generated SDK, dependency/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

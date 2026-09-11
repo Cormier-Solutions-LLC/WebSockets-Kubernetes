@@ -11,6 +11,7 @@
 ### Security and configuration
 
 - No deployable endpoint, credential, identity, session, or ticket is embedded; errors/logs omit underlying values.
+- The listener host is supplied explicitly and WebSocket ticket/reconnect queries are preserved upstream.
 - HTTP-only SameSite Strict cookies, restrictive browser headers, no-store responses, Origin validation, and bounded dependency work.
 
 ### Limitations and actions

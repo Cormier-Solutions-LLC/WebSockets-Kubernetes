@@ -10,6 +10,7 @@ const gatewayListenOrigin = "http://0.0.0.0:15501";
 const image = process.env.PYTHON_FASTAPI_IMAGE ?? "cormier-python-fastapi:local";
 process.env.REFERENCE_STACK = "Python / FastAPI";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
+process.env.REFERENCE_GATEWAY_URL = gatewayOrigin;
 
 export default defineConfig({
   testDir: "./test/reference-adapters",
@@ -39,7 +40,7 @@ export default defineConfig({
       },
     },
     {
-      command: `docker run --rm --name cormier-python-fastapi-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e PORT=15500 -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_LIFETIME_SECONDS=1200 -e INSTANCE_NAME=python-fastapi-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:python-fastapi-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
+      command: `docker run --rm --name cormier-python-fastapi-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e LISTEN_HOST=0.0.0.0 -e PORT=15500 -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_LIFETIME_SECONDS=1200 -e INSTANCE_NAME=python-fastapi-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:python-fastapi-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
       cwd: repositoryRoot,
       url: `${frontendOrigin}/health`,
       timeout: 120_000,

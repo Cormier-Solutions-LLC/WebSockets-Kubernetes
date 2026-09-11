@@ -29,9 +29,15 @@ def _identifiers(value: str, *, colon: bool = False) -> str:
     return value
 
 
+def gateway_port(value: str) -> int:
+    parsed = urlsplit(value)
+    return parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=True)
 
+    LISTEN_HOST: str
     PORT: int = Field(ge=1024, le=65535)
     PUBLIC_ORIGIN: str
     GATEWAY_URL: str
@@ -45,6 +51,14 @@ class Settings(BaseSettings):
     ALLOWED_USERS: str
     SHARED_ASSET_ROOT: Path = Path("../shared-web/wwwroot")
     SDK_ASSET_ROOT: Path = Path("../../sdk/typescript/dist")
+
+    @field_validator("LISTEN_HOST")
+    @classmethod
+    def validate_listen_host(cls, value: str) -> str:
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
+        if not 1 <= len(value) <= 253 or any(character not in allowed for character in value):
+            raise ValueError("LISTEN_HOST is invalid")
+        return value
 
     @field_validator("PUBLIC_ORIGIN", "GATEWAY_URL")
     @classmethod

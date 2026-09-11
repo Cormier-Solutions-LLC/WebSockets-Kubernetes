@@ -1,0 +1,25 @@
+# Changelog
+
+Operator-visible features, fixes, security/configuration changes, breaking behavior, and required actions are recorded here.
+
+## 0.1.0 - 2026-09-11
+
+### Added
+
+- Typed Ktor configuration, demonstration login, Lettuce-backed gateway sessions, health/diagnostics, logout, and bounded startup/shutdown.
+- Coroutine-based ticket and WebSocket forwarding with Host, Origin, cookie, and subprotocol preservation.
+- Canonical UI/CSS/SDK hosting, shared browser scenarios, and configuration/protocol contract tests.
+- Checksum-pinned Gradle wrapper, locked dependencies, and digest-pinned non-root container.
+
+### Security and configuration
+
+- No deployable endpoint, credential, identity, session, or ticket is embedded in source or the image.
+- Cookies are HTTP-only, SameSite Strict, path-scoped, and Secure under HTTPS; API responses are non-cacheable and browser headers restrictive.
+- Framework dependency debug logging is suppressed to prevent configured network identities from entering normal logs.
+
+### Limitations and operator actions
+
+- Production identity, authorization, CSRF/abuse controls, TLS, secrets, telemetry, and orchestration are omitted. Supply them externally.
+- Configure adapter/gateway with the same Redis namespace and trusted public origin; build the canonical SDK first.
+
+No fixes, breaking changes, or active deprecations exist in the initial release.

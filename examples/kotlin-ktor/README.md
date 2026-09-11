@@ -1,0 +1,75 @@
+# Kotlin and Ktor reference application
+
+This small, non-production adapter demonstrates a coroutine-native Ktor front end for Cormier.Realtime. It creates a gateway-compatible Redis session, forwards connection-ticket and WebSocket traffic while preserving the browser Host, and serves the repository's canonical browser SDK and shared UI without copying them.
+
+## Prerequisites and local run
+
+- Java 25; Kotlin/JVM output targets Java 25
+- Redis 7.4 or a compatible configured service
+- A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis prefixes
+- The generated `sdk/typescript/dist` assets (`npm ci && npm run build` in `sdk/typescript`)
+
+Supply every value shown in `.env.example`; it is a fixture and is not loaded automatically. From `examples/kotlin-ktor` on PowerShell:
+
+```powershell
+$env:PORT = "15300"
+$env:PUBLIC_ORIGIN = "http://127.0.0.1:15300"
+$env:GATEWAY_URL = "http://127.0.0.1:15301"
+$env:REDIS_URL = "redis://127.0.0.1:16379"
+$env:SESSION_LIFETIME_SECONDS = "1200"
+$env:INSTANCE_NAME = "kotlin-ktor-a"
+$env:TOPOLOGY = "non-ha"
+$env:REDIS_INSTANCE_PREFIX = "cormier:reference-kotlin"
+$env:REDIS_SESSION_KEY_PREFIX = "sessions"
+$env:ALLOWED_TENANTS = "tenant-a,tenant-b"
+$env:ALLOWED_USERS = "user-a,user-b"
+./gradlew.bat run
+```
+
+The wrapper pins Gradle 9.7.1 and verifies its distribution checksum; `gradle.lockfile` pins all application and test modules. Run `./gradlew test` (`gradlew.bat` on Windows) for locked checks. Build and run the digest-pinned container from the repository root:
+
+```text
+docker build -f examples/kotlin-ktor/Dockerfile -t cormier-kotlin-ktor:local .
+docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15300:15300 --env-file examples/kotlin-ktor/.env.example --env GATEWAY_URL=http://host.docker.internal:15301 --env REDIS_URL=redis://host.docker.internal:16379 cormier-kotlin-ktor:local
+```
+
+Typed configuration validation rejects unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists before binding the server. Redis connection has a five-second bound; health reports dependency availability; JVM shutdown allows one second of grace and has a 15-second stop bound. Request failures return generic codes, and application logging records exception classes while Redis/Netty internals are disabled so dependency endpoints, credentials, cookies, sessions, tickets, and identity data are not emitted.
+
+## Feature matrix
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Login and session establishment | Example | Allowlisted fixture identities; authoritative record is in Redis |
+| Connection-ticket endpoint | Available | Same-origin POST is forwarded with original Host and cookie |
+| WebSocket connection | Available | Coroutine relay forwards text/binary frames and the required subprotocol |
+| Connect, subscribe, publish, receive, reconnect | Available | Canonical browser client and shared UI |
+| Expired session/ticket and rejected Origin | Available | Adapter session checks plus gateway ticket/Origin policy |
+| Health and redacted diagnostics | Available | Dependency-aware health without network identities |
+| Logout | Available | Redis session and cookie are removed |
+| Coroutine cancellation | Available | Relay direction is cancelled when its peer completes; engine shutdown is bounded |
+| Identity, rate limiting, CSRF tokens, authorization policy | Omitted | Required production controls belong to the adopting application |
+| TLS, gateway, Redis, orchestration | External | Always supplied and secured through deployment configuration |
+
+This is a teaching adapter, not a production identity system or general-purpose reverse proxy. Production adopters must provide durable identity and authorization, CSRF and abuse controls, TLS, secrets, telemetry, proxy hardening, and an availability design.
+
+## Supported versions and footprint
+
+| Component | Tested version | Status |
+| --- | --- | --- |
+| Java | 25 | Required runtime and bytecode target |
+| Kotlin | 2.4.20 | Supported compiler/standard-library line |
+| Ktor | 3.5.2 | Supported server/client/WebSocket framework |
+| Gradle wrapper | 9.7.1 | Checksum-pinned; dependency locking enabled |
+| Lettuce | 7.6.0 | Supported Redis client |
+| Cormier.Realtime browser SDK / protocol | 0.1.0 / 1.0 | Canonical generated SDK and wire contract |
+| Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
+| Redis | 7.4 | Tested session service |
+| Container bases | Gradle 9.7.1 JDK 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
+
+The adapter has three stack-specific production Kotlin files and 318 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
+
+## Support and diagnostics
+
+Open a repository issue for a non-sensitive defect and include Java, Kotlin, Ktor, Gradle, Lettuce, SDK/protocol, gateway, Redis, and container versions; topology; failing route/scenario; health response; minimal reproduction; and redacted logs. Never include credentials, Redis URLs, cookies, session IDs, tickets, tenant/user data, private origins, or network addresses. Use the repository security policy for suspected vulnerabilities.
+
+See [UPDATE.md](UPDATE.md) for update/deprecation/rollback guidance and [CHANGELOG.md](CHANGELOG.md) for operator-visible changes.

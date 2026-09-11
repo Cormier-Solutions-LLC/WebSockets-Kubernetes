@@ -42,6 +42,10 @@ test-results/
 # Java build outputs
 target/
 
+# Gradle and Kotlin build outputs
+.gradle/
+build/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

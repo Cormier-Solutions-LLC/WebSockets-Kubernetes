@@ -382,6 +382,60 @@ jobs:
           name: java-spring-boot-${{ github.sha }}
           path: artifacts/java-spring-boot
 
+  kotlin-ktor:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Test the locked Ktor reference adapter
+        working-directory: examples/kotlin-ktor
+        run: ./gradlew --no-daemon test buildFatJar
+      - name: Build the Ktor reference container
+        run: docker build --file examples/kotlin-ktor/Dockerfile --tag cormier-kotlin-ktor:${{ github.sha }} .
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.kotlin-ktor.config.mjs
+      - name: Upload Ktor failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-ktor-${{ github.sha }}
+          path: artifacts/kotlin-ktor
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:

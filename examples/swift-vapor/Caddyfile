@@ -6,7 +6,8 @@
 	}
 }
 
-{$LISTEN_HOST}:{$PORT} {
+http://:{$PORT} {
+	bind {$LISTEN_HOST}
 	log {
 		output discard
 	}

@@ -117,6 +117,46 @@ public sealed class DiagnosticsRedisTests
     }
 
     [Fact]
+    public async Task ConcurrentInstanceChangesArePersistedBeforeTheyReturn()
+    {
+        var redisOptions = new RedisOptions
+        {
+            Endpoint = Endpoint,
+            InstancePrefix = $"cormier:test:diagnostics:{Guid.NewGuid():N}",
+            ConnectTimeoutMilliseconds = 1000,
+        };
+        var diagnostics = Options.Create(new DiagnosticsOptions
+        {
+            Enabled = true,
+            LogCategoryAllowlist = ["Cormier.Realtime"],
+            MinimumLogOverrideSeconds = 1,
+            MaximumLogOverrideSeconds = 60,
+        });
+        await using var redis = new RedisConnectionProvider(redisOptions);
+        var connection = await redis.GetConnectionAsync(CancellationToken.None);
+        using var control = new DiagnosticsControlService(
+            new RuntimeLogLevelController(diagnostics, new DiagnosticsIdentity("concurrent-audit")),
+            redis,
+            redisOptions,
+            diagnostics);
+
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 16).Select(index =>
+            control.ApplyAsync(
+                new LogLevelChangeRequest(
+                    $"Cormier.Realtime.Audit{index}",
+                    "Debug",
+                    30,
+                    $"concurrent audit {index}",
+                    "instance"),
+                $"operator-{index}",
+                CancellationToken.None).AsTask()));
+
+        Assert.All(outcomes, outcome => Assert.True(outcome.Succeeded, outcome.Error));
+        var auditKey = $"{redisOptions.InstancePrefix}:{{diagnostics}}:{diagnostics.Value.CoordinationChannel}:audit";
+        Assert.Equal(outcomes.Length, await connection.GetDatabase().SortedSetLengthAsync(auditKey));
+    }
+
+    [Fact]
     public async Task AuditPersistenceRemovesEntriesIndividuallyByAge()
     {
         var redisOptions = new RedisOptions

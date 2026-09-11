@@ -72,7 +72,7 @@ export interface DiagnosticLogEvent {
     level: string;
     category: string;
     eventId: number;
-    correlationId?: string;
+    correlationId: string | null;
     instanceId: string;
     message: string;
 }

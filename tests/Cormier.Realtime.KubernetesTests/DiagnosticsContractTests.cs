@@ -170,6 +170,12 @@ public sealed class DiagnosticsContractTests
         Assert.Matches(diagnosticsNetworkPattern, "192.0.2.0/24");
         Assert.Matches(diagnosticsNetworkPattern, "2001:db8::/32");
         Assert.DoesNotMatch(diagnosticsNetworkPattern, "operator-network");
+        var metricsNetworkPattern = schema.RootElement.GetProperty("properties").GetProperty("metrics")
+            .GetProperty("properties").GetProperty("allowedNetworks").GetProperty("items")
+            .GetProperty("pattern").GetString()!;
+        Assert.Matches(metricsNetworkPattern, "192.0.2.0/24");
+        Assert.Matches(metricsNetworkPattern, "2001:db8::/32");
+        Assert.DoesNotMatch(metricsNetworkPattern, "operator-network");
         var otlpCondition = schema.RootElement.GetProperty("properties").GetProperty("observability")
             .GetProperty("properties").GetProperty("otlp").GetProperty("allOf")[0];
         Assert.True(otlpCondition.GetProperty("if").GetProperty("properties")
@@ -177,6 +183,28 @@ public sealed class DiagnosticsContractTests
         Assert.Equal(1, otlpCondition.GetProperty("then").GetProperty("properties")
             .GetProperty("endpoint").GetProperty("minLength").GetInt32());
         Assert.Contains("CORMIER_REALTIME_INSTANCE_ID", deployment, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StandaloneConfigurationPrecedenceAndNullableLogCorrelationStayAligned()
+    {
+        var program = Read("src/Cormier.Realtime.Gateway/Program.cs");
+        var environmentIndex = program.IndexOf("builder.Configuration.AddEnvironmentVariables();", StringComparison.Ordinal);
+        var commandLineIndex = program.IndexOf("builder.Configuration.AddCommandLine(args);", StringComparison.Ordinal);
+        var registrationIndex = program.IndexOf("builder.Services.AddRealtimeGateway(builder.Configuration);", StringComparison.Ordinal);
+
+        Assert.InRange(environmentIndex, 0, commandLineIndex - 1);
+        Assert.InRange(commandLineIndex, environmentIndex + 1, registrationIndex - 1);
+
+        var serialized = JsonSerializer.Serialize(
+            new DiagnosticLogEvent(1, DateTimeOffset.UnixEpoch, "Information", "category", 1, null, "instance", "message"),
+            DiagnosticsJsonSerializerContext.Default.DiagnosticLogEvent);
+        using var document = JsonDocument.Parse(serialized);
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("correlationId").ValueKind);
+        Assert.Contains(
+            "correlationId: string | null;",
+            Read("sdk/typescript/src/diagnostics.ts"),
+            StringComparison.Ordinal);
     }
 
     [Fact]

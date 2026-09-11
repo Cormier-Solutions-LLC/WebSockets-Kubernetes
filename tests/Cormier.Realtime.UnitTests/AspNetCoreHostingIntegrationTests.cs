@@ -88,6 +88,27 @@ public sealed class AspNetCoreHostingIntegrationTests
         Assert.Contains(exception.Failures, failure => failure.Contains("collide", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void AddRealtimeGatewayRejectsConfiguredCrossRolePolicyCollisions()
+    {
+        var values = ValidConfiguration();
+        values["Diagnostics:Enabled"] = "true";
+        values["Diagnostics:AuthorizationPolicy"] = "operator-access";
+        values["Metrics:Enabled"] = "true";
+        values["Metrics:AuthorizationPolicy"] = "OPERATOR-ACCESS";
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development,
+        });
+        builder.Configuration.AddInMemoryCollection(values);
+        builder.Services.AddRealtimeGateway(builder.Configuration);
+
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => builder.Build());
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("distinct authorization policies", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("Realtime:EndpointPath", "/diagnostics/v1/snapshot")]
     [InlineData("Realtime:TicketEndpointPath", "/diagnostics/v1/logging/overrides")]

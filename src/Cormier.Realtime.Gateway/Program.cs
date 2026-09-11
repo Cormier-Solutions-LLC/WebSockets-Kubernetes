@@ -15,6 +15,8 @@ builder.Logging.AddJsonConsole(options =>
     options.UseUtcTimestamp = true;
 });
 
+builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddCommandLine(args);
 builder.Services.AddRealtimeGateway(builder.Configuration);
 var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
 var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
@@ -54,8 +56,6 @@ if (protectedMetricsEnabled)
     builder.Services.AddRealtimeMetricsBearer(metricsPolicy, metricsToken);
 }
 
-builder.Configuration.AddCommandLine(args);
-builder.Configuration.AddEnvironmentVariables();
 var app = builder.Build();
 var state = app.Services.GetRequiredService<GatewayState>();
 var metrics = app.Services.GetRequiredService<GatewayMetrics>();

@@ -264,10 +264,7 @@ public sealed class DiagnosticsControlService(
     internal async ValueTask FlushLocalAuditAsync(CancellationToken cancellationToken)
     {
         _ = controller.GetActive();
-        if (!await _auditFlush.WaitAsync(0, cancellationToken))
-        {
-            return;
-        }
+        await _auditFlush.WaitAsync(cancellationToken);
         try
         {
             var connection = redis.CurrentConnection;

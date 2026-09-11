@@ -299,7 +299,7 @@ public static class DiagnosticsEndpointExtensions
             {
                 context.Response.StatusCode = StatusCodes.Status204NoContent;
             }
-            else if (outcome.Found)
+            else if (outcome.Found || !string.IsNullOrEmpty(outcome.Error))
             {
                 await WriteErrorAsync(
                     context,

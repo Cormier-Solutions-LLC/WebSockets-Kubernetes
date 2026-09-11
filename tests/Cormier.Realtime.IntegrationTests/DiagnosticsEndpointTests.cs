@@ -370,6 +370,20 @@ public sealed class DiagnosticsEndpointTests
     }
 
     [Fact]
+    public async Task ReplicaWideRollbackLookupReturnsServiceUnavailableDuringRedisInterruption()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        using var revert = OperatorRequest(
+            HttpMethod.Delete,
+            $"/diagnostics/v1/logging/overrides/{new string('a', 32)}");
+
+        using var response = await client.SendAsync(revert, CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
+
+    [Fact]
     public async Task LiveLogTailDisconnectsAtRateLimitAndReleasesItsSession()
     {
         await using var factory = CreateFactory(new Dictionary<string, string?>

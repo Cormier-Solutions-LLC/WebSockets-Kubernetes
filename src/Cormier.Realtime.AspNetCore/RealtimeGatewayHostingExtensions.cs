@@ -67,6 +67,13 @@ public static class RealtimeGatewayHostingExtensions
                 "Diagnostics routes must not collide with the configured realtime or ticket endpoint.")
             .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.AuthorizationPolicy),
                 "Diagnostics:AuthorizationPolicy is required when diagnostics are enabled.")
+            .Validate(options => !options.Enabled ||
+                    !configuration.GetValue<bool>($"{MetricsOptions.SectionName}:Enabled") ||
+                    !string.Equals(
+                        options.AuthorizationPolicy,
+                        configuration[$"{MetricsOptions.SectionName}:AuthorizationPolicy"],
+                        StringComparison.OrdinalIgnoreCase),
+                "Diagnostics and protected metrics require distinct authorization policies.")
             .Validate(options => options.AllowedOrigins.All(IsAbsoluteOrigin),
                 "Diagnostics:AllowedOrigins must contain HTTP or HTTPS origins without paths, queries, or fragments.")
             .Validate(options => options.AllowedNetworks.All(network => System.Net.IPNetwork.TryParse(network, out _)),

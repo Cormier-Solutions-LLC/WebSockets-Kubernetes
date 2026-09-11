@@ -57,6 +57,12 @@ storage/framework/*
 !storage/framework/.gitignore
 .phpunit.result.cache
 
+# Python build and test outputs
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

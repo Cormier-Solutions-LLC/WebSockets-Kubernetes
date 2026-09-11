@@ -655,6 +655,59 @@ jobs:
           name: php-laravel-${{ github.sha }}
           path: artifacts/php-laravel
 
+  python-fastapi:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked FastAPI reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/python-fastapi
+          python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc
+          sh -lc 'pip install --no-cache-dir uv==0.12.13 >/dev/null && uv sync --frozen && uv lock --check && uv run ruff check . && uv run ruff format --check . && uv run pytest && uv run pip-audit --local'
+      - name: Build the FastAPI reference container
+        run: docker build --file examples/python-fastapi/Dockerfile --tag cormier-python-fastapi:${{ github.sha }} .
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          PYTHON_FASTAPI_IMAGE: cormier-python-fastapi:${{ github.sha }}
+        run: npx playwright test --config playwright.python-fastapi.config.mjs
+      - name: Upload FastAPI failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-fastapi-${{ github.sha }}
+          path: artifacts/python-fastapi
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:

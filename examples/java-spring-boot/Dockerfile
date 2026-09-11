@@ -11,9 +11,9 @@ FROM ${JAVA_IMAGE}
 RUN apk upgrade --no-cache
 WORKDIR /app
 COPY --from=build /source/target/java-spring-boot-0.1.0.jar ./application.jar
-COPY examples/shared-web/wwwroot ./shared-web
+COPY examples/shared-web/dist ./shared-web
 COPY sdk/typescript/dist ./sdk
-ENV SHARED_ASSET_ROOT=/app/shared-web
+ENV SHARED_ASSET_ROOT=/app/shared-web/optimized
 ENV SDK_ASSET_ROOT=/app/sdk
 USER 65532:65532
 ENTRYPOINT ["java", "-jar", "/app/application.jar"]

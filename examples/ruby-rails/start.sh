@@ -8,7 +8,7 @@ failure() {
   exit 1
 }
 
-bundle exec rails runner 'raise "asset" unless ["index.html", "app.css", "app.js"].map { |name| Rails.configuration.x.reference.shared_asset_root + "/" + name }.push(Rails.configuration.x.reference.sdk_asset_root + "/cormier-realtime.iife.js").all? { |path| File.file?(path) }' >/dev/null 2>&1 || failure
+bundle exec rails runner 'raise "asset" unless ["index.html", "app.css", "app.js"].map { |name| Rails.configuration.x.reference.shared_asset_root + "/" + name }.concat(["cormier-realtime.iife.js", "cormier-realtime.iife.min.js"].map { |name| Rails.configuration.x.reference.sdk_asset_root + "/" + name }).all? { |path| File.file?(path) }' >/dev/null 2>&1 || failure
 case "${PUBLIC_ORIGIN:-}" in
   http://*) PUBLIC_SCHEME=http ;;
   https://*) PUBLIC_SCHEME=https ;;

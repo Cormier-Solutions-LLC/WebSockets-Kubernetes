@@ -74,4 +74,4 @@ Package identities, compatibility, local-feed verification, guarded promotion, a
 
 ## Browser SDK
 
-The strict TypeScript client under `sdk/typescript` produces readable and minified ESM and direct-browser IIFE artifacts. It supports same-origin sessions, single-use tickets, bounded command handling, heartbeats, reconnect with fresh authentication, and duplicate-free subscription restoration. See [the TypeScript SDK guide](docs/typescript-sdk.md) for the API, browser matrix, CSP and edge requirements, compatibility policy, and verification commands.
+The strict TypeScript client under `sdk/typescript` produces readable and minified ESM and direct-browser IIFE artifacts plus centralized readable and optimized reference-web profiles. It supports same-origin sessions, single-use tickets, bounded command handling, heartbeats, reconnect with fresh authentication, and duplicate-free subscription restoration. See [the TypeScript SDK guide](docs/typescript-sdk.md) for the API and compatibility contract, and [the optimized-assets guide](docs/optimized-assets.md) for profiles, manifests, CSP/SRI, source maps, accessibility, and rollback.

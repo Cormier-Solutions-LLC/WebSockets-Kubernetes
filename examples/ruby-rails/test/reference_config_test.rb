@@ -103,7 +103,7 @@ class ReferenceConfigTest < Minitest::Test
     startup = File.read(File.expand_path("../start.sh", __dir__))
     %w[index.html app.css app.js].each { |asset| assert_includes startup, asset }
     assert_includes startup, "cormier-realtime.iife.js"
-    refute_includes startup, "cormier-realtime.iife.min.js"
+    assert_includes startup, "cormier-realtime.iife.min.js"
     assert_includes startup, 'readiness_url="http://$readiness_host:$PORT/api/diagnostics"'
     assert_includes startup, '--header "Host: $public_authority"'
     assert_includes startup, 'payload["stack"] == "Ruby / Rails"'

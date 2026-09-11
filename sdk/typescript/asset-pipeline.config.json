@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "pipelineVersion": "1.0.0",
+  "sourceDirectory": "../../examples/shared-web/wwwroot",
+  "outputDirectory": "../../examples/shared-web/dist",
+  "legalNotice": "Cormier.Realtime reference assets | MIT",
+  "profiles": {
+    "development": "readable",
+    "support": "readable",
+    "production": "optimized"
+  },
+  "sourceMaps": {
+    "emit": true,
+    "publishByDefault": false,
+    "includeSourcesContent": true
+  },
+  "selectorMangling": {
+    "enabled": false,
+    "ids": {},
+    "classes": {},
+    "safelist": [
+      "diagnostics",
+      "tenant",
+      "user",
+      "login",
+      "logout",
+      "state",
+      "route",
+      "payload",
+      "connect",
+      "disconnect",
+      "subscribe",
+      "unsubscribe",
+      "publish",
+      "events",
+      "stack-links"
+    ]
+  },
+  "obfuscation": {
+    "enabledByDefault": false,
+    "seed": 92811092,
+    "reservedNames": [
+      "CormierRealtime",
+      "RealtimeClient",
+      "fullCircle",
+      "tenantId",
+      "userId",
+      "authentication",
+      "reconnect",
+      "initialDelayMilliseconds",
+      "maximumDelayMilliseconds",
+      "jitterRatio",
+      "maximumAttempts"
+    ]
+  },
+  "budgets": {
+    "optimizedBytes": 8192,
+    "optimizedGzipBytes": 4096
+  }
+}

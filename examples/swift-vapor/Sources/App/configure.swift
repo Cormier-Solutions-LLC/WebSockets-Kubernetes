@@ -166,6 +166,7 @@ private func validateAssets(_ settings: ReferenceSettings) throws {
     "\(settings.sharedAssetRoot)/app.css",
     "\(settings.sharedAssetRoot)/app.js",
     "\(settings.sdkAssetRoot)/cormier-realtime.iife.js",
+    "\(settings.sdkAssetRoot)/cormier-realtime.iife.min.js",
   ]
   guard required.allSatisfy(FileManager.default.fileExists(atPath:)) else {
     throw SettingsError.invalid

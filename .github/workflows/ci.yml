@@ -117,7 +117,7 @@ jobs:
         working-directory: sdk/typescript
         run: |
           npm run check
-          git diff --exit-code -- dist
+          git diff --exit-code -- dist ../../examples/shared-web/dist
           npm pack --dry-run
       - name: Install browser test engines
         working-directory: sdk/typescript

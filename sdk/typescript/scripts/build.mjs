@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildReferenceAssets } from "./reference-assets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
@@ -33,6 +34,12 @@ await Promise.all([
   build({ ...shared, format: "iife", globalName: "CormierRealtime", outfile: resolve(dist, "cormier-realtime.iife.js") }),
   build({ ...shared, format: "iife", globalName: "CormierRealtime", minify: true, outfile: resolve(dist, "cormier-realtime.iife.min.js") }),
 ]);
+
+const unexpectedArguments = process.argv.slice(2).filter((argument) => argument !== "--obfuscate");
+if (unexpectedArguments.length > 0) {
+  throw new Error(`Unsupported build arguments: ${unexpectedArguments.join(", ")}`);
+}
+await buildReferenceAssets({ sdkRoot: root, obfuscate: process.argv.includes("--obfuscate") });
 
 const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 writeFileSync(resolve(dist, "version.json"), `${JSON.stringify({

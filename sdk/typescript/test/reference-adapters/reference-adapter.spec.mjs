@@ -6,6 +6,28 @@ async function login(page) {
   await expect(page.locator("#events")).toContainText('"tenantId"');
 }
 
+test("optimized shared UI keeps integrity, CSP, and accessible controls", async ({ page }) => {
+  const pageErrors = [];
+  const failedRequests = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("requestfailed", (request) => failedRequests.push(`${request.url()}: ${request.failure()?.errorText ?? "failed"}`));
+
+  const response = await page.goto("/");
+  expect(response?.headers()["content-security-policy"]).toContain("default-src 'self'");
+  await expect(page.locator("#diagnostics")).toContainText(process.env.REFERENCE_STACK);
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("integrity", /^sha384-/u);
+  await expect(page.locator('script[src$="cormier-realtime.iife.min.js"]')).toHaveAttribute("integrity", /^sha384-/u);
+  await expect(page.locator('script[src="/app.js"]')).toHaveAttribute("integrity", /^sha384-/u);
+  await expect(page.getByRole("heading", { name: "Cormier.Realtime full circle", level: 1 })).toBeVisible();
+  await expect(page.getByLabel("Tenant")).toBeVisible();
+  await expect(page.getByLabel("User")).toBeVisible();
+  await expect(page.getByLabel("Route")).toBeVisible();
+  await expect(page.getByLabel("Payload")).toBeVisible();
+  await expect(page.locator("#events")).toHaveAttribute("aria-live", "polite");
+  expect(pageErrors).toEqual([]);
+  expect(failedRequests).toEqual([]);
+});
+
 test("shared UI completes login, ticket connect, subscribe, publish, receive, reconnect, and logout", async ({ page, request }) => {
   await login(page);
   await expect(page.locator("#diagnostics")).toContainText(process.env.REFERENCE_STACK);

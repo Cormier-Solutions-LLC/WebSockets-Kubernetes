@@ -11,6 +11,8 @@ The independent `@cormier/realtime` project lives in `sdk/typescript`. Its build
 
 Each JavaScript file has a source map. The package also includes TypeScript declarations, declaration maps, and `version.json`. Minified output is limited to 32 KiB before compression and 12 KiB with deterministic gzip. Artifact verification rejects absolute source-machine paths and known credential-bearing strings.
 
+The same build creates centralized readable and optimized assets for every reference web stack. Production examples select the optimized profile, while development and support retain a readable profile. Optional deterministic obfuscation requires an explicit command and is not a security control. The [optimized-assets guide](optimized-assets.md) documents manifests, hashes, SRI, CSP, coordinated selectors, source-map publication, accessibility verification, migration, and rollback.
+
 `RealtimeClient` exposes `connect`, `disconnect`, `publish`, `subscribe`, `ping`, state/close/error/event listeners, and the desired-subscription snapshot. Commands resolve only after a correlated acknowledgement and reject with a structured `RealtimeError` when the gateway sends an error. Queue and pending-command limits are finite and configurable; oversized commands are rejected before transport.
 
 ## Authentication and browser security

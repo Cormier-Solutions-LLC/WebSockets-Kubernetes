@@ -28,12 +28,12 @@ WORKDIR /app
 COPY --from=build /server ./server
 COPY examples/swift-vapor/Caddyfile /etc/caddy/Caddyfile
 COPY examples/swift-vapor/start.sh ./start.sh
-COPY examples/shared-web/wwwroot ./shared-web
+COPY examples/shared-web/dist ./shared-web
 COPY sdk/typescript/dist ./sdk
 RUN mkdir -p /data/caddy /config/caddy \
     && chown -R 65532:65532 /app /data /config /tmp \
     && chmod 0555 /app/server /app/start.sh
-ENV SHARED_ASSET_ROOT=/app/shared-web
+ENV SHARED_ASSET_ROOT=/app/shared-web/optimized
 ENV SDK_ASSET_ROOT=/app/sdk
 USER 65532:65532
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/start.sh"]

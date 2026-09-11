@@ -2,6 +2,10 @@
 
 Operator-visible features, fixes, security/configuration changes, breaking behavior, and required actions are recorded here.
 
+## Unreleased
+
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 ## 0.1.0 - 2026-09-11
 
 ### Added

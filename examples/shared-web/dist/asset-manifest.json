@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "pipelineVersion": "1.0.0",
+  "package": "@cormier/realtime",
+  "version": "0.1.0",
+  "defaults": {
+    "development": "readable",
+    "support": "readable",
+    "production": "optimized"
+  },
+  "obfuscationEnabled": false,
+  "selectorMappings": {
+    "ids": {},
+    "classes": {}
+  },
+  "sourceMapPolicy": {
+    "emit": true,
+    "publishByDefault": false,
+    "includeSourcesContent": true
+  },
+  "csp": "default-src 'self'; connect-src 'self' ws: wss:; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'",
+  "profiles": {
+    "readable": {
+      "files": [
+        {
+          "path": "readable/app.css",
+          "bytes": 438,
+          "gzipBytes": 297,
+          "sha256": "c715183d4e66c922be43a535c2880ff3ab1e591cfb91316b1efc4c6ba3e43837",
+          "integrity": "sha384-5MMWw51CHsOaTLpLM0Imw1zLBCzidbSNn8rTopESwxFTvfC351JQGNpAO8ETz84A"
+        },
+        {
+          "path": "readable/app.js",
+          "bytes": 3629,
+          "gzipBytes": 1240,
+          "sha256": "86945d8cbe2956d4eac175a436db1fcaef187c680adf6077a797fa2d00828814",
+          "integrity": "sha384-B0sD9NBYNp6596nN1QJtKPrV/Y2FbOsSK/27SnL6iDPEMTbZrjcqABRYEkVEQIzk"
+        },
+        {
+          "path": "readable/index.html",
+          "bytes": 1807,
+          "gzipBytes": 868,
+          "sha256": "8cc8c2a62bfd7136e8d1d055e7fff08f53e0a7c915ab4e758674080efc929676",
+          "integrity": "sha384-X47UWITTFzp4UojfblP2Mke0t0ECDiN8yuTRx7Sre5MkAUkDX5zgEvPSOMGQxS9Q"
+        }
+      ],
+      "sdk": {
+        "path": "cormier-realtime.iife.js",
+        "sha256": "70e334a631c028bf48871dfdc5d1192ad4b49bb7a69c701e08828316ad67f7e8",
+        "integrity": "sha384-u2igby9pQFej32mUUSV60EzIikQYpdb4XDo2F/bD43CxS9qsdsZqZb1guaCY2rmj"
+      }
+    },
+    "optimized": {
+      "files": [
+        {
+          "path": "optimized/app.css",
+          "bytes": 373,
+          "gzipBytes": 279,
+          "sha256": "787c314c602e69f5516bb795ae8089f767e2b633c5e3d6419128abb322bbef5b",
+          "integrity": "sha384-5dAbhnvpPymUyIA3AXeyChlf5xU5CLIUGqFgPDv+VUxsXN6pXWwR2joW52Hh6XGs"
+        },
+        {
+          "path": "optimized/app.js",
+          "bytes": 2520,
+          "gzipBytes": 1029,
+          "sha256": "4447f75193ae8e1d914e9009fd3a5a9984f87a27ea25caf70390094d6a6e4692",
+          "integrity": "sha384-I8DHSBsj5l8w4xX3HN0nD3WYB7BvXNMPD7NKvNV6yP2K7ug2rWmK1L0qSBFoOI9B"
+        },
+        {
+          "path": "optimized/index.html",
+          "bytes": 1666,
+          "gzipBytes": 853,
+          "sha256": "0720a3a6f659fea2c1952a9b9d3566d8ea9c69ac371d9d90e6a7a2d510dacc12",
+          "integrity": "sha384-ETxayxN6+dPS3ltdhQM81VgwTtayIYrYTzCPWJ4u6Nv0VKZML1hGsQ94Bq4nPOVj"
+        },
+        {
+          "path": "optimized/app.css.map",
+          "bytes": 593,
+          "gzipBytes": 394,
+          "sha256": "35f3a1585d61a3f96794a33a4bec06d920b4ad842769ad21400cd1330a046f56",
+          "integrity": "sha384-Q8YlX2N0EBFqW9S2hqbpUaIMel7xYIz7dPPn2dZxVk6KpT7qwAnjQ32RYnyVgcQD"
+        },
+        {
+          "path": "optimized/app.js.map",
+          "bytes": 6801,
+          "gzipBytes": 2320,
+          "sha256": "fefbbbbd5369653d327a681c627aae03327c72bd62ad8179cfba3b54983da5ef",
+          "integrity": "sha384-ba1Vb/OVvSm8lVRZLGe3mDninHkmipxlB1Zxx9rp3m/WaOTxFIEzz6JPktaSu8xk"
+        }
+      ],
+      "sdk": {
+        "path": "cormier-realtime.iife.min.js",
+        "sha256": "f16151b4f6f959f6fdd206de5eb944b520bc30f80d49abe6416eb59516121071",
+        "integrity": "sha384-aHSOeWYk+bebkxmyVyYhpyGBEwaV7JTpKoMVl9/h3ocuuvRaXdZq6rDtd+sJATdv"
+      }
+    }
+  },
+  "tools": {
+    "esbuild": "0.28.2",
+    "htmlMinifierTerser": "7.2.0",
+    "javascriptObfuscator": "5.7.0",
+    "lightningcss": "1.33.0"
+  }
+}

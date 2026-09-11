@@ -71,6 +71,8 @@ npx playwright install
 npm run test:browser
 ```
 
-`npm run build` emits readable and minified ESM and IIFE files, declarations, source maps, and `version.json` in `dist`. `npm run build:check` creates the output twice and compares SHA-256 inventories. Source maps use repository-relative source names and do not contain source-machine paths.
+`npm run build` emits readable and minified ESM and IIFE files, declarations, source maps, and `version.json` in `dist`. It also creates the shared reference application's readable and optimized profiles under `examples/shared-web/dist`. `npm run build:obfuscated` adds the explicit, optional obfuscated profile; obfuscation is disabled by default and is not a security boundary. `npm run build:check` verifies reproducibility of both modes and restores the default output. Source maps use source-relative names and do not contain source-machine paths.
+
+The generated reference manifest records hashes, SRI, profile defaults, source-map policy, selector mappings, tool versions, and sizes. Production examples select optimized assets; development and support select readable assets. See [Optimized reference assets](../../docs/optimized-assets.md) for deployment, CSP, accessibility, update, debugging, and rollback guidance.
 
 The size budget is 32 KiB per minified JavaScript artifact before compression and 12 KiB with gzip. CI rejects larger output. Troubleshooting should begin with the state, close, and structured error callbacks; these intentionally omit cookie and ticket material.

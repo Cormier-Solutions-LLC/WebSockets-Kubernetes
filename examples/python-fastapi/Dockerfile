@@ -9,9 +9,9 @@ COPY examples/python-fastapi/pyproject.toml examples/python-fastapi/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project \
     && rm -rf /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 COPY examples/python-fastapi/reference_app ./reference_app
-COPY examples/shared-web/wwwroot ./shared-web
+COPY examples/shared-web/dist ./shared-web
 COPY sdk/typescript/dist ./sdk
-ENV SHARED_ASSET_ROOT=/app/shared-web
+ENV SHARED_ASSET_ROOT=/app/shared-web/optimized
 ENV SDK_ASSET_ROOT=/app/sdk
 ENV PATH=/app/.venv/bin:$PATH
 USER 65532:65532

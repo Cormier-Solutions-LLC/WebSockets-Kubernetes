@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
@@ -66,3 +67,5 @@ for (const forbidden of ["REDIS_TEST_ENDPOINT", "cormier_session=", "Authorizati
     throw new Error(`Generated artifacts contain forbidden material: ${forbidden}`);
   }
 }
+
+execFileSync(process.execPath, [resolve(root, "scripts/validate-reference-assets.mjs")], { cwd: root, stdio: "inherit" });

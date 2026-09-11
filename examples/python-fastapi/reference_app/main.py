@@ -110,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 configured.SHARED_ASSET_ROOT / "app.css",
                 configured.SHARED_ASSET_ROOT / "app.js",
                 configured.SDK_ASSET_ROOT / "cormier-realtime.iife.js",
+                configured.SDK_ASSET_ROOT / "cormier-realtime.iife.min.js",
             ):
                 if not path.is_file():
                     raise RuntimeError("required asset is unavailable")

@@ -29,12 +29,12 @@ COPY examples/php-laravel/routes ./routes
 COPY examples/php-laravel/artisan ./artisan
 COPY examples/php-laravel/Caddyfile /etc/frankenphp/Caddyfile
 COPY examples/php-laravel/start.sh ./start.sh
-COPY examples/shared-web/wwwroot ./shared-web
+COPY examples/shared-web/dist ./shared-web
 COPY sdk/typescript/dist ./sdk
 RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache bootstrap/cache /data/caddy /config/caddy \
     && chown -R 65532:65532 /app /data /config \
     && chmod 0555 /app/start.sh
-ENV SHARED_ASSET_ROOT=/app/shared-web
+ENV SHARED_ASSET_ROOT=/app/shared-web/optimized
 ENV SDK_ASSET_ROOT=/app/sdk
 USER 65532:65532
 ENTRYPOINT ["/sbin/tini", "--", "/app/start.sh"]

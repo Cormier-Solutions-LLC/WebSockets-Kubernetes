@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 ## 0.1.0
 
 - Added the Swift 6.3 / Vapor 4.121 reference adapter with strict settings, allowlisted login, opaque cookie state, Redis-backed gateway-compatible sessions, logout, and redacted health/diagnostics.

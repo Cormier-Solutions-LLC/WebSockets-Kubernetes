@@ -63,6 +63,11 @@ __pycache__/
 .ruff_cache/
 .venv/
 
+# Ruby build and test outputs
+.bundle/
+coverage/
+tmp/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

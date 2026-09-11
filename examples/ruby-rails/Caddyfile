@@ -1,0 +1,25 @@
+{
+	auto_https off
+	admin off
+	log default {
+		output discard
+	}
+}
+
+:{$PORT} {
+	log {
+		output discard
+	}
+	header {
+		Cache-Control "no-store"
+		Content-Security-Policy "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self'; style-src 'self'; script-src 'self'"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+	@realtime_websocket path /realtime/ws
+	reverse_proxy @realtime_websocket {$GATEWAY_URL} {
+		header_up Host {http.request.hostport}
+	}
+	reverse_proxy unix//tmp/cormier-rails.sock
+}

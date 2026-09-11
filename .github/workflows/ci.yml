@@ -544,6 +544,64 @@ jobs:
           name: go-gin-${{ github.sha }}
           path: artifacts/go-gin
 
+  elixir-phoenix:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: 1.20.4
+          otp-version: 29.0.6
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Phoenix reference adapter
+        working-directory: examples/elixir-phoenix
+        run: |
+          mix deps.get --check-locked
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test --no-start
+          mix hex.audit
+      - name: Build the Phoenix reference container
+        run: docker build --file examples/elixir-phoenix/Dockerfile --tag cormier-elixir-phoenix:${{ github.sha }} .
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        run: npx playwright test --config playwright.elixir-phoenix.config.mjs
+      - name: Upload Phoenix failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elixir-phoenix-${{ github.sha }}
+          path: artifacts/elixir-phoenix
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:

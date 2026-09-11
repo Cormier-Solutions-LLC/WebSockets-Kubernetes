@@ -46,6 +46,10 @@ target/
 .gradle/
 build/
 
+# Elixir build outputs
+deps/
+_build/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

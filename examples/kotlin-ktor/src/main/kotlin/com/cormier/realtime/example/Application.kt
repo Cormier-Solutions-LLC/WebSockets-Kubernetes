@@ -22,6 +22,9 @@ import io.ktor.server.application.log
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.ContentTransformationException
+import io.ktor.server.plugins.PayloadTooLargeException
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.receiveChannel
@@ -46,6 +49,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -66,7 +70,9 @@ fun main() {
     try {
         val config = ReferenceConfig.load()
         val store = LettuceSessionStore.connect(config.redisUrl)
-        val client = HttpClient(CIO) { install(ClientWebSockets) }
+        val client = HttpClient(CIO) {
+            install(ClientWebSockets) { maxFrameSize = MAXIMUM_BODY_BYTES.toLong() }
+        }
         val server = embeddedServer(Netty, host = config.listenHost, port = config.port) { referenceModule(config, store, client) }
         Runtime.getRuntime().addShutdownHook(Thread {
             server.stop(1_000, 15_000)
@@ -92,6 +98,18 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
     install(StatusPages) {
         exception<ClientFault> { call, fault ->
             call.respond(fault.status, ErrorResponse(fault.code, fault.message ?: "The request is invalid."))
+        }
+        exception<PayloadTooLargeException> { call, _ ->
+            call.respond(HttpStatusCode.PayloadTooLarge, ErrorResponse("invalid_request", "The request is invalid."))
+        }
+        exception<ContentTransformationException> { call, _ ->
+            call.respond(HttpStatusCode.BadRequest, ErrorResponse("invalid_request", "The request is invalid."))
+        }
+        exception<SerializationException> { call, _ ->
+            call.respond(HttpStatusCode.BadRequest, ErrorResponse("invalid_request", "The request is invalid."))
+        }
+        exception<BadRequestException> { call, _ ->
+            call.respond(HttpStatusCode.BadRequest, ErrorResponse("invalid_request", "The request is invalid."))
         }
         exception<Throwable> { call, error ->
             this@referenceModule.log.error("event=request_failed error={}", error.javaClass.simpleName)

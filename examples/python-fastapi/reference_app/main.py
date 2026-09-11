@@ -119,7 +119,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise
         app.state.redis = client
         app.state.http = http
-        logger.info("application_started")
         try:
             yield
         finally:
@@ -377,9 +376,10 @@ async def read_session(request: Request, settings: Settings) -> dict[str, object
     if not isinstance(record, dict) or record.get("revoked", True) is not False:
         return None
     try:
-        if datetime.fromisoformat(str(record["expiresAt"])) <= datetime.now(UTC):
+        expires_at = datetime.fromisoformat(str(record["expiresAt"]))
+        if expires_at.tzinfo is None or expires_at.utcoffset() is None or expires_at <= datetime.now(UTC):
             return None
-    except KeyError, ValueError:
+    except KeyError, TypeError, ValueError:
         return None
     return record
 

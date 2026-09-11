@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -82,6 +86,16 @@ func TestLoginDecoderRejectsTrailingData(t *testing.T) {
 		if _, err := decodeLoginRequest(strings.NewReader(payload)); err == nil {
 			t.Fatalf("trailing login data accepted: %q", payload)
 		}
+	}
+}
+
+func TestLoginDecoderReportsOversizedBodies(t *testing.T) {
+	payload := `{"tenantId":"` + strings.Repeat("a", maximumBodyBytes) + `"}`
+	reader := http.MaxBytesReader(httptest.NewRecorder(), io.NopCloser(strings.NewReader(payload)), maximumBodyBytes)
+	_, err := decodeLoginRequest(reader)
+	var maximum *http.MaxBytesError
+	if !errors.As(err, &maximum) {
+		t.Fatalf("oversized body did not return MaxBytesError: %v", err)
 	}
 }
 

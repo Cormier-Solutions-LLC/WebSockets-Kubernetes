@@ -1,4 +1,7 @@
+import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -12,6 +15,7 @@ from reference_app.main import (
     gateway_to_browser,
     offers_protocol,
     public_forwarding_headers,
+    read_session,
 )
 
 
@@ -100,12 +104,56 @@ async def test_normal_gateway_close_details_are_forwarded() -> None:
 
 
 def test_uvicorn_caps_browser_websocket_messages(monkeypatch: pytest.MonkeyPatch) -> None:
-    options: dict[str, object] = {}
+    configured: dict[str, object] = {}
+
+    class Server:
+        started = True
+
+        def __init__(self, config: object) -> None:
+            configured["config"] = config
+
+        def run(self) -> None:
+            return None
+
     monkeypatch.setattr(entrypoint, "Settings", lambda: settings())
-    monkeypatch.setattr(entrypoint.uvicorn, "run", lambda *_args, **kwargs: options.update(kwargs))
+    monkeypatch.setattr(entrypoint, "ReadinessServer", Server)
 
     assert entrypoint.main() == 0
-    assert options["ws_max_size"] == MAXIMUM_BODY_BYTES
+    assert configured["config"].ws_max_size == MAXIMUM_BODY_BYTES  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_readiness_is_emitted_only_after_the_listener_starts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def startup(server: object, sockets: object = None) -> None:
+        server.started = True  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(entrypoint.uvicorn.Server, "startup", startup)
+    server = entrypoint.ReadinessServer(entrypoint.uvicorn.Config("reference_app.main:app"))
+    await server.startup()
+
+    assert json.loads(capsys.readouterr().out) == {"event": "application_started", "stack": "python-fastapi"}
+
+
+@pytest.mark.asyncio
+async def test_timezone_less_session_expiry_is_unauthenticated() -> None:
+    class Redis:
+        async def get(self, _key: str) -> str:
+            return json.dumps(
+                {
+                    "tenantId": "tenant-a",
+                    "userId": "user-a",
+                    "expiresAt": (datetime.now(UTC) + timedelta(minutes=5)).replace(tzinfo=None).isoformat(),
+                    "revoked": False,
+                }
+            )
+
+    request = SimpleNamespace(
+        cookies={"cormier_session": "0123456789abcdef"},
+        app=SimpleNamespace(state=SimpleNamespace(redis=Redis())),
+    )
+    assert await read_session(request, settings()) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

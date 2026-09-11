@@ -270,6 +270,11 @@ func (a *App) login(c *gin.Context) {
 	}
 	limitBody(c)
 	request, err := decodeLoginRequest(c.Request.Body)
+	var maximum *http.MaxBytesError
+	if errors.As(err, &maximum) {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"code": "invalid_request", "message": "The request is invalid."})
+		return
+	}
 	if err != nil || !a.config.Allows(request.TenantID, request.UserID) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "invalid_identity", "message": "Select a configured test tenant and user."})
 		return

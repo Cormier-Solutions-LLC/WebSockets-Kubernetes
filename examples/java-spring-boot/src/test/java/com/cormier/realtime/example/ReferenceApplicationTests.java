@@ -79,6 +79,15 @@ final class ReferenceApplicationTests {
   }
 
   @Test
+  void rejectsMalformedLoginAsAClientError() {
+    client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{not-json")
+        .exchange().expectStatus().isBadRequest()
+        .expectBody().jsonPath("$.code").isEqualTo("invalid_request");
+  }
+
+  @Test
   void createsGatewayCompatibleSessionAndLogsOut() {
     client.post().uri("/api/login").header("Origin", "http://127.0.0.1:15200")
         .contentType(MediaType.APPLICATION_JSON)

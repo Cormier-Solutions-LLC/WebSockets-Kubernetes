@@ -106,6 +106,20 @@ class ReferenceApplicationTest {
     }
 
     @Test
+    fun `malformed login JSON remains a client error`() = testApplication {
+        val upstream = HttpClient(MockEngine { respond("{}", HttpStatusCode.OK) })
+        application { referenceModule(ReferenceConfig.load(fixtureEnvironment), MemoryStore(), upstream) }
+        val response = client.post("/api/login") {
+            header(HttpHeaders.Origin, fixtureEnvironment.getValue("PUBLIC_ORIGIN"))
+            contentType(ContentType.Application.Json)
+            setBody("{")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue(response.bodyAsText().contains("invalid_request"))
+        upstream.close()
+    }
+
+    @Test
     fun `ticket bodies are bounded before gateway forwarding`() = testApplication {
         var upstreamCalls = 0
         val upstream = HttpClient(MockEngine {

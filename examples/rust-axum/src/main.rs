@@ -28,7 +28,7 @@ use std::{
 use store::SessionStore;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::net::TcpListener;
-use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+use tokio_tungstenite::{connect_async_with_config, tungstenite::client::IntoClientRequest};
 use tower_http::{
     services::{ServeDir, ServeFile},
     set_header::SetResponseHeaderLayer,
@@ -438,10 +438,16 @@ async fn relay_inner(
     if let Some(value) = host {
         request.headers_mut().insert(header::HOST, value);
     }
-    let (gateway, _) = tokio::time::timeout(Duration::from_secs(15), connect_async(request))
-        .await
-        .map_err(|_| AppError::unavailable())?
-        .map_err(|_| AppError::unavailable())?;
+    let mut websocket_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+    websocket_config.max_message_size = Some(MAXIMUM_WEBSOCKET_BYTES);
+    websocket_config.max_frame_size = Some(MAXIMUM_WEBSOCKET_BYTES);
+    let (gateway, _) = tokio::time::timeout(
+        Duration::from_secs(15),
+        connect_async_with_config(request, Some(websocket_config), false),
+    )
+    .await
+    .map_err(|_| AppError::unavailable())?
+    .map_err(|_| AppError::unavailable())?;
     let mut stopping = state.stopping.clone();
     let (mut browser_tx, mut browser_rx) = browser.split();
     let (mut gateway_tx, mut gateway_rx) = gateway.split();

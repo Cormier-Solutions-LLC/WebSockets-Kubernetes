@@ -12,9 +12,10 @@ test("shared UI completes login, ticket connect, subscribe, publish, receive, re
   await page.click("#connect");
   await expect(page.locator("#state")).toHaveText("open");
 
-  const metrics = await request.get(`${process.env.REFERENCE_GATEWAY_URL}/metrics`);
-  expect(metrics.ok()).toBeTruthy();
-  expect(await metrics.text()).toMatch(/cormier_realtime_authentication_total\{method="ticket",outcome="success"} [1-9][0-9]*/);
+  await expect.poll(async () => {
+    const metrics = await request.get(`${process.env.REFERENCE_GATEWAY_URL}/metrics`);
+    return metrics.ok() ? await metrics.text() : "";
+  }).toMatch(/cormier_realtime_authentication_total\{method="ticket",outcome="success"} [1-9][0-9]*/);
   await page.click("#subscribe");
   await expect(page.locator("#events")).toContainText("subscribed");
 

@@ -602,6 +602,59 @@ jobs:
           name: elixir-phoenix-${{ github.sha }}
           path: artifacts/elixir-phoenix
 
+  php-laravel:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Build the gateway fixture
+        run: |
+          dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
+          dotnet build examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-restore
+      - name: Build the canonical browser SDK
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts && npm run build --silent
+      - name: Check the locked Laravel reference adapter
+        run: >-
+          docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/php-laravel
+          composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332
+          sh -lc 'composer install --no-interaction --no-progress --no-scripts && composer validate --no-check-publish && vendor/bin/pint --test && vendor/bin/phpunit && composer audit --locked --no-interaction'
+      - name: Build the Laravel reference container
+        run: docker build --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
+      - name: Install Chromium
+        working-directory: sdk/typescript
+        run: npx playwright install --with-deps chromium
+      - name: Run the shared browser smoke scenarios
+        working-directory: sdk/typescript
+        env:
+          PHP_LARAVEL_IMAGE: cormier-php-laravel:${{ github.sha }}
+        run: npx playwright test --config playwright.php-laravel.config.mjs
+      - name: Upload Laravel failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-laravel-${{ github.sha }}
+          path: artifacts/php-laravel
+
   full-circle:
     runs-on: ubuntu-latest
     strategy:

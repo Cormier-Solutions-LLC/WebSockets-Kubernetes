@@ -50,6 +50,13 @@ build/
 deps/
 _build/
 
+# PHP and Laravel build outputs
+vendor/
+bootstrap/cache/*.php
+storage/framework/*
+!storage/framework/.gitignore
+.phpunit.result.cache
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

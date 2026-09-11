@@ -1,0 +1,35 @@
+{
+	auto_https off
+	admin off
+	log default {
+		output discard
+	}
+	servers {
+		timeouts {
+			read_header 5s
+			read_body 15s
+			write 30s
+			idle 60s
+		}
+	}
+}
+
+:{$PORT} {
+	log {
+		output discard
+	}
+	header {
+		-X-Powered-By
+		Cache-Control "no-store"
+		Content-Security-Policy "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self'; style-src 'self'; script-src 'self'"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+	@realtime_websocket path /realtime/ws
+	reverse_proxy @realtime_websocket {$GATEWAY_URL} {
+		header_up Host {http.request.hostport}
+	}
+	root * /app/public
+	php_server
+}

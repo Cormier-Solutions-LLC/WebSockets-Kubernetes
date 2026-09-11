@@ -15,6 +15,7 @@ repositories { mavenCentral() }
 dependencyLocking { lockAllConfigurations() }
 
 dependencies {
+    implementation(platform("io.netty:netty-bom:4.2.17.Final"))
     implementation("io.ktor:ktor-server-core:3.5.2")
     implementation("io.ktor:ktor-server-netty:3.5.2")
     implementation("io.ktor:ktor-server-content-negotiation:3.5.2")

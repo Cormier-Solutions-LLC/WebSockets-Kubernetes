@@ -51,10 +51,11 @@ Replace every fixture value before a real deployment. Do not bake the environmen
 | Health and redacted diagnostics | Available | No secrets or network identities returned |
 | Logout | Available | Redis and both cookies are removed |
 | HA/session replication | Omitted | Default Express `MemoryStore` is process-local |
-| Rate limiting, CSRF tokens, authorization provider | Omitted | Required production controls belong to the adopting application |
+| Request limiting and CSRF defense | Example | Bounded in-process limiter, exact Origin checks, and SameSite Strict cookies |
+| Distributed abuse controls, CSRF tokens, authorization provider | Omitted | Required production controls belong to the adopting application |
 | TLS, gateway, Redis, orchestration | External | Always supplied and secured by deployment configuration |
 
-This is a teaching adapter, not a production identity system or reverse proxy. `express-session` uses its documented development-only in-memory store. Production adopters must select a supported durable session store, identity/authorization provider, CSRF and abuse controls, TLS termination, secret manager, telemetry, and availability design.
+This is a teaching adapter, not a production identity system or reverse proxy. `express-session` and the request limiter use process-local memory. Production adopters must select supported durable session and distributed rate-limit stores, an identity/authorization provider, defense-in-depth CSRF controls, TLS termination, secret manager, telemetry, and availability design.
 
 ## Supported versions and footprint
 
@@ -69,7 +70,7 @@ This is a teaching adapter, not a production identity system or reverse proxy. `
 | Redis | 7.4 | Tested session service |
 | Container base | Node 24.20.0 Alpine, pinned OCI index digest | Reproducible multi-platform base |
 
-The stack-specific runtime is four source files and approximately 339 lines before comments/tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
+The stack-specific runtime is four source files and approximately 347 lines before comments/tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
 
 ## Support and diagnostics
 

@@ -743,7 +743,7 @@ jobs:
         run: >-
           docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/ruby-rails
           ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc
-          sh -lc 'apk add --no-cache build-base git yaml-dev >/dev/null && gem install bundler -v 4.0.20 --no-document >/dev/null && bundle _4.0.20_ config set path /tmp/bundle && bundle _4.0.20_ install --frozen && bundle _4.0.20_ check && bundle _4.0.20_ exec rubocop && bundle _4.0.20_ exec ruby test/reference_config_test.rb && bundle _4.0.20_ exec brakeman --no-pager --quiet && bundle _4.0.20_ exec bundle-audit check --update'
+          sh -lc 'apk add --no-cache build-base git yaml-dev >/dev/null && gem install bundler -v 4.0.20 --no-document >/dev/null && bundle _4.0.20_ config set path /tmp/bundle && BUNDLE_FROZEN=true bundle _4.0.20_ install && bundle _4.0.20_ check && bundle _4.0.20_ exec rubocop && bundle _4.0.20_ exec ruby test/reference_config_test.rb && bundle _4.0.20_ exec brakeman --no-pager --quiet && bundle _4.0.20_ exec bundle-audit check --update'
       - name: Build the Rails reference container
         run: docker build --file examples/ruby-rails/Dockerfile --tag cormier-ruby-rails:${{ github.sha }} .
       - name: Install Chromium
@@ -796,7 +796,7 @@ jobs:
         run: >-
           docker run --rm --volume "$PWD:/repo" --workdir /repo/examples/swift-vapor
           swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c
-          sh -lc 'swift package resolve --disable-sandbox && git diff --exit-code Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
+          sh -lc 'cp Package.resolved /tmp/Package.resolved && swift package resolve --disable-sandbox && diff -u /tmp/Package.resolved Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
       - name: Build the Vapor reference container
         run: docker build --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
       - name: Install Chromium

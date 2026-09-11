@@ -6,6 +6,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const redisEndpoint = process.env.REDIS_TEST_ENDPOINT ?? "127.0.0.1:6379";
 const frontendOrigin = "http://127.0.0.1:15500";
 const gatewayOrigin = "http://127.0.0.1:15501";
+const gatewayListenOrigin = "http://0.0.0.0:15501";
 const image = process.env.PYTHON_FASTAPI_IMAGE ?? "cormier-python-fastapi:local";
 process.env.REFERENCE_STACK = "Python / FastAPI";
 process.env.REFERENCE_BASE_URL = frontendOrigin;
@@ -28,7 +29,7 @@ export default defineConfig({
       timeout: 60_000,
       reuseExistingServer: false,
       env: {
-        ASPNETCORE_URLS: gatewayOrigin,
+        ASPNETCORE_URLS: gatewayListenOrigin,
         FullCircle__Topology: "non-ha",
         FullCircle__InstanceName: "gateway-a",
         Redis__Endpoint: redisEndpoint,

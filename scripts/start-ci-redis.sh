@@ -4,10 +4,11 @@ set -euo pipefail
 : "${CI_REDIS_IMAGE:?CI_REDIS_IMAGE must contain the complete Redis image reference}"
 
 container_name="cormier-ci-redis-${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-job}"
+bind_address="${CI_REDIS_BIND_ADDRESS:-127.0.0.1}"
 host_port="${CI_REDIS_PORT:-6379}"
 docker run --detach --rm \
   --name "$container_name" \
-  --publish "127.0.0.1:${host_port}:6379" \
+  --publish "${bind_address}:${host_port}:6379" \
   --health-cmd "redis-cli ping" \
   --health-interval 2s \
   --health-timeout 2s \

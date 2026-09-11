@@ -12,6 +12,7 @@ permissions:
 
 env:
   CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
+  CI_REDIS_BIND_ADDRESS: ${{ vars.CI_REDIS_BIND_ADDRESS || '0.0.0.0' }}
   CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}
   CI_PYTHON_IMAGE: ${{ vars.CI_PYTHON_IMAGE || 'python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc' }}
   CI_RUBY_IMAGE: ${{ vars.CI_RUBY_IMAGE || 'ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc' }}

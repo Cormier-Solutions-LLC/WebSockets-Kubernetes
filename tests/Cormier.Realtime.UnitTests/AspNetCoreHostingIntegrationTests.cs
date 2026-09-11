@@ -117,12 +117,33 @@ public sealed class AspNetCoreHostingIntegrationTests
             "application-administrator",
             policy => policy.RequireClaim("role", "administrator")));
 
-        var exception = Assert.Throws<ArgumentException>(() =>
-            services.AddRealtimeDiagnosticsBearer(
-                "APPLICATION-ADMINISTRATOR",
-                new string('d', 32)));
+        services.AddRealtimeDiagnosticsBearer(
+            "APPLICATION-ADMINISTRATOR",
+            new string('d', 32));
+        using var provider = services.BuildServiceProvider();
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value);
 
-        Assert.Contains("existing authorization policy", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(exception.Failures, failure => failure.Contains("collides", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BearerHelpersRejectFactoryBackedApplicationPolicies()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfigureOptions<AuthorizationOptions>>(_ =>
+            new ConfigureOptions<AuthorizationOptions>(options => options.AddPolicy(
+                "application-auditor",
+                policy => policy.RequireClaim("role", "auditor"))));
+        services.AddRealtimeMetricsBearer(
+            "APPLICATION-AUDITOR",
+            new string('m', 32));
+        using var provider = services.BuildServiceProvider();
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("collides", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -138,7 +159,7 @@ public sealed class AspNetCoreHostingIntegrationTests
         var exception = Assert.Throws<OptionsValidationException>(() =>
             provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value);
 
-        Assert.Contains(exception.Failures, failure => failure.Contains("replaced", StringComparison.Ordinal));
+        Assert.Contains(exception.Failures, failure => failure.Contains("collides", StringComparison.Ordinal));
     }
 
     [Theory]

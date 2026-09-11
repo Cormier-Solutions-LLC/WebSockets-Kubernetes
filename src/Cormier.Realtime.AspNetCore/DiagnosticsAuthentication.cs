@@ -54,13 +54,6 @@ public static class DiagnosticsAuthenticationExtensions
         {
             throw new ArgumentOutOfRangeException(nameof(token), "The bearer token must contain between 32 and 4096 characters.");
         }
-        if (HasRegisteredAuthorizationPolicy(services, authorizationPolicy))
-        {
-            throw new ArgumentException(
-                "The diagnostics and metrics bearer helpers cannot replace an existing authorization policy.",
-                nameof(authorizationPolicy));
-        }
-
         var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         foreach (var descriptor in services.Where(static descriptor =>
                      descriptor.ServiceType == typeof(DiagnosticsBearerRegistration)))
@@ -98,28 +91,34 @@ public static class DiagnosticsAuthenticationExtensions
         var policy = new AuthorizationPolicyBuilder(authenticationScheme)
             .RequireAuthenticatedUser()
             .Build();
-        services.AddAuthorizationBuilder().AddPolicy(authorizationPolicy, policy);
+        services.AddAuthorizationBuilder();
+        var policyConfiguration = new DiagnosticsBearerPolicyConfiguration(
+            authorizationPolicy,
+            policy);
+        services.AddSingleton<IConfigureOptions<AuthorizationOptions>>(policyConfiguration);
         services.AddOptions<AuthorizationOptions>()
             .Validate(
-                options => ReferenceEquals(options.GetPolicy(authorizationPolicy), policy),
-                $"The {authorizationPolicy} authorization policy was replaced after its bearer helper registration.");
+                options => !policyConfiguration.CollisionDetected &&
+                    ReferenceEquals(options.GetPolicy(authorizationPolicy), policy),
+                $"The {authorizationPolicy} authorization policy collides with another host policy registration.");
         return services;
     }
 
-    private static bool HasRegisteredAuthorizationPolicy(
-        IServiceCollection services,
-        string authorizationPolicy)
+    private sealed class DiagnosticsBearerPolicyConfiguration(
+        string authorizationPolicy,
+        AuthorizationPolicy policy) : IConfigureOptions<AuthorizationOptions>
     {
-        var options = new AuthorizationOptions();
-        foreach (var configuration in services
-                     .Where(static descriptor =>
-                         descriptor.ServiceType == typeof(IConfigureOptions<AuthorizationOptions>))
-                     .Select(static descriptor => descriptor.ImplementationInstance)
-                     .OfType<IConfigureOptions<AuthorizationOptions>>())
+        public bool CollisionDetected { get; private set; }
+
+        public void Configure(AuthorizationOptions options)
         {
-            configuration.Configure(options);
+            if (options.GetPolicy(authorizationPolicy) is not null)
+            {
+                CollisionDetected = true;
+                return;
+            }
+            options.AddPolicy(authorizationPolicy, policy);
         }
-        return options.GetPolicy(authorizationPolicy) is not null;
     }
 
     private sealed record DiagnosticsBearerRegistration(

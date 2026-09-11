@@ -115,6 +115,19 @@ final class ReferenceApplicationTests {
         .consumeWith(result -> org.junit.jupiter.api.Assertions.assertFalse(
             new String(result.getResponseBody()).contains("private.invalid")));
 
+    when(values.get(anyString()))
+        .thenReturn(Mono.error(new IllegalStateException("redis://user:secret@private.invalid")));
+    client.get().uri("/api/session").cookie("cormier_session", "0123456789abcdef")
+        .exchange().expectStatus().isEqualTo(503)
+        .expectBody().jsonPath("$.code").isEqualTo("service_unavailable");
+
+    when(redis.delete(anyString()))
+        .thenReturn(Mono.error(new IllegalStateException("redis://user:secret@private.invalid")));
+    client.post().uri("/api/logout").header("Origin", "http://127.0.0.1:15200")
+        .cookie("cormier_session", "0123456789abcdef")
+        .exchange().expectStatus().isEqualTo(503)
+        .expectBody().jsonPath("$.code").isEqualTo("service_unavailable");
+
     client.post().uri("/realtime/tickets").header("Origin", "http://127.0.0.1:15200")
         .exchange().expectStatus().is5xxServerError()
         .expectBody().consumeWith(result -> org.junit.jupiter.api.Assertions.assertFalse(
@@ -155,6 +168,12 @@ final class ReferenceApplicationTests {
 
     properties = new ReferenceProperties(
         "127.0.0.1", URI.create("https://EXAMPLE.TEST"), URI.create("http://gateway.test"),
+        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
+    org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
+
+    properties = new ReferenceProperties(
+        "127.0.0.1", URI.create("https://example.test:99999"), URI.create("http://gateway.test"),
         1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());

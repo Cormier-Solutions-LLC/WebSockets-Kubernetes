@@ -284,16 +284,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         headers.update(public_forwarding_headers(configured))
         try:
-            upstream = await request.app.state.http.post(
-                f"{configured.GATEWAY_URL}/realtime/tickets", content=bytes(body), headers=headers
-            )
+            async with request.app.state.http.stream(
+                "POST", f"{configured.GATEWAY_URL}/realtime/tickets", content=bytes(body), headers=headers
+            ) as upstream:
+                response_body = bytearray()
+                async for chunk in upstream.aiter_bytes():
+                    if len(response_body) + len(chunk) > MAXIMUM_BODY_BYTES:
+                        return JSONResponse(
+                            {
+                                "code": "service_unavailable",
+                                "message": "The reference application dependency is unavailable.",
+                            },
+                            503,
+                        )
+                    response_body.extend(chunk)
+                status_code = upstream.status_code
+                content_type = upstream.headers.get("content-type", "application/json")
         except httpx.HTTPError:
             return JSONResponse(
                 {"code": "service_unavailable", "message": "The reference application dependency is unavailable."}, 503
             )
-        return Response(
-            upstream.content, upstream.status_code, media_type=upstream.headers.get("content-type", "application/json")
-        )
+        return Response(bytes(response_body), status_code, media_type=content_type)
 
     @app.websocket("/realtime/ws")
     async def websocket_proxy(browser: WebSocket) -> None:

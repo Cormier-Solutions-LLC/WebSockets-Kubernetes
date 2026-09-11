@@ -76,6 +76,7 @@ public final class ReferenceController {
     return encode(record)
         .flatMap(value -> redis.opsForValue().set(key(sessionId), value, Duration.ofSeconds(properties.sessionLifetimeSeconds())))
         .flatMap(stored -> stored ? Mono.just(record) : Mono.error(new IllegalStateException("Session was not stored.")))
+        .onErrorMap(error -> unavailable())
         .map(value -> {
           exchange.getResponse().addCookie(cookie(sessionId, properties.sessionLifetimeSeconds()));
           return Map.of("tenantId", value.tenantId(), "userId", value.userId(), "expiresAt", value.expiresAt().toString());
@@ -86,6 +87,7 @@ public final class ReferenceController {
   Mono<Map<String, Object>> session(@CookieValue(value = COOKIE, required = false) String sessionId) {
     if (sessionId == null || !sessionId.matches("[A-Za-z0-9_-]{16,256}")) return Mono.error(unauthorized());
     return redis.opsForValue().get(key(sessionId))
+        .onErrorMap(error -> unavailable())
         .switchIfEmpty(Mono.error(unauthorized()))
         .flatMap(this::decode)
         .filter(record -> !record.revoked() && record.expiresAt().isAfter(Instant.now()))
@@ -105,7 +107,7 @@ public final class ReferenceController {
       ServerWebExchange exchange) {
     requireOrigin(origin);
     var deletion = sessionId == null ? Mono.just(false) : redis.delete(key(sessionId)).map(count -> count > 0);
-    return deletion.map(ignored -> {
+    return deletion.onErrorMap(error -> unavailable()).map(ignored -> {
       exchange.getResponse().addCookie(cookie("", 0));
       return ResponseEntity.noContent().build();
     });
@@ -136,6 +138,11 @@ public final class ReferenceController {
 
   private static ResponseStatusException unauthorized() {
     return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication is required.");
+  }
+
+  private static ResponseStatusException unavailable() {
+    return new ResponseStatusException(
+        HttpStatus.SERVICE_UNAVAILABLE, "The reference application dependency is unavailable.");
   }
 
   record LoginRequest(String tenantId, String userId) {}

@@ -30,6 +30,7 @@ data class ReferenceConfig(
                 val value = URI(required(name)).normalize()
                 require(value.toString() == value.toString().lowercase() && value.scheme in setOf("http", "https") && value.host != null && value.userInfo == null &&
                     (value.path.isNullOrEmpty() || value.path == "/") && value.query == null && value.fragment == null &&
+                    (value.port == -1 || value.port in 1..65535) &&
                     !(value.scheme == "http" && value.port == 80) && !(value.scheme == "https" && value.port == 443)) {
                     "$name must be an HTTP(S) origin"
                 }

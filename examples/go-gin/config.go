@@ -133,6 +133,12 @@ func parseOrigin(value string) (string, *url.URL, error) {
 	if err != nil || strings.ToLower(value) != value || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || (parsed.Scheme == "http" && parsed.Port() == "80") || (parsed.Scheme == "https" && parsed.Port() == "443") {
 		return "", nil, fmt.Errorf("origin is invalid")
 	}
+	if parsed.Port() != "" {
+		port, parseErr := strconv.Atoi(parsed.Port())
+		if parseErr != nil || port < 1 || port > 65535 {
+			return "", nil, fmt.Errorf("origin port is invalid")
+		}
+	}
 	parsed.Path = ""
 	return strings.TrimSuffix(parsed.String(), "/"), parsed, nil
 }

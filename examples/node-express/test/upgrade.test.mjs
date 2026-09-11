@@ -34,6 +34,7 @@ function fixture() {
   });
   const socket = new EventEmitter();
   socket.destroyed = false;
+  socket.writable = true;
   socket.destroy = () => { socket.destroyed = true; };
   return { calls, handler, socket, upgradedSockets, proxyRequest, get deadline() { return deadline; }, cancelled };
 }
@@ -52,7 +53,7 @@ test("forwards only the configured websocket path", () => {
   const head = Buffer.alloc(0);
   context.handler(request, context.socket, head);
   assert.equal(context.socket.destroyed, false);
-  assert.equal(context.upgradedSockets.has(context.socket), true);
+  assert.equal([...context.upgradedSockets][0].browser, context.socket);
   assert.deepEqual(context.calls, [[request, context.socket, head, {
     target: "http://127.0.0.1:15101",
     changeOrigin: false,
@@ -73,8 +74,10 @@ test("destroys both sides when the gateway websocket handshake exceeds its deadl
 test("cancels the gateway websocket handshake deadline after upgrade", () => {
   const context = fixture();
   context.handler({ url: "/realtime/ws" }, context.socket, Buffer.alloc(0));
-  context.proxyRequest.emit("upgrade");
+  const gateway = new EventEmitter();
+  context.proxyRequest.emit("upgrade", {}, gateway);
   assert.deepEqual(context.cancelled, [context.deadline]);
+  assert.equal([...context.upgradedSockets][0].gateway, gateway);
 });
 
 test("cancels the handshake and upstream request when the browser disconnects", () => {

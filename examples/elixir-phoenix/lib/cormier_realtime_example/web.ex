@@ -13,6 +13,14 @@ defmodule CormierRealtimeExample.Web do
     |> Enum.any?(&(String.trim(&1) == @protocol))
   end
 
+  def collect_response_chunk({:data, data}, {request, response}) do
+    body = [response.body || "", data]
+
+    if IO.iodata_length(body) > @max_body,
+      do: {:halt, {request, %{response | body: :too_large}}},
+      else: {:cont, {request, %{response | body: body}}}
+  end
+
   def call(conn, _options) do
     conn =
       conn
@@ -171,9 +179,11 @@ defmodule CormierRealtimeExample.Web do
              headers: forward_headers(conn, config),
              connect_options: [timeout: 5_000],
              receive_timeout: 15_000,
+             into: &collect_response_chunk/2,
              retry: false
-           ) do
-      body = if is_binary(response.body), do: response.body, else: Jason.encode!(response.body)
+           ),
+         false <- response.body == :too_large do
+      body = IO.iodata_to_binary(response.body)
 
       conn
       |> put_resp_header(
@@ -266,8 +276,12 @@ defmodule CormierRealtimeExample.Web do
          true <- !record["revoked"] and DateTime.after?(expires, DateTime.utc_now()) do
       {:ok, record, conn}
     else
-      {:error, %Redix.Error{}} -> {:error, :dependency, conn}
-      _ -> {:error, :unauthorized, conn}
+      {:error, error}
+      when is_struct(error, Redix.Error) or is_struct(error, Redix.ConnectionError) ->
+        {:error, :dependency, conn}
+
+      _ ->
+        {:error, :unauthorized, conn}
     end
   end
 

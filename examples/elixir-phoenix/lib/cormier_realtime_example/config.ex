@@ -78,8 +78,17 @@ defmodule CormierRealtimeExample.Config do
     canonical_casing = value == String.downcase(value)
 
     case URI.parse(value) do
-      %URI{scheme: scheme, host: host, userinfo: nil, query: nil, fragment: nil, path: path}
+      %URI{
+        scheme: scheme,
+        host: host,
+        port: port,
+        userinfo: nil,
+        query: nil,
+        fragment: nil,
+        path: path
+      }
       when scheme in ["http", "https"] and is_binary(host) and path in [nil, "", "/"] and
+             (is_nil(port) or (is_integer(port) and port in 1..65_535)) and
              not explicit_default_port and canonical_casing ->
         {:ok, String.trim_trailing(value, "/")}
 

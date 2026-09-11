@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import httpx
 import pytest
 
@@ -14,14 +16,16 @@ from reference_app.main import (
 
 
 class Upstream:
-    def __init__(self) -> None:
+    def __init__(self, content: bytes = b"{}") -> None:
         self.calls = 0
         self.arguments: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        self.content = content
 
-    async def post(self, *args: object, **kwargs: object) -> httpx.Response:
+    @asynccontextmanager
+    async def stream(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
         self.calls += 1
         self.arguments.append((args, kwargs))
-        return httpx.Response(202, content=b"{}", headers={"content-type": "application/json"})
+        yield httpx.Response(202, content=self.content, headers={"content-type": "application/json"})
 
 
 def settings(**overrides: object) -> Settings:
@@ -116,7 +120,20 @@ async def test_ticket_forwards_the_public_scheme_to_an_internal_gateway() -> Non
 
     assert response.status_code == 202
     assert upstream.calls == 1
+    assert upstream.arguments[0][0][0] == "POST"
     assert upstream.arguments[0][1]["headers"]["X-Forwarded-Proto"] == "https"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_ticket_rejects_streamed_oversized_upstream_response() -> None:
+    app = create_app(settings())
+    app.state.http = Upstream(b"a" * (MAXIMUM_BODY_BYTES + 1))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://reference.test") as client:
+        response = await client.post("/realtime/tickets", headers={"Origin": "http://127.0.0.1:15500"}, content=b"{}")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "service_unavailable"
 
 
 @pytest.mark.asyncio

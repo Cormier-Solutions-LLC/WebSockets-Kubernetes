@@ -29,6 +29,8 @@ defmodule CormierRealtimeExample.ConfigTest do
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
     invalid = Map.put(values, "PUBLIC_ORIGIN", "https://EXAMPLE.TEST")
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
+    invalid = Map.put(values, "PUBLIC_ORIGIN", "https://example.test:99999")
+    assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
   end
 
   test "consumes canonical contracts" do
@@ -42,5 +44,21 @@ defmodule CormierRealtimeExample.ConfigTest do
     refute Web.offers_protocol?([])
     refute Web.offers_protocol?(["other, cormier.realtime.v10"])
     assert Web.offers_protocol?(["other", " cormier.realtime.v1"])
+  end
+
+  test "bounds streamed ticket responses" do
+    request = Req.new()
+    response = Req.Response.new(body: "")
+    boundary = :binary.copy("a", 65_536)
+
+    assert {:cont, {^request, bounded}} =
+             Web.collect_response_chunk({:data, boundary}, {request, response})
+
+    assert IO.iodata_length(bounded.body) == 65_536
+
+    assert {:halt, {^request, overflow}} =
+             Web.collect_response_chunk({:data, "b"}, {request, bounded})
+
+    assert overflow.body == :too_large
   end
 end

@@ -50,6 +50,7 @@ class ReferenceApplicationTest {
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "file:///tmp")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:443")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://EXAMPLE.TEST")) }
+        assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:99999")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("ALLOWED_USERS" to "bad user")) }
     }
 

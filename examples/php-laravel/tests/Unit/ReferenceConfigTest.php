@@ -109,10 +109,19 @@ final class ReferenceConfigTest extends TestCase
         self::assertStringContainsString('json_decode(stream_get_contents(STDIN), true)', $startup);
         self::assertStringContainsString('=== "PHP / Laravel"', $startup);
         self::assertStringContainsString('if ! kill -0 "$server_pid"', $startup);
-        self::assertStringContainsString('[ "$attempt" -ge 15 ]', $startup);
+        self::assertStringContainsString('[ "$attempt" -ge 150 ]', $startup);
         self::assertLessThan(
             strpos($startup, 'application_started'),
             strpos($startup, 'readiness_url=')
         );
+    }
+
+    public function test_ticket_response_is_streamed_through_a_strict_limit(): void
+    {
+        $controller = file_get_contents(__DIR__.'/../../app/Http/Controllers/ReferenceController.php');
+        self::assertIsString($controller);
+        self::assertStringContainsString("withOptions(['stream' => true])", $controller);
+        self::assertStringContainsString('MAXIMUM_BODY_BYTES + 1 - strlen($body)', $controller);
+        self::assertStringNotContainsString('response($upstream->body()', $controller);
     }
 }

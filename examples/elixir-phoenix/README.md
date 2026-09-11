@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container base | Hex Elixir 1.20.4, OTP 29.0.6, Alpine 3.24.1 | Digest-pinned amd64/arm64 index |
 
-The adapter has nine stack-specific Elixir/config files and 614 nonblank lines, including tests. Shared assets, fixtures, generated SDK, dependency/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has nine stack-specific Elixir/config files and 647 nonblank lines, including tests. Shared assets, fixtures, generated SDK, dependency/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

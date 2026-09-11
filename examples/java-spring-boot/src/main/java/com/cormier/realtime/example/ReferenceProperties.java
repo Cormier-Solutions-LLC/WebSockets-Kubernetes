@@ -42,6 +42,7 @@ public record ReferenceProperties(
         && (value.getPath() == null || value.getPath().isEmpty() || "/".equals(value.getPath()))
         && value.getQuery() == null
         && value.getFragment() == null
+        && (value.getPort() == -1 || value.getPort() >= 1 && value.getPort() <= 65535)
         && !("http".equals(value.getScheme()) && value.getPort() == 80)
         && !("https".equals(value.getScheme()) && value.getPort() == 443);
   }

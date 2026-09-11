@@ -39,7 +39,7 @@ while ! wget -qO- -T 1 "$readiness_url" 2>/dev/null | php -r '$payload = json_de
     exit "$status"
   fi
   attempt=$((attempt + 1))
-  if [ "$attempt" -ge 15 ]; then
+  if [ "$attempt" -ge 150 ]; then
     kill -TERM "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
     printf '%s\n' '{"event":"startup_failed","stack":"php-laravel"}' >&2

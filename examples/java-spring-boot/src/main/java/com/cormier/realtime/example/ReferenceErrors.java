@@ -16,7 +16,8 @@ final class ReferenceErrors {
   @ExceptionHandler(ResponseStatusException.class)
   ResponseEntity<Map<String, String>> expected(ResponseStatusException error) {
     var status = error.getStatusCode();
-    var code = status.value() == 403 ? "origin_rejected"
+    var code = status.value() == 503 ? "service_unavailable"
+        : status.value() == 403 ? "origin_rejected"
         : status.value() == 401 ? "authentication_required" : "invalid_identity";
     return ResponseEntity.status(status).body(Map.of("code", code, "message", error.getReason()));
   }

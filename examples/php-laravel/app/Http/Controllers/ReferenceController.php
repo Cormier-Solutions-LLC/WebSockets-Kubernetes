@@ -133,6 +133,7 @@ final class ReferenceController
         }
         try {
             $upstream = Http::connectTimeout(5)->timeout(15)
+                ->withOptions(['stream' => true])
                 ->withHeaders(array_filter([
                     'Host' => $request->getHttpHost(),
                     'Origin' => $request->header('Origin'),
@@ -142,11 +143,23 @@ final class ReferenceController
                 ]))
                 ->withBody($request->getContent(), $request->header('Content-Type', 'application/json'))
                 ->post($this->config->gatewayUrl.'/realtime/tickets');
-        } catch (ConnectionException) {
+            $stream = $upstream->toPsrResponse()->getBody();
+            $body = '';
+            while (! $stream->eof()) {
+                $chunk = $stream->read(min(8192, self::MAXIMUM_BODY_BYTES + 1 - strlen($body)));
+                if ($chunk === '' && ! $stream->eof()) {
+                    throw new ConnectionException('The upstream response stream stalled.');
+                }
+                $body .= $chunk;
+                if (strlen($body) > self::MAXIMUM_BODY_BYTES) {
+                    return $this->unavailable();
+                }
+            }
+        } catch (Throwable) {
             return $this->unavailable();
         }
 
-        return response($upstream->body(), $upstream->status())
+        return response($body, $upstream->status())
             ->header('Content-Type', $upstream->header('Content-Type') ?: 'application/json')
             ->header('Cache-Control', 'no-store');
     }

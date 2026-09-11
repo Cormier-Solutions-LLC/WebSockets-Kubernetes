@@ -21,8 +21,15 @@ export function createUpgradeHandler({
       socket.destroy();
       return;
     }
-    upgradedSockets.add(socket);
-    socket.once("close", () => upgradedSockets.delete(socket));
+    const connection = { browser: socket, gateway: undefined, browserClosed: false, gatewayClosed: true };
+    upgradedSockets.add(connection);
+    const forgetIfClosed = () => {
+      if (connection.browserClosed && connection.gatewayClosed) upgradedSockets.delete(connection);
+    };
+    socket.once("close", () => {
+      connection.browserClosed = true;
+      forgetIfClosed();
+    });
 
     const onProxyRequest = (proxyRequest, candidateRequest, candidateSocket) => {
       if (candidateRequest !== request || candidateSocket !== socket) return;
@@ -35,9 +42,17 @@ export function createUpgradeHandler({
         cancel(deadline);
         proxyRequest.destroy();
       };
-      const finishHandshake = () => {
+      const finishHandshake = (_response, gatewaySocket) => {
         cancel(deadline);
         socket.off("close", closeUpstream);
+        if (gatewaySocket) {
+          connection.gateway = gatewaySocket;
+          connection.gatewayClosed = false;
+          gatewaySocket.once("close", () => {
+            connection.gatewayClosed = true;
+            forgetIfClosed();
+          });
+        }
       };
       proxyRequest.once("upgrade", finishHandshake);
       proxyRequest.once("response", finishHandshake);

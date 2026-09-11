@@ -8,6 +8,11 @@
     <UseProjectReferences Condition="'$(UseProjectReferences)' == ''">true</UseProjectReferences>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <ReferenceAssetRoot Condition="'$(Configuration)' == 'Release'">..\shared-web\dist\optimized</ReferenceAssetRoot>
+    <ReferenceAssetRoot Condition="'$(ReferenceAssetRoot)' == ''">..\shared-web\wwwroot</ReferenceAssetRoot>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(UseProjectReferences)' == 'true'">
     <ProjectReference Include="..\..\src\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Cormier.Realtime.Browser\Cormier.Realtime.Browser.csproj" />
@@ -19,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\shared-web\wwwroot\**\*"
+    <Content Include="$(ReferenceAssetRoot)\**\*"
              Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />

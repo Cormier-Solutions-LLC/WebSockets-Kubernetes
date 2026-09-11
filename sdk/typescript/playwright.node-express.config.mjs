@@ -64,6 +64,7 @@ export default defineConfig({
         REDIS_SESSION_KEY_PREFIX: "sessions",
         ALLOWED_TENANTS: "tenant-a,tenant-b",
         ALLOWED_USERS: "user-a,user-b",
+        SHARED_ASSET_ROOT: resolve(repositoryRoot, "examples/shared-web/dist/optimized"),
       },
     },
   ],

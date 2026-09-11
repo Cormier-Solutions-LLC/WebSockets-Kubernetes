@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 ## 0.1.0
 
 - Added a bounded process-local request limiter; production deployments still require a distributed abuse-control store and policy.

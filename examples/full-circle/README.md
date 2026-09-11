@@ -36,6 +36,8 @@ bash ./scripts/full-circle.sh cleanup --profile ha
 
 The `non-ha` profile starts one process and makes no failover promise. The `ha` profile starts two processes behind the test proxy and verifies Redis fan-out, tenant isolation, a forced transport drop, ticket reauthentication, subscription restoration, and reconnect to a different instance. The UI reports the selected topology, instance, Redis readiness, connection state, structured errors, and received events.
 
+Release builds embed the centralized `shared-web/dist/optimized` profile, including SRI-bound minified assets. Non-Release development embeds the readable canonical source. The containerized reference stacks make the same production selection through `SHARED_ASSET_ROOT`; see [optimized-assets.md](../../docs/optimized-assets.md) for explicit obfuscation, source-map handling, support diagnosis, and rollback.
+
 `run` starts the first planned instance for interactive diagnosis. For the complete two-instance HA topology, use `validate`; it owns and tears down every process deterministically. `update` and `recover` rerun the idempotent bootstrap. `rollback` removes only generated fixtures and evidence, matching cleanup.
 
 ## Expected results and evidence

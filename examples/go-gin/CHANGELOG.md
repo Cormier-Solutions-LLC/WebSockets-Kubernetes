@@ -4,6 +4,8 @@
 
 ### Added
 
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 - Minimal Gin adapter with typed configuration, allowlisted example login, Redis sessions, ticket and WebSocket forwarding, shared assets, health/diagnostics, bounded dependency operations, and graceful shutdown.
 - Locked Go module graph, digest-pinned non-root container, contract tests, vet gate, and shared browser coverage.
 

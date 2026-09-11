@@ -21,15 +21,30 @@ function snapshot(directory) {
   return entries.join("\n");
 }
 
+function artifactSnapshot() {
+  return [
+    `sdk\n${snapshot(resolve(root, "dist"))}`,
+    `reference\n${snapshot(resolve(root, "..", "..", "examples", "shared-web", "dist"))}`,
+  ].join("\n");
+}
+
 const npmCli = process.env.npm_execpath;
 if (npmCli === undefined) {
   throw new Error("npm_execpath is required; invoke this verifier through npm run build:check.");
 }
 execFileSync(process.execPath, [npmCli, "run", "build", "--silent"], { cwd: root, stdio: "inherit" });
-const first = snapshot(resolve(root, "dist"));
+const first = artifactSnapshot();
 execFileSync(process.execPath, [npmCli, "run", "build", "--silent"], { cwd: root, stdio: "inherit" });
-const second = snapshot(resolve(root, "dist"));
+const second = artifactSnapshot();
 if (first !== second) {
   throw new Error("Browser artifacts are not reproducible.");
 }
+execFileSync(process.execPath, [npmCli, "run", "build:obfuscated", "--silent"], { cwd: root, stdio: "inherit" });
+const firstObfuscated = artifactSnapshot();
+execFileSync(process.execPath, [npmCli, "run", "build:obfuscated", "--silent"], { cwd: root, stdio: "inherit" });
+const secondObfuscated = artifactSnapshot();
+if (firstObfuscated !== secondObfuscated) {
+  throw new Error("Obfuscated browser artifacts are not reproducible.");
+}
+execFileSync(process.execPath, [npmCli, "run", "build", "--silent"], { cwd: root, stdio: "inherit" });
 execFileSync(process.execPath, [resolve(root, "scripts/validate-artifacts.mjs")], { cwd: root, stdio: "inherit" });

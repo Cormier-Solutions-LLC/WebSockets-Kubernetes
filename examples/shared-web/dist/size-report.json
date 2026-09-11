@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "budget": {
+    "optimizedBytes": 8192,
+    "optimizedGzipBytes": 4096
+  },
+  "profiles": {
+    "readable": {
+      "bytes": 5874,
+      "gzipBytes": 2405
+    },
+    "optimized": {
+      "bytes": 4559,
+      "gzipBytes": 2161
+    }
+  }
+}

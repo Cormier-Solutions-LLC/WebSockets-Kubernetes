@@ -4,6 +4,8 @@
 
 ### Added
 
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 - Minimal supervised Phoenix/Bandit adapter with typed configuration, example login, Redis sessions, ticket and WebSocket forwarding, shared assets, health/diagnostics, bounded operations, and release shutdown.
 - Locked Hex graph, advisory audit, digest-pinned non-root release container, contract tests, and shared browser coverage.
 

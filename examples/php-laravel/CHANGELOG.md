@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 ## 0.1.0
 
 - Added the PHP 8.5 / Laravel 13 reference adapter with allowlisted example login, Redis-backed gateway-compatible session records, session inspection, logout, and redacted health/diagnostics.

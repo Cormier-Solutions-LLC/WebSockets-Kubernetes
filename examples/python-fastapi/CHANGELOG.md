@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 ## 0.1.0
 
 - Added the Python 3.14 / FastAPI reference adapter with typed settings, allowlisted login, Redis-backed gateway-compatible sessions, logout, and redacted health/diagnostics.

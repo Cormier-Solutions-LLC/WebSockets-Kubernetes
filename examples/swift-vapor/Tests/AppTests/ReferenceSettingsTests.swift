@@ -132,7 +132,7 @@ struct ReferenceSettingsTests {
   func preflightChecksLoadedSDKBundle() throws {
     let source = try String(contentsOfFile: "Sources/App/configure.swift", encoding: .utf8)
     #expect(source.contains("cormier-realtime.iife.js"))
-    #expect(!source.contains("cormier-realtime.iife.min.js"))
+    #expect(source.contains("cormier-realtime.iife.min.js"))
   }
 
   @Test("caps ticket responses while the HTTP client streams them")

@@ -31,7 +31,7 @@ COPY examples/ruby-rails/lib ./lib
 COPY examples/ruby-rails/Gemfile examples/ruby-rails/Gemfile.lock examples/ruby-rails/Rakefile examples/ruby-rails/config.ru ./
 COPY examples/ruby-rails/Caddyfile /etc/caddy/Caddyfile
 COPY examples/ruby-rails/start.sh ./start.sh
-COPY examples/shared-web/wwwroot ./shared-web
+COPY examples/shared-web/dist ./shared-web
 COPY sdk/typescript/dist ./sdk
 RUN mkdir -p /data/caddy /config/caddy tmp/pids \
     && chown -R 65532:65532 /app /data /config /tmp \
@@ -40,7 +40,7 @@ ENV BUNDLE_DEPLOYMENT=true
 ENV BUNDLE_WITHOUT=development:test
 ENV BUNDLE_PATH=/bundle
 ENV RAILS_ENV=production
-ENV SHARED_ASSET_ROOT=/app/shared-web
+ENV SHARED_ASSET_ROOT=/app/shared-web/optimized
 ENV SDK_ASSET_ROOT=/app/sdk
 USER 65532:65532
 ENTRYPOINT ["/sbin/tini", "--", "/app/start.sh"]

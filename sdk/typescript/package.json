@@ -22,6 +22,7 @@
   },
   "scripts": {
     "build": "node ./scripts/build.mjs",
+    "build:obfuscated": "node ./scripts/build.mjs --obfuscate",
     "build:check": "node ./scripts/check-reproducible.mjs",
     "check": "npm run typecheck && npm run test && npm run build:check",
     "test": "npm run build --silent && node --test --enable-source-maps ./test/*.test.mjs",
@@ -35,6 +36,9 @@
     "@playwright/test": "1.63.0",
     "@types/node": "22.20.2",
     "esbuild": "0.28.2",
+    "html-minifier-terser": "7.2.0",
+    "javascript-obfuscator": "5.7.0",
+    "lightningcss": "1.33.0",
     "redis": "6.2.1",
     "typescript": "7.0.2"
   },

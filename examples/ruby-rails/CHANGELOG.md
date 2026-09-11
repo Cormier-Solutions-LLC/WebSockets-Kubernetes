@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+
 ## 0.1.0
 
 - Added the Ruby 4.0 / Rails 8.1 reference adapter with strict settings, allowlisted login, encrypted Rails session state, Redis-backed gateway-compatible sessions, logout, and redacted health/diagnostics.

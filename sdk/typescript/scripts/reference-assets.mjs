@@ -67,8 +67,44 @@ function mapJavaScriptValue(value, call, ids, classes, selectorMethods, classLis
     mapped = replaceTokenList(mapped, classes);
   } else if (classListMethods.has(method) && memberName(call.callee.object) === "classList") {
     mapped = classes[mapped] ?? mapped;
+  } else if ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)) {
+    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+  } else if (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window") {
+    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
   }
   return mapped;
+}
+
+function isLocationReference(node) {
+  return (node?.type === "Identifier" && node.name === "location") || memberName(node) === "location";
+}
+
+function mapFragmentValue(value, ids) {
+  let mapped = value;
+  for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+  return mapped;
+}
+
+function isLocationUrlAssignment(left) {
+  const property = memberName(left);
+  return (property === "hash" || property === "href") && isLocationReference(left?.object);
+}
+
+function stringExpressionReplacement(node, javascript, mapper) {
+  if (node.type === "Literal" && typeof node.value === "string") {
+    const mapped = mapper(node.value);
+    return mapped === node.value ? undefined : JSON.stringify(mapped);
+  }
+  if (node.type !== "TemplateLiteral") return undefined;
+  const mappedQuasis = node.quasis.map((quasi) => mapper(quasi.value.raw));
+  if (mappedQuasis.every((value, index) => value === node.quasis[index].value.raw)) return undefined;
+  let replacement = "`";
+  for (let index = 0; index < mappedQuasis.length; index += 1) {
+    replacement += mappedQuasis[index];
+    const expression = node.expressions[index];
+    if (expression !== undefined) replacement += `\${${javascript.slice(expression.start, expression.end)}}`;
+  }
+  return `${replacement}\``;
 }
 
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
@@ -126,34 +162,49 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   collectBindings(syntaxTree, undefined);
   const bindingReplacements = new Map();
 
+  function recordStaticBindingReplacement(name, mapper) {
+    const binding = staticBindings.get(name);
+    if (binding === undefined) return;
+    if (bindingCounts.get(name) !== 1) {
+      throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
+    }
+    const mapped = mapper(binding.value);
+    if (mapped === binding.value) return;
+    const previous = bindingReplacements.get(binding.node.start)?.mapped;
+    if (previous !== undefined && previous !== mapped) {
+      throw new Error(`Static selector binding ${name} is used by incompatible selector APIs.`);
+    }
+    bindingReplacements.set(binding.node.start, {
+      start: binding.node.start,
+      end: binding.node.end,
+      mapped,
+    });
+  }
+
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
-    const value = staticStringValue(node);
-    if (value !== undefined && parent?.type === "CallExpression") {
-      const mapped = mapJavaScriptValue(value, parent, ids, classes, selectorMethods, classListMethods);
-      if (mapped !== value) replacements.push({ start: node.start, end: node.end, value: JSON.stringify(mapped) });
+    if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "CallExpression") {
+      const value = stringExpressionReplacement(node, javascript, (source) =>
+        mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
+      if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
+    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "AssignmentExpression"
+      && parent.right === node && isLocationUrlAssignment(parent.left)) {
+      const value = stringExpressionReplacement(node, javascript, (source) => mapFragmentValue(source, ids));
+      if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
     } else if (node.type === "Identifier" && parent?.type === "CallExpression" && parent.arguments.includes(node)) {
-      const binding = staticBindings.get(node.name);
       const method = memberName(parent.callee);
       const selectorCall = selectorMethods.has(method)
         || (parent.callee.type === "Identifier" && parent.callee.name === "$")
         || method === "getElementById"
         || method === "getElementsByClassName"
-        || (classListMethods.has(method) && memberName(parent.callee.object) === "classList");
-      if (binding !== undefined && selectorCall) {
-        if (bindingCounts.get(node.name) !== 1) {
-          throw new Error(`Static selector binding ${node.name} must not be shadowed when selector mangling is enabled.`);
-        }
-        const previous = bindingReplacements.get(binding.node.start)?.mapped ?? binding.value;
-        const mapped = mapJavaScriptValue(previous, parent, ids, classes, selectorMethods, classListMethods);
-        if (mapped !== previous) {
-          bindingReplacements.set(binding.node.start, {
-            start: binding.node.start,
-            end: binding.node.end,
-            mapped,
-          });
-        }
-      }
+        || (classListMethods.has(method) && memberName(parent.callee.object) === "classList")
+        || ((method === "assign" || method === "replace") && isLocationReference(parent.callee.object))
+        || (method === "open" && parent.callee.object?.type === "Identifier" && parent.callee.object.name === "window");
+      if (selectorCall) recordStaticBindingReplacement(node.name, (source) =>
+        mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
+    } else if (node.type === "Identifier" && parent?.type === "AssignmentExpression"
+      && parent.right === node && isLocationUrlAssignment(parent.left)) {
+      recordStaticBindingReplacement(node.name, (source) => mapFragmentValue(source, ids));
     }
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {
@@ -298,6 +349,16 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     });
     css = textDecoder.decode(cssResult.code);
     cssMap = cssResult.map === undefined ? undefined : textDecoder.decode(cssResult.map);
+
+    for (const [kind, map] of [["app.js", javascriptMap], ["app.css", cssMap]]) {
+      if (map === undefined) continue;
+      const metadata = JSON.parse(map);
+      metadata.sourceRoot = "../../../wwwroot/";
+      metadata.sources = metadata.sources.map(() => kind);
+      const normalized = `${JSON.stringify(metadata)}\n`;
+      if (kind === "app.js") javascriptMap = normalized;
+      else cssMap = normalized;
+    }
   }
 
   const sdkName = profile === "readable" ? "cormier-realtime.iife.js" : "cormier-realtime.iife.min.js";

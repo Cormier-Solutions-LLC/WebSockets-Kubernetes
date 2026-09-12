@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { applySelectorMappings } from "../scripts/reference-assets.mjs";
@@ -16,6 +16,16 @@ test("the coordinated asset manifest retains readable and optimized profiles", a
   assert.match(manifest.profiles.optimized.sdk.path, /\.min\.js$/u);
   assert(manifest.profiles.optimized.files.some((file) => file.path === "source-maps/optimized/app.js.map"));
   assert(!manifest.profiles.optimized.files.some((file) => file.path === "optimized/app.js.map"));
+});
+
+test("relocated source maps resolve their canonical sources", async () => {
+  const mapRoot = resolve(root, "../../examples/shared-web/dist/source-maps/optimized");
+  for (const name of ["app.css.map", "app.js.map"]) {
+    const sourceMap = JSON.parse(await readFile(resolve(mapRoot, name), "utf8"));
+    assert.equal(sourceMap.sourceRoot, "../../../wwwroot/");
+    assert.deepEqual(sourceMap.sources, [name.replace(/\.map$/u, "")]);
+    await access(resolve(mapRoot, sourceMap.sourceRoot, sourceMap.sources[0]));
+  }
 });
 
 test("selector mappings rewrite CSS, HTML, and JavaScript together", () => {
@@ -100,7 +110,21 @@ test("selector mappings rewrite static template-literal selector arguments", () 
     classes: { internal: "b" },
     safelist: [],
   });
-  assert.equal(result.javascript, 'document.querySelector("#a .b"); node.classList.add("b")');
+  assert.equal(result.javascript, 'document.querySelector(`#a .b`); node.classList.add(`b`)');
+});
+
+test("selector mappings rewrite interpolated selector templates", () => {
+  const result = applySelectorMappings({
+    css: "#private {}",
+    html: '<div id="private"></div>',
+    javascript: 'document.querySelector(`#private[data-key="${key}"]`)',
+  }, {
+    enabled: true,
+    ids: { private: "a" },
+    classes: {},
+    safelist: [],
+  });
+  assert.equal(result.javascript, 'document.querySelector(`#a[data-key="${key}"]`)');
 });
 
 test("selector mappings rewrite statically bound selector arguments", () => {
@@ -128,4 +152,31 @@ test("selector mappings reject ambiguous static selector bindings", () => {
     classes: {},
     safelist: [],
   }), /must not be shadowed/u);
+});
+
+test("selector mappings reject static bindings shared by incompatible APIs", () => {
+  assert.throws(() => applySelectorMappings({
+    css: ".private #private {}",
+    html: '<div class="private" id="private"></div>',
+    javascript: 'const target = "private"; document.getElementById(target); node.classList.add(target)',
+  }, {
+    enabled: true,
+    ids: { private: "a" },
+    classes: { private: "b" },
+    safelist: [],
+  }), /incompatible selector APIs/u);
+});
+
+test("selector mappings rewrite JavaScript fragment navigation", () => {
+  const result = applySelectorMappings({
+    css: "#private {}",
+    html: '<div id="private"></div>',
+    javascript: 'const fragment = "#private"; location.hash = fragment; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
+  }, {
+    enabled: true,
+    ids: { private: "a" },
+    classes: {},
+    safelist: [],
+  });
+  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
 });

@@ -127,6 +127,22 @@ test("selector mappings rewrite interpolated selector templates", () => {
   assert.equal(result.javascript, 'document.querySelector(`#a[data-key="${key}"]`)');
 });
 
+test("selector mappings do not mangle across interpolation boundaries", () => {
+  const result = applySelectorMappings({
+    css: ".internal .internal-panel {}", html: '<div class="internal internal-panel"></div>',
+    javascript: "document.querySelector(`.internal${suffix}`)",
+  }, { enabled: true, ids: {}, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript, "document.querySelector(`.internal${suffix}`)");
+});
+
+test("selector mappings rewrite interpolated selectors stored in constants", () => {
+  const result = applySelectorMappings({
+    css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = `#private[data-key="${key}"]`; document.querySelector(target)',
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'const target = `#a[data-key="${key}"]`; document.querySelector(target)');
+});
+
 test("selector mappings rewrite statically bound selector arguments", () => {
   const result = applySelectorMappings({
     css: ".internal #private {}",
@@ -164,7 +180,14 @@ test("selector mappings reject static bindings shared by incompatible APIs", () 
     ids: { private: "a" },
     classes: { private: "b" },
     safelist: [],
-  }), /incompatible selector APIs/u);
+  }), /exactly one supported use/u);
+});
+
+test("selector mappings reject static bindings with non-selector uses", () => {
+  assert.throws(() => applySelectorMappings({
+    css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const name = "private"; document.getElementById(name); fetch("/api/" + name)',
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /exactly one supported use/u);
 });
 
 test("selector mappings rewrite JavaScript fragment navigation", () => {

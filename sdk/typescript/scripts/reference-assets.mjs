@@ -96,7 +96,12 @@ function stringExpressionReplacement(node, javascript, mapper) {
     return mapped === node.value ? undefined : JSON.stringify(mapped);
   }
   if (node.type !== "TemplateLiteral") return undefined;
-  const mappedQuasis = node.quasis.map((quasi) => mapper(quasi.value.raw));
+  const mappedQuasis = node.quasis.map((quasi, index) => {
+    const hasFollowingExpression = index < node.expressions.length;
+    const guarded = hasFollowingExpression ? `${quasi.value.raw}A` : quasi.value.raw;
+    const mapped = mapper(guarded);
+    return hasFollowingExpression ? mapped.slice(0, -1) : mapped;
+  });
   if (mappedQuasis.every((value, index) => value === node.quasis[index].value.raw)) return undefined;
   let replacement = "`";
   for (let index = 0; index < mappedQuasis.length; index += 1) {
@@ -136,9 +141,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (node === null || typeof node !== "object") return;
     if (node.type === "VariableDeclarator") {
       recordBindingPattern(node.id);
-      const value = node.init === null ? undefined : staticStringValue(node.init);
-      if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const" && value !== undefined) {
-        staticBindings.set(node.id.name, { node: node.init, value });
+      if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const"
+        && (node.init?.type === "TemplateLiteral" || typeof staticStringValue(node.init) === "string")) {
+        staticBindings.set(node.id.name, { node: node.init });
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
       if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
@@ -160,6 +165,23 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   }
 
   collectBindings(syntaxTree, undefined);
+  const referenceCounts = new Map();
+  function collectReferences(node, parent) {
+    if (node === null || typeof node !== "object") return;
+    if (node.type === "Identifier" && staticBindings.has(node.name)) {
+      const declaration = parent?.type === "VariableDeclarator" && parent.id === node;
+      const propertyName = parent?.type === "MemberExpression" && parent.property === node && !parent.computed;
+      const objectKey = parent?.type === "Property" && parent.key === node && !parent.computed && parent.value !== node;
+      if (!declaration && !propertyName && !objectKey) {
+        referenceCounts.set(node.name, (referenceCounts.get(node.name) ?? 0) + 1);
+      }
+    }
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) for (const item of child) collectReferences(item, node);
+      else if (child !== parent) collectReferences(child, node);
+    }
+  }
+  collectReferences(syntaxTree, undefined);
   const bindingReplacements = new Map();
 
   function recordStaticBindingReplacement(name, mapper) {
@@ -168,16 +190,15 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (bindingCounts.get(name) !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }
-    const mapped = mapper(binding.value);
-    if (mapped === binding.value) return;
-    const previous = bindingReplacements.get(binding.node.start)?.mapped;
-    if (previous !== undefined && previous !== mapped) {
-      throw new Error(`Static selector binding ${name} is used by incompatible selector APIs.`);
+    if (referenceCounts.get(name) !== 1) {
+      throw new Error(`Static selector binding ${name} must have exactly one supported use.`);
     }
+    const value = stringExpressionReplacement(binding.node, javascript, mapper);
+    if (value === undefined) return;
     bindingReplacements.set(binding.node.start, {
       start: binding.node.start,
       end: binding.node.end,
-      mapped,
+      value,
     });
   }
 
@@ -217,7 +238,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   visit(syntaxTree, undefined);
   for (const replacement of bindingReplacements.values()) {
-    replacements.push({ ...replacement, value: JSON.stringify(replacement.mapped) });
+    replacements.push(replacement);
   }
   return replacements.sort((left, right) => right.start - left.start)
     .reduce((result, replacement) =>
@@ -353,8 +374,13 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     for (const [kind, map] of [["app.js", javascriptMap], ["app.css", cssMap]]) {
       if (map === undefined) continue;
       const metadata = JSON.parse(map);
-      metadata.sourceRoot = "../../../wwwroot/";
-      metadata.sources = metadata.sources.map(() => kind);
+      if (obfuscate && kind === "app.js") {
+        delete metadata.sourceRoot;
+        metadata.sources = ["app.minified.js"];
+      } else {
+        metadata.sourceRoot = "../../../wwwroot/";
+        metadata.sources = metadata.sources.map(() => kind);
+      }
       const normalized = `${JSON.stringify(metadata)}\n`;
       if (kind === "app.js") javascriptMap = normalized;
       else cssMap = normalized;

@@ -99,6 +99,13 @@ test("selector mappings recognize computed template member names", () => {
   assert.equal(result.javascript, 'document[`querySelector`]("#a")');
 });
 
+test("selector mappings rewrite selector APIs invoked through call", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector.call(document, "#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.querySelector.call(document, "#a")');
+});
+
 test("selector mappings rewrite HTML ID-reference attributes", () => {
   const result = applySelectorMappings({ css: "#private #details {}",
     html: '<label for="private" aria-controls="private details public" data-for="private" x-aria-controls="private">Label</label><input id="private"><div id="details"></div>',
@@ -106,6 +113,14 @@ test("selector mappings rewrite HTML ID-reference attributes", () => {
   { enabled: true, ids: { private: "a", details: "b" }, classes: {}, safelist: [] });
   assert.equal(result.html,
     '<label for="a" aria-controls="a b public" data-for="private" x-aria-controls="private">Label</label><input id="a"><div id="b"></div>');
+});
+
+test("selector mappings rewrite spaced and unquoted HTML ID references", () => {
+  const result = applySelectorMappings({ css: "#private {}",
+    html: '<label for = "private">Quoted</label><label for=private>Unquoted</label><input id="private">',
+    javascript: 'document.querySelector("#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.html, '<label for = "a">Quoted</label><label for=a>Unquoted</label><input id="a">');
 });
 
 test("class mappings change selector APIs without rewriting JavaScript properties", () => {
@@ -455,6 +470,14 @@ test("selector mappings scope named function expressions internally", () => {
     'const target = "#a"; const f = function target() {}; document.querySelector(target)');
 });
 
+test("selector mappings scope named class expressions internally", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#private"; const C = class target {}; document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'const target = "#a"; const C = class target {}; document.querySelector(target)');
+});
+
 test("selector binding use counts exclude class keys and labels", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'const target = "#private"; class Widget { target() {} } targetLabel: for (;;) { break targetLabel; } document.querySelector(target)' },
@@ -494,6 +517,14 @@ test("selector mappings respect shadowed browser location bindings", () => {
     'function store(location) { location = "#private"; location.href = "#private"; location.assign("#private"); }');
 });
 
+test("selector mappings respect shadowed browser document bindings", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function lookup(document) { return document.getElementById("private"); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'function lookup(document) { return document.getElementById("private"); }');
+});
+
 test("selector mappings rewrite Location hash comparisons", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'const fragment = "#private"; if (location.hash === "#private" || window.location.hash === fragment) {}' },
@@ -522,6 +553,14 @@ test("selector mappings rewrite final sequence operands in fragment assignments"
     javascript: 'location.href = (sideEffect(), "#private")' },
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript, 'location.href = (sideEffect(), "#a")');
+});
+
+test("selector mappings reject dynamic Location assignment values", () => {
+  const options = { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] };
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'location.hash = getFragment()' }, options), /Fragment expression CallExpression/u);
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'location.href = flag ? getFragment() : "#private"' }, options), /Fragment expression CallExpression/u);
 });
 
 test("selector mappings reject dynamic conditional selector branches", () => {
@@ -562,6 +601,9 @@ test("selector mappings handle stylesheet replacement rules conservatively", () 
   assert.throws(() => applySelectorMappings({ css: "#private .internal {}",
     html: '<div id="private" class="internal"></div>',
     javascript: 'sheet.replace("#private .internal { color: red }")' }, options), /Ambiguous stylesheet replace/u);
+  assert.throws(() => applySelectorMappings({ css: "#private .internal {}",
+    html: '<div id="private" class="internal"></div>',
+    javascript: 'const rule = "#private {}"; sheet.replace(rule)' }, options), /Ambiguous stylesheet replace/u);
 });
 
 test("selector mappings reject non-string DOM token arguments", () => {

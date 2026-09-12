@@ -71,6 +71,7 @@ function isDomLookupCall(call, method) {
 
 function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods, classListMethods) {
   const method = memberName(call.callee);
+  const indirectMethod = method === "call" ? memberName(call.callee.object) : undefined;
   const attribute = setAttributeKind(call, argument);
   let mapped = value;
   if (attribute === "href") {
@@ -79,6 +80,9 @@ function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods
     mapped = Object.hasOwn(ids, mapped) ? ids[mapped] : mapped;
   } else if (attribute === "class") {
     mapped = replaceTokenList(mapped, classes);
+  } else if (selectorMethods.has(indirectMethod) && call.arguments[1] === argument) {
+    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+    for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
   } else if ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
     && call.arguments[0] === argument) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
@@ -176,13 +180,19 @@ function replaceHtmlIdReferences(html, ids) {
   const tokenIdAttributes = ["aria-controls", "aria-describedby", "aria-flowto", "aria-labelledby", "aria-owns", "headers"];
   let mapped = html;
   for (const attribute of singleIdAttributes) {
-    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}=["'])([^"']*)(["'])`, "gimu"),
-      (match, boundary, prefix, value, suffix) =>
-        `${boundary}${prefix}${Object.hasOwn(ids, value) ? ids[value] : value}${suffix}`);
+    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}\\s*=\\s*)(?:(["'])([^"']*)\\3|([^\\s"'=<>\u0060]+))`, "gimu"),
+      (match, boundary, prefix, quote, quotedValue, unquotedValue) => {
+        const value = quotedValue ?? unquotedValue;
+        const replacement = Object.hasOwn(ids, value) ? ids[value] : value;
+        return `${boundary}${prefix}${quote ?? ""}${replacement}${quote ?? ""}`;
+      });
   }
   for (const attribute of tokenIdAttributes) {
-    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}=["'])([^"']*)(["'])`, "gimu"),
-      (match, boundary, prefix, value, suffix) => `${boundary}${prefix}${replaceTokenList(value, ids)}${suffix}`);
+    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}\\s*=\\s*)(?:(["'])([^"']*)\\3|([^\\s"'=<>\u0060]+))`, "gimu"),
+      (match, boundary, prefix, quote, quotedValue, unquotedValue) => {
+        const replacement = replaceTokenList(quotedValue ?? unquotedValue, ids);
+        return `${boundary}${prefix}${quote ?? ""}${replacement}${quote ?? ""}`;
+      });
   }
   return mapped;
 }
@@ -265,7 +275,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         recordBindingPattern(parameter, node, "parameter");
       }
     } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
-      if (node.id !== null) recordBindingPattern(node.id, lexicalScope, "class");
+      if (node.id !== null) recordBindingPattern(node.id, node.type === "ClassExpression" ? node : lexicalScope, "class");
     } else if (node.type === "CatchClause") {
       recordBindingPattern(node.param, node, "catch");
     } else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") {
@@ -453,9 +463,15 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   function isMappedCallArgument(call, argument) {
     const method = memberName(call.callee);
-    return ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
+    const indirectMethod = method === "call" ? memberName(call.callee.object) : undefined;
+    const unshadowedDocument = (node) => isDocumentReference(node)
+      && !((node.type === "Identifier" && resolveBinding(node.name, node.start) !== undefined)
+        || (memberName(node) === "document" && node.object?.type === "Identifier"
+          && resolveBinding(node.object.name, node.object.start) !== undefined));
+    return (selectorMethods.has(indirectMethod) && call.arguments[1] === argument)
+      || ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
         && call.arguments[0] === argument)
-      || (isDomLookupCall(call, method) && call.arguments[0] === argument)
+      || (isDomLookupCall(call, method) && unshadowedDocument(call.callee.object) && call.arguments[0] === argument)
       || (classListMethods.has(method) && isClassListTokenArgument(call, method, argument))
       || ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
         && call.arguments[0] === argument
@@ -486,13 +502,14 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       throw new Error("Element-scoped getElementsByClassName is unsupported when selector mangling is enabled.");
     }
     if (node.type === "CallExpression" && memberName(node.callee) === "replace"
-      && !isLocationReference(node.callee.object) && typeof staticStringValue(node.arguments[0]) === "string") {
+      && !isLocationReference(node.callee.object)) {
       const source = staticStringValue(node.arguments[0]);
-      const mapped = mapJavaScriptValue(source, { ...node, callee: { ...node.callee, property: { type: "Identifier",
-        name: "replaceSync" } } }, node.arguments[0], ids, classes, selectorMethods, classListMethods);
-      if (mapped !== source) {
-        throw new Error("Ambiguous stylesheet replace() receiver is unsupported when selector mangling is enabled.");
-      }
+      const boundRule = node.arguments[0]?.type === "Identifier";
+      if (boundRule || typeof source === "string" && (() => {
+        const mapped = mapJavaScriptValue(source, { ...node, callee: { ...node.callee, property: { type: "Identifier",
+          name: "replaceSync" } } }, node.arguments[0], ids, classes, selectorMethods, classListMethods);
+        return mapped !== source;
+      })()) throw new Error("Ambiguous stylesheet replace() receiver is unsupported when selector mangling is enabled.");
     }
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
@@ -557,6 +574,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       throw new Error(`Selector expression ${node.type} is unsupported when selector mangling is enabled.`);
     } else if (node.type === "Identifier" && fragmentContext !== undefined && parent?.type !== "BinaryExpression") {
       recordStaticBindingReplacement(node, (source) => mapFragmentValue(source, ids));
+    } else if (fragmentContext !== undefined
+      && !(node.type === "Identifier" && parent?.type === "BinaryExpression")
+      && !["BinaryExpression", "ConditionalExpression", "LogicalExpression", "SequenceExpression"].includes(node.type)) {
+      throw new Error(`Fragment expression ${node.type} is unsupported when selector mangling is enabled.`);
     }
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {

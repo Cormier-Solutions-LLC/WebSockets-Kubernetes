@@ -142,6 +142,21 @@ test("selector interpolation boundary guards cannot collide with mappings", () =
   assert.equal(result.javascript, "document.querySelector(`.${name}`)");
 });
 
+test("selector mappings guard quasis after interpolations", () => {
+  const result = applySelectorMappings({
+    css: "#private {}", html: '<div id="private"></div>', javascript: "document.getElementById(`${prefix}private`)",
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, "document.getElementById(`${prefix}private`)");
+});
+
+test("selector mappings preserve nested rewrites inside template expressions", () => {
+  const result = applySelectorMappings({
+    css: ".internal #private {}", html: '<div class="internal" id="private"></div>',
+    javascript: 'document.querySelector(`#private ${document.querySelector(".internal").id}`)',
+  }, { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript, 'document.querySelector(`#a ${document.querySelector(".b").id}`)');
+});
+
 test("selector mappings rewrite interpolated selectors stored in constants", () => {
   const result = applySelectorMappings({
     css: "#private {}", html: '<div id="private"></div>',

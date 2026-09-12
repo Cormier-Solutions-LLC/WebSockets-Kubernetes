@@ -90,26 +90,24 @@ function isLocationUrlAssignment(left) {
   return property === "hash" || property === "href";
 }
 
-function stringExpressionReplacement(node, javascript, mapper) {
+function stringExpressionReplacements(node, mapper) {
   if (node.type === "Literal" && typeof node.value === "string") {
     const mapped = mapper(node.value);
-    return mapped === node.value ? undefined : JSON.stringify(mapped);
+    return mapped === node.value ? [] : [{ start: node.start, end: node.end, value: JSON.stringify(mapped) }];
   }
-  if (node.type !== "TemplateLiteral") return undefined;
+  if (node.type !== "TemplateLiteral") return [];
   const mappedQuasis = node.quasis.map((quasi, index) => {
+    const hasPrecedingExpression = index > 0;
     const hasFollowingExpression = index < node.expressions.length;
-    const guarded = hasFollowingExpression ? `${quasi.value.raw}-` : quasi.value.raw;
+    const guarded = `${hasPrecedingExpression ? "-" : ""}${quasi.value.raw}${hasFollowingExpression ? "-" : ""}`;
     const mapped = mapper(guarded);
-    return hasFollowingExpression ? mapped.slice(0, -1) : mapped;
+    return mapped.slice(hasPrecedingExpression ? 1 : 0, hasFollowingExpression ? -1 : undefined);
   });
-  if (mappedQuasis.every((value, index) => value === node.quasis[index].value.raw)) return undefined;
-  let replacement = "`";
-  for (let index = 0; index < mappedQuasis.length; index += 1) {
-    replacement += mappedQuasis[index];
-    const expression = node.expressions[index];
-    if (expression !== undefined) replacement += `\${${javascript.slice(expression.start, expression.end)}}`;
-  }
-  return `${replacement}\``;
+  return mappedQuasis.flatMap((value, index) => value === node.quasis[index].value.raw ? [] : [{
+    start: node.quasis[index].start,
+    end: node.quasis[index].end,
+    value,
+  }]);
 }
 
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
@@ -195,21 +193,23 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   function recordStaticBindingReplacement(name, mapper) {
     const binding = staticBindings.get(name);
     if (binding === undefined) return;
-    const value = stringExpressionReplacement(binding.node, javascript, mapper);
-    if (value === undefined) return;
+    const edits = stringExpressionReplacements(binding.node, mapper);
+    if (edits.length === 0) return;
     if (bindingCounts.get(name) !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }
     supportedBindingUses.set(name, (supportedBindingUses.get(name) ?? 0) + 1);
     const previous = bindingReplacements.get(binding.node.start);
-    if (previous !== undefined && previous.value !== value) {
+    const signature = JSON.stringify(edits);
+    if (previous !== undefined && previous.signature !== signature) {
       throw new Error(`Static selector binding ${name} is used by incompatible selector APIs.`);
     }
     bindingReplacements.set(binding.node.start, {
       start: binding.node.start,
       end: binding.node.end,
       name,
-      value,
+      edits,
+      signature,
     });
   }
 
@@ -223,24 +223,24 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "CallExpression") {
-      const value = stringExpressionReplacement(node, javascript, (source) =>
+      const edits = stringExpressionReplacements(node, (source) =>
         mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
-      if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
+      replacements.push(...edits);
     } else if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "BinaryExpression") {
       const context = concatenationCall(node);
       if (context !== undefined) {
         const hasFollowingOperand = node.end < context.root.end;
-        const value = stringExpressionReplacement(node, javascript, (source) => {
+        const edits = stringExpressionReplacements(node, (source) => {
           const guarded = hasFollowingOperand ? `${source}-` : source;
           const mapped = mapJavaScriptValue(guarded, context.call, ids, classes, selectorMethods, classListMethods);
           return hasFollowingOperand ? mapped.slice(0, -1) : mapped;
         });
-        if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
+        replacements.push(...edits);
       }
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "AssignmentExpression"
       && parent.right === node && isLocationUrlAssignment(parent.left)) {
-      const value = stringExpressionReplacement(node, javascript, (source) => mapFragmentValue(source, ids));
-      if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
+      const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
+      replacements.push(...edits);
     } else if (node.type === "Identifier" && parent?.type === "CallExpression" && parent.arguments.includes(node)) {
       const method = memberName(parent.callee);
       const selectorCall = selectorMethods.has(method)
@@ -270,7 +270,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (supportedBindingUses.get(replacement.name) !== referenceCounts.get(replacement.name)) {
       throw new Error(`Static selector binding ${replacement.name} has unsupported or conflicting uses.`);
     }
-    replacements.push({ start: replacement.start, end: replacement.end, value: replacement.value });
+    replacements.push(...replacement.edits);
   }
   return replacements.sort((left, right) => right.start - left.start)
     .reduce((result, replacement) =>
@@ -353,8 +353,10 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
   const sourceMapRoot = resolve(outputRoot, "source-maps", profile);
   let javascript;
   let javascriptMap;
+  let minifiedJavascript;
   let css;
   let cssMap;
+  const sourceArtifacts = [];
 
   if (profile === "readable") {
     javascript = `${source.javascript.trimEnd()}\n`;
@@ -371,6 +373,7 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     });
     javascript = javascriptResult.code;
     javascriptMap = javascriptResult.map;
+    minifiedJavascript = javascript;
 
     if (obfuscate) {
       const obfuscated = JavaScriptObfuscator.obfuscate(javascript, {
@@ -409,10 +412,20 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
       if (obfuscate && kind === "app.js") {
         delete metadata.sourceRoot;
         metadata.sources = ["app.minified.js"];
+        if (!config.sourceMaps.includeSourcesContent) {
+          delete metadata.sourcesContent;
+          sourceArtifacts.push({ name: "app.minified.js", content: minifiedJavascript });
+        }
       } else if (config.selectorMangling.enabled) {
         delete metadata.sourceRoot;
-        metadata.sources = [`${kind.replace(/\.[^.]+$/u, "")}.mangled.${kind.split(".").at(-1)}`];
-        metadata.sourcesContent = [kind === "app.js" ? source.javascript : source.css];
+        const name = `${kind.replace(/\.[^.]+$/u, "")}.mangled.${kind.split(".").at(-1)}`;
+        const content = kind === "app.js" ? source.javascript : source.css;
+        metadata.sources = [name];
+        if (config.sourceMaps.includeSourcesContent) metadata.sourcesContent = [content];
+        else {
+          delete metadata.sourcesContent;
+          sourceArtifacts.push({ name, content });
+        }
       } else {
         metadata.sourceRoot = "../../../wwwroot/";
         metadata.sources = metadata.sources.map(() => kind);
@@ -456,6 +469,7 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
   if (profile !== "readable" && config.sourceMaps.emit) {
     write(sourceMapRoot, "app.js.map", javascriptMap);
     write(sourceMapRoot, "app.css.map", cssMap);
+    for (const artifact of sourceArtifacts) write(sourceMapRoot, artifact.name, artifact.content);
   }
 
   const files = [
@@ -466,6 +480,9 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
   if (profile !== "readable" && config.sourceMaps.emit) {
     files.push(inventoryFile(outputRoot, `source-maps/${profile}`, "app.css.map", cssMap));
     files.push(inventoryFile(outputRoot, `source-maps/${profile}`, "app.js.map", javascriptMap));
+    for (const artifact of sourceArtifacts) {
+      files.push(inventoryFile(outputRoot, `source-maps/${profile}`, artifact.name, artifact.content));
+    }
   }
   return { files, sdk: { path: sdkName, sha256: digest(sdkContent, "sha256", "hex"), integrity: sdkSri } };
 }
@@ -531,10 +548,10 @@ export async function buildReferenceAssets({ sdkRoot, obfuscate = false }) {
 
   const sizeReport = Object.fromEntries(profiles.map((profile) => [profile, {
     bytes: profileResults[profile].files
-      .filter((file) => !file.path.endsWith(".map"))
+      .filter((file) => file.path.startsWith(`${profile}/`))
       .reduce((total, file) => total + file.bytes, 0),
     gzipBytes: profileResults[profile].files
-      .filter((file) => !file.path.endsWith(".map"))
+      .filter((file) => file.path.startsWith(`${profile}/`))
       .reduce((total, file) => total + file.gzipBytes, 0),
   }]));
   write(outputRoot, "size-report.json", `${JSON.stringify({

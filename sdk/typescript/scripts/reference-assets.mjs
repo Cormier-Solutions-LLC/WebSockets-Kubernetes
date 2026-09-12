@@ -88,7 +88,8 @@ function mapFragmentValue(value, ids) {
 
 function isLocationUrlAssignment(left) {
   const property = memberName(left);
-  return property === "hash" || property === "href";
+  return property === "hash" || property === "href"
+    || (property === "location" && left.object?.type === "Identifier" && left.object.name === "window");
 }
 
 function stringExpressionReplacements(node, mapper) {
@@ -114,10 +115,11 @@ function stringExpressionReplacements(node, mapper) {
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "script" });
   const replacements = [];
-  const selectorMethods = new Set(["closest", "matches", "querySelector", "querySelectorAll"]);
+  const selectorMethods = new Set(["closest", "insertRule", "matches", "querySelector", "querySelectorAll"]);
   const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
   const bindingCounts = new Map();
   const staticBindings = new Map();
+  const concatenatedBindings = new Set();
 
   function recordBindingPattern(pattern) {
     if (pattern === null) return;
@@ -143,6 +145,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const"
         && (node.init?.type === "TemplateLiteral" || typeof staticStringValue(node.init) === "string")) {
         if (!staticBindings.has(node.id.name)) staticBindings.set(node.id.name, { node: node.init });
+      } else if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const"
+        && node.init?.type === "BinaryExpression" && node.init.operator === "+") {
+        concatenatedBindings.add(node.id.name);
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
       if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
@@ -193,7 +198,12 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   function recordStaticBindingReplacement(name, mapper) {
     const binding = staticBindings.get(name);
-    if (binding === undefined) return;
+    if (binding === undefined) {
+      if (concatenatedBindings.has(name)) {
+        throw new Error(`Concatenated selector binding ${name} is unsupported; inline it or use a template literal.`);
+      }
+      return;
+    }
     if (bindingCounts.get(name) !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }

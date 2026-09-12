@@ -242,6 +242,19 @@ test("selector mappings rewrite bounded concatenation pieces", () => {
   assert.equal(result.javascript, 'document.querySelector("#a [data-key=\'" + key + "\']")');
 });
 
+test("selector mappings reject concatenated selector constants", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#private [data-key=\'" + key + "\']"; document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /Concatenated selector binding/u);
+});
+
+test("selector mappings rewrite CSSOM rule selectors", () => {
+  const result = applySelectorMappings({ css: ".internal {}", html: '<div class="internal"></div>',
+    javascript: 'sheet.insertRule(".internal { color: red }")' },
+  { enabled: true, ids: {}, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript, 'sheet.insertRule(".b { color: red }")');
+});
+
 test("selector mappings ignore inherited mapping properties", () => {
   const result = applySelectorMappings({ css: "", html: "", javascript: 'document.getElementsByClassName("constructor")' },
     { enabled: true, ids: {}, classes: {}, safelist: [] });
@@ -279,12 +292,12 @@ test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
     html: '<div id="private"></div>',
-    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.href = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
+    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.href = "#private"; window.location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
   }, {
     enabled: true,
     ids: { private: "a" },
     classes: {},
     safelist: [],
   });
-  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; window.location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
 });

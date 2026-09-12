@@ -46,7 +46,10 @@ function replaceSelector(value, prefix, source, target) {
 function memberName(member) {
   if (member?.type !== "MemberExpression") return undefined;
   if (!member.computed && member.property.type === "Identifier") return member.property.name;
-  return member.computed && member.property.type === "Literal" ? member.property.value : undefined;
+  if (member.computed && member.property.type === "Literal") return member.property.value;
+  return member.computed && member.property.type === "TemplateLiteral" && member.property.expressions.length === 0
+    ? member.property.quasis[0].value.cooked
+    : undefined;
 }
 
 function staticStringValue(node) {
@@ -187,7 +190,7 @@ function replaceHtmlIdReferences(html, ids) {
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "script" });
   const replacements = [];
-  const selectorMethods = new Set(["closest", "insertRule", "matches", "querySelector", "querySelectorAll"]);
+  const selectorMethods = new Set(["closest", "insertRule", "matches", "querySelector", "querySelectorAll", "replaceSync"]);
   const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
   const bindingDeclarations = new Map();
   const assignmentTargets = [];
@@ -239,7 +242,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       const kind = parent?.kind;
       const scope = kind === "var" ? functionScope : currentLexicalScope;
       const records = recordBindingPattern(node.id, scope, kind);
-      if (node.init !== null) {
+      if (node.init !== null && records.length > 0) {
         records[0].initializerCount = (records[0].initializerCount ?? 0) + 1;
         if (records[0].initializerCount > 1) assignedBindings.add(records[0]);
       }
@@ -255,7 +258,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         assignedBindings.add(records[0]);
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
-      if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id, lexicalScope, "function");
+      if (node.id !== null && node.id !== undefined) {
+        recordBindingPattern(node.id, node.type === "FunctionExpression" ? node : lexicalScope, "function");
+      }
       for (const parameter of node.params) {
         recordBindingPattern(parameter, node, "parameter");
       }
@@ -343,6 +348,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       throw new Error(`Dynamic selector binding ${identifier.name} is unsupported when selector mangling is enabled.`);
     }
     const nestedShadow = (bindingDeclarations.get(identifier.name) ?? []).some((candidate) => candidate !== record
+      && candidate.scope.start <= identifier.start && identifier.start < candidate.scope.end
       && ((candidate.scope.start <= record.scope.start && record.scope.end <= candidate.scope.end)
         || (record.scope.start <= candidate.scope.start && candidate.scope.end <= record.scope.end)));
     if (nestedShadow) {
@@ -431,6 +437,20 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     return left === undefined || right === undefined ? undefined : left + right;
   }
 
+  function fragmentComparison(node) {
+    const comparison = parents.get(node);
+    if (comparison?.type !== "BinaryExpression" || !["==", "===", "!=", "!=="].includes(comparison.operator)) {
+      return undefined;
+    }
+    const other = comparison.left === node ? comparison.right : comparison.right === node ? comparison.left : undefined;
+    if (other?.type !== "MemberExpression" || memberName(other) !== "hash" || !isLocationReference(other.object)) {
+      return undefined;
+    }
+    return other.object.type === "Identifier" && resolveBinding(other.object.name, other.object.start) !== undefined
+      ? undefined
+      : comparison;
+  }
+
   function isMappedCallArgument(call, argument) {
     const method = memberName(call.callee);
     return ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
@@ -465,8 +485,18 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && !isDomLookupCall(node, "getElementsByClassName") && Object.keys(classes).length > 0) {
       throw new Error("Element-scoped getElementsByClassName is unsupported when selector mangling is enabled.");
     }
+    if (node.type === "CallExpression" && memberName(node.callee) === "replace"
+      && !isLocationReference(node.callee.object) && typeof staticStringValue(node.arguments[0]) === "string") {
+      const source = staticStringValue(node.arguments[0]);
+      const mapped = mapJavaScriptValue(source, { ...node, callee: { ...node.callee, property: { type: "Identifier",
+        name: "replaceSync" } } }, node.arguments[0], ids, classes, selectorMethods, classListMethods);
+      if (mapped !== source) {
+        throw new Error("Ambiguous stylesheet replace() receiver is unsupported when selector mangling is enabled.");
+      }
+    }
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
+    const comparisonContext = fragmentComparison(node);
     if (node.type === "BinaryExpression" && staticConcatenationValue(node) !== undefined
       && ((selectorContext !== undefined && isMappedCallArgument(selectorContext.call, selectorContext.argument))
         || fragmentContext !== undefined)) {
@@ -476,7 +506,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       throw new Error("Non-string DOM selector arguments are unsupported when selector mangling is enabled.");
     }
-    if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
+    if ((node.type === "Literal" || node.type === "TemplateLiteral") && comparisonContext !== undefined) {
+      replacements.push(...stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids)));
+    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       const edits = stringExpressionReplacements(node, (source) => mapJavaScriptValue(source,
         selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods));
@@ -509,6 +541,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && fragmentContext !== undefined) {
       const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
       replacements.push(...edits);
+    } else if (node.type === "Identifier" && comparisonContext !== undefined) {
+      recordStaticBindingReplacement(node, (source) => mapFragmentValue(source, ids));
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
       if (isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
         recordStaticBindingReplacement(node, (source) => mapJavaScriptValue(source,

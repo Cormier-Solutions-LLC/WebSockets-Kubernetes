@@ -135,6 +135,13 @@ test("selector mappings do not mangle across interpolation boundaries", () => {
   assert.equal(result.javascript, "document.querySelector(`.internal${suffix}`)");
 });
 
+test("selector interpolation boundary guards cannot collide with mappings", () => {
+  const result = applySelectorMappings({
+    css: ".A {}", html: '<div class="A"></div>', javascript: "document.querySelector(`.${name}`)",
+  }, { enabled: true, ids: {}, classes: { A: "wide" }, safelist: [] });
+  assert.equal(result.javascript, "document.querySelector(`.${name}`)");
+});
+
 test("selector mappings rewrite interpolated selectors stored in constants", () => {
   const result = applySelectorMappings({
     css: "#private {}", html: '<div id="private"></div>',
@@ -180,26 +187,63 @@ test("selector mappings reject static bindings shared by incompatible APIs", () 
     ids: { private: "a" },
     classes: { private: "b" },
     safelist: [],
-  }), /exactly one supported use/u);
+  }), /incompatible selector APIs/u);
 });
 
 test("selector mappings reject static bindings with non-selector uses", () => {
   assert.throws(() => applySelectorMappings({
     css: "#private {}", html: '<div id="private"></div>',
     javascript: 'const name = "private"; document.getElementById(name); fetch("/api/" + name)',
-  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /exactly one supported use/u);
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /unsupported or conflicting uses/u);
+});
+
+test("selector mappings permit repeated compatible static binding uses", () => {
+  const result = applySelectorMappings({
+    css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#private"; document.querySelector(target); document.querySelectorAll(target)',
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'const target = "#a"; document.querySelector(target); document.querySelectorAll(target)');
+});
+
+test("selector mappings permit repeated unaffected static binding uses", () => {
+  const result = applySelectorMappings({
+    css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#public"; document.querySelector(target); document.querySelectorAll(target)',
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'const target = "#public"; document.querySelector(target); document.querySelectorAll(target)');
+});
+
+test("selector mappings rewrite bounded concatenation pieces", () => {
+  const result = applySelectorMappings({
+    css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector("#private [data-key=\'" + key + "\']")',
+  }, { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.querySelector("#a [data-key=\'" + key + "\']")');
+});
+
+test("selector mappings ignore inherited mapping properties", () => {
+  const result = applySelectorMappings({ css: "", html: "", javascript: 'document.getElementsByClassName("constructor")' },
+    { enabled: true, ids: {}, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.getElementsByClassName("constructor")');
+});
+
+test("selector mappings parse classic scripts", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'var await = 1; document.querySelector("#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'var await = 1; document.querySelector("#a")');
 });
 
 test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
     html: '<div id="private"></div>',
-    javascript: 'const fragment = "#private"; location.hash = fragment; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
+    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.href = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
   }, {
     enabled: true,
     ids: { private: "a" },
     classes: {},
     safelist: [],
   });
-  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
 });

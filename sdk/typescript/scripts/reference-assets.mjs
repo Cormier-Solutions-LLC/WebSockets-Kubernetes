@@ -31,7 +31,7 @@ function integrity(content) {
 }
 
 function replaceTokenList(value, mappings) {
-  return value.split(/\s+/u).map((token) => mappings[token] ?? token).join(" ");
+  return value.split(/\s+/u).map((token) => Object.hasOwn(mappings, token) ? mappings[token] : token).join(" ");
 }
 
 function escapeRegularExpression(value) {
@@ -62,11 +62,11 @@ function mapJavaScriptValue(value, call, ids, classes, selectorMethods, classLis
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
     for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
   } else if (method === "getElementById") {
-    mapped = ids[mapped] ?? mapped;
+    mapped = Object.hasOwn(ids, mapped) ? ids[mapped] : mapped;
   } else if (method === "getElementsByClassName") {
     mapped = replaceTokenList(mapped, classes);
   } else if (classListMethods.has(method) && memberName(call.callee.object) === "classList") {
-    mapped = classes[mapped] ?? mapped;
+    mapped = Object.hasOwn(classes, mapped) ? classes[mapped] : mapped;
   } else if ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
   } else if (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window") {
@@ -87,7 +87,7 @@ function mapFragmentValue(value, ids) {
 
 function isLocationUrlAssignment(left) {
   const property = memberName(left);
-  return (property === "hash" || property === "href") && isLocationReference(left?.object);
+  return property === "hash" || property === "href";
 }
 
 function stringExpressionReplacement(node, javascript, mapper) {
@@ -98,7 +98,7 @@ function stringExpressionReplacement(node, javascript, mapper) {
   if (node.type !== "TemplateLiteral") return undefined;
   const mappedQuasis = node.quasis.map((quasi, index) => {
     const hasFollowingExpression = index < node.expressions.length;
-    const guarded = hasFollowingExpression ? `${quasi.value.raw}A` : quasi.value.raw;
+    const guarded = hasFollowingExpression ? `${quasi.value.raw}-` : quasi.value.raw;
     const mapped = mapper(guarded);
     return hasFollowingExpression ? mapped.slice(0, -1) : mapped;
   });
@@ -113,7 +113,7 @@ function stringExpressionReplacement(node, javascript, mapper) {
 }
 
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
-  const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "module" });
+  const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "script" });
   const replacements = [];
   const selectorMethods = new Set(["closest", "matches", "querySelector", "querySelectorAll"]);
   const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
@@ -143,7 +143,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       recordBindingPattern(node.id);
       if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const"
         && (node.init?.type === "TemplateLiteral" || typeof staticStringValue(node.init) === "string")) {
-        staticBindings.set(node.id.name, { node: node.init });
+        if (!staticBindings.has(node.id.name)) staticBindings.set(node.id.name, { node: node.init });
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
       if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
@@ -166,6 +166,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   collectBindings(syntaxTree, undefined);
   const referenceCounts = new Map();
+  const parents = new WeakMap();
   function collectReferences(node, parent) {
     if (node === null || typeof node !== "object") return;
     if (node.type === "Identifier" && staticBindings.has(node.name)) {
@@ -177,29 +178,46 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       }
     }
     for (const child of Object.values(node)) {
-      if (Array.isArray(child)) for (const item of child) collectReferences(item, node);
-      else if (child !== parent) collectReferences(child, node);
+      if (Array.isArray(child)) for (const item of child) {
+        if (item !== null && typeof item === "object") parents.set(item, node);
+        collectReferences(item, node);
+      }
+      else if (child !== parent) {
+        if (child !== null && typeof child === "object") parents.set(child, node);
+        collectReferences(child, node);
+      }
     }
   }
   collectReferences(syntaxTree, undefined);
   const bindingReplacements = new Map();
+  const supportedBindingUses = new Map();
 
   function recordStaticBindingReplacement(name, mapper) {
     const binding = staticBindings.get(name);
     if (binding === undefined) return;
+    const value = stringExpressionReplacement(binding.node, javascript, mapper);
+    if (value === undefined) return;
     if (bindingCounts.get(name) !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }
-    if (referenceCounts.get(name) !== 1) {
-      throw new Error(`Static selector binding ${name} must have exactly one supported use.`);
+    supportedBindingUses.set(name, (supportedBindingUses.get(name) ?? 0) + 1);
+    const previous = bindingReplacements.get(binding.node.start);
+    if (previous !== undefined && previous.value !== value) {
+      throw new Error(`Static selector binding ${name} is used by incompatible selector APIs.`);
     }
-    const value = stringExpressionReplacement(binding.node, javascript, mapper);
-    if (value === undefined) return;
     bindingReplacements.set(binding.node.start, {
       start: binding.node.start,
       end: binding.node.end,
+      name,
       value,
     });
+  }
+
+  function concatenationCall(node) {
+    let root = node;
+    while (parents.get(root)?.type === "BinaryExpression" && parents.get(root).operator === "+") root = parents.get(root);
+    const call = parents.get(root);
+    return call?.type === "CallExpression" && call.arguments.includes(root) ? { call, root } : undefined;
   }
 
   function visit(node, parent) {
@@ -208,6 +226,17 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       const value = stringExpressionReplacement(node, javascript, (source) =>
         mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
       if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
+    } else if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "BinaryExpression") {
+      const context = concatenationCall(node);
+      if (context !== undefined) {
+        const hasFollowingOperand = node.end < context.root.end;
+        const value = stringExpressionReplacement(node, javascript, (source) => {
+          const guarded = hasFollowingOperand ? `${source}-` : source;
+          const mapped = mapJavaScriptValue(guarded, context.call, ids, classes, selectorMethods, classListMethods);
+          return hasFollowingOperand ? mapped.slice(0, -1) : mapped;
+        });
+        if (value !== undefined) replacements.push({ start: node.start, end: node.end, value });
+      }
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "AssignmentExpression"
       && parent.right === node && isLocationUrlAssignment(parent.left)) {
       const value = stringExpressionReplacement(node, javascript, (source) => mapFragmentValue(source, ids));
@@ -238,7 +267,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   visit(syntaxTree, undefined);
   for (const replacement of bindingReplacements.values()) {
-    replacements.push(replacement);
+    if (supportedBindingUses.get(replacement.name) !== referenceCounts.get(replacement.name)) {
+      throw new Error(`Static selector binding ${replacement.name} has unsupported or conflicting uses.`);
+    }
+    replacements.push({ start: replacement.start, end: replacement.end, value: replacement.value });
   }
   return replacements.sort((left, right) => right.start - left.start)
     .reduce((result, replacement) =>
@@ -377,6 +409,10 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
       if (obfuscate && kind === "app.js") {
         delete metadata.sourceRoot;
         metadata.sources = ["app.minified.js"];
+      } else if (config.selectorMangling.enabled) {
+        delete metadata.sourceRoot;
+        metadata.sources = [`${kind.replace(/\.[^.]+$/u, "")}.mangled.${kind.split(".").at(-1)}`];
+        metadata.sourcesContent = [kind === "app.js" ? source.javascript : source.css];
       } else {
         metadata.sourceRoot = "../../../wwwroot/";
         metadata.sources = metadata.sources.map(() => kind);

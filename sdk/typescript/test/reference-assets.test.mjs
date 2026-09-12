@@ -123,6 +123,15 @@ test("selector mappings rewrite spaced and unquoted HTML ID references", () => {
   assert.equal(result.html, '<label for = "a">Quoted</label><label for=a>Unquoted</label><input id="a">');
 });
 
+test("selector mappings match complete HTML identity attributes and normal syntax", () => {
+  const result = applySelectorMappings({ css: "#private .internal {}",
+    html: '<div data-id="private" data-class="internal"></div><div ID = private CLASS = "internal public"></div>',
+    javascript: 'document.querySelector("#private .internal")' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.html,
+    '<div data-id="private" data-class="internal"></div><div ID = a CLASS = "b public"></div>');
+});
+
 test("class mappings change selector APIs without rewriting JavaScript properties", () => {
   const result = applySelectorMappings({
     css: ".log {}",
@@ -525,6 +534,30 @@ test("selector mappings respect shadowed browser document bindings", () => {
     'function lookup(document) { return document.getElementById("private"); }');
 });
 
+test("selector mappings respect shadowed window navigation bindings", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function send(window) { window.open("#private"); window.location = "#private"; window.location.assign("#private"); window.history.pushState(null, "", "#private"); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'function send(window) { window.open("#private"); window.location = "#private"; window.location.assign("#private"); window.history.pushState(null, "", "#private"); }');
+});
+
+test("selector mappings rewrite runtime HTML assignment references", () => {
+  const result = applySelectorMappings({ css: "#private .internal {}", html: '<div id="private"></div>',
+    javascript: 'root.innerHTML = `<a href="#private" class="internal" id="private">go</a>`; root.outerHTML = \'<label for="private">go</label>\'' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript,
+    'root.innerHTML = `<a href="#a" class="b" id="a">go</a>`; root.outerHTML = "<label for=\\"a\\">go</label>"');
+});
+
+test("selector mappings reject dynamic runtime HTML assignments", () => {
+  const options = { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] };
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'root.innerHTML = `<a href="#private">${label}</a>`' }, options), /Interpolated runtime HTML/u);
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'root.outerHTML = renderMarkup()' }, options), /Runtime HTML assignment expression CallExpression/u);
+});
+
 test("selector mappings rewrite Location hash comparisons", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'const fragment = "#private"; if (location.hash === "#private" || window.location.hash === fragment) {}' },
@@ -579,9 +612,9 @@ test("selector mappings rewrite History API URL fragments", () => {
 
 test("selector mappings rewrite unshadowed global open fragments", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
-    javascript: 'open("#private")' },
+    javascript: 'open("#private"); window.open("#private")' },
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
-  assert.equal(result.javascript, 'open("#a")');
+  assert.equal(result.javascript, 'open("#a"); window.open("#a")');
 });
 
 test("selector mappings rewrite id and class setAttribute values", () => {

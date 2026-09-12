@@ -197,6 +197,25 @@ function replaceHtmlIdReferences(html, ids) {
   return mapped;
 }
 
+function replaceHtmlIdentityAttribute(html, attribute, mapper) {
+  return html.replace(new RegExp(
+    `(^|[\\s<])(${attribute}\\s*=\\s*)(?:(["'])([^"']*)\\3|([^\\s"'=<>\u0060]+))`, "gimu"),
+  (match, boundary, prefix, quote, quotedValue, unquotedValue) => {
+    const replacement = mapper(quotedValue ?? unquotedValue);
+    return `${boundary}${prefix}${quote ?? ""}${replacement}${quote ?? ""}`;
+  });
+}
+
+function replaceHtmlSelectorReferences(html, ids, classes) {
+  let mapped = replaceHtmlIdentityAttribute(html, "id",
+    (value) => Object.hasOwn(ids, value) ? ids[value] : value);
+  mapped = replaceHtmlIdentityAttribute(mapped, "class", (value) => replaceTokenList(value, classes));
+  for (const [source, target] of Object.entries(ids)) {
+    mapped = mapped.replace(new RegExp(`#${escapeRegularExpression(source)}(?![A-Za-z0-9_-])`, "gu"), `#${target}`);
+  }
+  return replaceHtmlIdReferences(mapped, ids);
+}
+
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const syntaxTree = parseJavaScript(javascript, { ecmaVersion: "latest", sourceType: "script" });
   const replacements = [];
@@ -428,14 +447,46 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     }
     if (valueParent?.type !== "AssignmentExpression" || valueParent.right !== value
       || !isLocationUrlAssignment(valueParent.left)) return undefined;
-    const locationIdentifier = valueParent.left.type === "Identifier" && valueParent.left.name === "location"
-      ? valueParent.left
-      : valueParent.left.object?.type === "Identifier" && valueParent.left.object.name === "location"
-        ? valueParent.left.object
-        : undefined;
-    return locationIdentifier !== undefined && resolveBinding("location", locationIdentifier.start) !== undefined
+    const property = memberName(valueParent.left);
+    const locationReference = property === "hash" || property === "href"
+      ? valueParent.left.object
+      : valueParent.left;
+    const root = locationReference.type === "Identifier" ? locationReference : locationReference.object;
+    return resolveBinding(root.name, root.start) !== undefined
       ? undefined
       : valueParent;
+  }
+
+  function htmlAssignment(node) {
+    let value = node;
+    let valueParent = parents.get(value);
+    while ((valueParent?.type === "ConditionalExpression"
+        && (valueParent.consequent === value || valueParent.alternate === value))
+      || (valueParent?.type === "LogicalExpression"
+        && (valueParent.left === value || valueParent.right === value))
+      || (valueParent?.type === "SequenceExpression" && valueParent.expressions.at(-1) === value)) {
+      value = valueParent;
+      valueParent = parents.get(value);
+    }
+    return valueParent?.type === "AssignmentExpression" && valueParent.right === value
+      && valueParent.left.type === "MemberExpression"
+      && (memberName(valueParent.left) === "innerHTML" || memberName(valueParent.left) === "outerHTML")
+      ? valueParent
+      : undefined;
+  }
+
+  function isUnshadowedLocationReference(node) {
+    if (!isLocationReference(node)) return false;
+    const root = node.type === "Identifier" ? node : node.object;
+    return resolveBinding(root.name, root.start) === undefined;
+  }
+
+  function isUnshadowedHistoryReference(node) {
+    if (node?.type === "Identifier" && node.name === "history") {
+      return resolveBinding(node.name, node.start) === undefined;
+    }
+    return memberName(node) === "history" && node.object?.type === "Identifier" && node.object.name === "window"
+      && resolveBinding(node.object.name, node.object.start) === undefined;
   }
 
   function staticConcatenationValue(node) {
@@ -453,12 +504,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       return undefined;
     }
     const other = comparison.left === node ? comparison.right : comparison.right === node ? comparison.left : undefined;
-    if (other?.type !== "MemberExpression" || memberName(other) !== "hash" || !isLocationReference(other.object)) {
+    if (other?.type !== "MemberExpression" || memberName(other) !== "hash"
+      || !isUnshadowedLocationReference(other.object)) {
       return undefined;
     }
-    return other.object.type === "Identifier" && resolveBinding(other.object.name, other.object.start) !== undefined
-      ? undefined
-      : comparison;
+    return comparison;
   }
 
   function isMappedCallArgument(call, argument) {
@@ -473,16 +523,14 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         && call.arguments[0] === argument)
       || (isDomLookupCall(call, method) && unshadowedDocument(call.callee.object) && call.arguments[0] === argument)
       || (classListMethods.has(method) && isClassListTokenArgument(call, method, argument))
-      || ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
-        && call.arguments[0] === argument
-        && !(call.callee.object.type === "Identifier"
-          && resolveBinding(call.callee.object.name, call.callee.object.start) !== undefined))
-      || (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
+      || ((method === "assign" || method === "replace") && isUnshadowedLocationReference(call.callee.object)
         && call.arguments[0] === argument)
+      || (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
+        && call.arguments[0] === argument && resolveBinding("window", call.callee.object.start) === undefined)
       || (call.callee.type === "Identifier" && call.callee.name === "open" && call.arguments[0] === argument
         && resolveBinding("open", call.start) === undefined)
       || setAttributeKind(call, argument) !== undefined
-      || isHistoryUrlCall(call, argument);
+      || (isHistoryUrlCall(call, argument) && isUnshadowedHistoryReference(call.callee.object));
   }
 
   function visit(node, parent) {
@@ -514,6 +562,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
     const comparisonContext = fragmentComparison(node);
+    const htmlContext = htmlAssignment(node);
     if (node.type === "BinaryExpression" && staticConcatenationValue(node) !== undefined
       && ((selectorContext !== undefined && isMappedCallArgument(selectorContext.call, selectorContext.argument))
         || fragmentContext !== undefined)) {
@@ -523,7 +572,12 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       throw new Error("Non-string DOM selector arguments are unsupported when selector mangling is enabled.");
     }
-    if ((node.type === "Literal" || node.type === "TemplateLiteral") && comparisonContext !== undefined) {
+    if (node.type === "TemplateLiteral" && node.expressions.length > 0 && htmlContext !== undefined) {
+      throw new Error("Interpolated runtime HTML assignments are unsupported when selector mangling is enabled.");
+    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && htmlContext !== undefined) {
+      replacements.push(...stringExpressionReplacements(node,
+        (source) => replaceHtmlSelectorReferences(source, ids, classes)));
+    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && comparisonContext !== undefined) {
       replacements.push(...stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids)));
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
@@ -558,6 +612,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && fragmentContext !== undefined) {
       const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
       replacements.push(...edits);
+    } else if (node.type === "Identifier" && htmlContext !== undefined) {
+      recordStaticBindingReplacement(node, (source) => replaceHtmlSelectorReferences(source, ids, classes));
+    } else if (htmlContext !== undefined
+      && !["ConditionalExpression", "LogicalExpression", "SequenceExpression"].includes(node.type)) {
+      throw new Error(`Runtime HTML assignment expression ${node.type} is unsupported when selector mangling is enabled.`);
     } else if (node.type === "Identifier" && comparisonContext !== undefined) {
       recordStaticBindingReplacement(node, (source) => mapFragmentValue(source, ids));
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
@@ -631,16 +690,11 @@ export function applySelectorMappings({ css, html, javascript }, selectorManglin
   let mappedJavaScript = javascript;
   for (const [source, target] of Object.entries(selectorMangling.ids)) {
     mappedCss = replaceSelector(mappedCss, "#", source, target);
-    mappedHtml = mappedHtml
-      .replace(new RegExp(`(\\bid=["'])${source}(["'])`, "gu"), `$1${target}$2`)
-      .replace(new RegExp(`#${escapeRegularExpression(source)}(?![A-Za-z0-9_-])`, "gu"), `#${target}`);
   }
-  mappedHtml = replaceHtmlIdReferences(mappedHtml, selectorMangling.ids);
   for (const [source, target] of Object.entries(selectorMangling.classes)) {
     mappedCss = replaceSelector(mappedCss, ".", source, target);
-    mappedHtml = mappedHtml.replace(/\bclass=(['"])([^'"]*)\1/gu, (match, quote, tokens) =>
-      `class=${quote}${replaceTokenList(tokens, { [source]: target })}${quote}`);
   }
+  mappedHtml = replaceHtmlSelectorReferences(mappedHtml, selectorMangling.ids, selectorMangling.classes);
   mappedJavaScript = replaceJavaScriptSelectorReferences(mappedJavaScript, selectorMangling.ids, selectorMangling.classes);
   return { css: mappedCss, html: mappedHtml, javascript: mappedJavaScript };
 }

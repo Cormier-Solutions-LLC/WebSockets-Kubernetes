@@ -68,8 +68,15 @@ function isDomLookupCall(call, method) {
 
 function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods, classListMethods) {
   const method = memberName(call.callee);
+  const attribute = setAttributeKind(call, argument);
   let mapped = value;
-  if ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
+  if (attribute === "href") {
+    mapped = mapFragmentValue(mapped, ids);
+  } else if (attribute === "id") {
+    mapped = Object.hasOwn(ids, mapped) ? ids[mapped] : mapped;
+  } else if (attribute === "class") {
+    mapped = replaceTokenList(mapped, classes);
+  } else if ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
     && call.arguments[0] === argument) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
     for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
@@ -77,7 +84,7 @@ function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods
     mapped = Object.hasOwn(ids, mapped) ? ids[mapped] : mapped;
   } else if (method === "getElementsByClassName" && isDomLookupCall(call, method) && call.arguments[0] === argument) {
     mapped = replaceTokenList(mapped, classes);
-  } else if (classListMethods.has(method) && memberName(call.callee.object) === "classList") {
+  } else if (classListMethods.has(method) && isClassListTokenArgument(call, method, argument)) {
     mapped = Object.hasOwn(classes, mapped) ? classes[mapped] : mapped;
   } else if ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
     && call.arguments[0] === argument) {
@@ -114,10 +121,18 @@ function isLocationUrlAssignment(left) {
       && (left.object.name === "window" || left.object.name === "document"));
 }
 
-function isHrefSetAttributeCall(call, argument) {
-  return memberName(call?.callee) === "setAttribute"
-    && call.arguments[1] === argument
-    && staticStringValue(call.arguments[0])?.toLowerCase() === "href";
+function setAttributeKind(call, argument) {
+  if (memberName(call?.callee) !== "setAttribute" || call.arguments[1] !== argument) return undefined;
+  const attribute = staticStringValue(call.arguments[0])?.toLowerCase();
+  return attribute === "href" || attribute === "id" || attribute === "class" ? attribute : undefined;
+}
+
+function isClassListTokenArgument(call, method, argument) {
+  if (memberName(call.callee.object) !== "classList") return false;
+  const index = call.arguments.indexOf(argument);
+  if (method === "add" || method === "remove") return index >= 0;
+  if (method === "replace") return index === 0 || index === 1;
+  return (method === "contains" || method === "toggle") && index === 0;
 }
 
 function isHistoryUrlCall(call, argument) {
@@ -326,7 +341,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     while ((argumentParent?.type === "ConditionalExpression"
         && (argumentParent.consequent === argument || argumentParent.alternate === argument))
       || (argumentParent?.type === "LogicalExpression"
-        && (argumentParent.left === argument || argumentParent.right === argument))) {
+        && (argumentParent.left === argument || argumentParent.right === argument))
+      || (argumentParent?.type === "SequenceExpression"
+        && argumentParent.expressions.at(-1) === argument)) {
       argument = argumentParent;
       argumentParent = parents.get(argument);
     }
@@ -354,13 +371,12 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     return ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
         && call.arguments[0] === argument)
       || (isDomLookupCall(call, method) && call.arguments[0] === argument)
-      || (classListMethods.has(method) && memberName(call.callee.object) === "classList"
-        && call.arguments.includes(argument))
+      || (classListMethods.has(method) && isClassListTokenArgument(call, method, argument))
       || ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
         && call.arguments[0] === argument)
       || (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
         && call.arguments[0] === argument)
-      || isHrefSetAttributeCall(call, argument)
+      || setAttributeKind(call, argument) !== undefined
       || isHistoryUrlCall(call, argument);
   }
 
@@ -369,11 +385,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined) {
-      const edits = stringExpressionReplacements(node, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
-        || isHistoryUrlCall(selectorContext.call, selectorContext.argument)
-        ? mapFragmentValue(source, ids)
-        : mapJavaScriptValue(source, selectorContext.call, selectorContext.argument,
-          ids, classes, selectorMethods, classListMethods));
+      const edits = stringExpressionReplacements(node, (source) => mapJavaScriptValue(source,
+        selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods));
       replacements.push(...edits);
     } else if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "BinaryExpression") {
       const context = concatenationCall(node);
@@ -395,15 +408,16 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       replacements.push(...edits);
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
       if (isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
-        recordStaticBindingReplacement(node.name, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
-          || isHistoryUrlCall(selectorContext.call, selectorContext.argument)
-        ? mapFragmentValue(source, ids)
-          : mapJavaScriptValue(source, selectorContext.call, selectorContext.argument,
-            ids, classes, selectorMethods, classListMethods));
+        recordStaticBindingReplacement(node.name, (source) => mapJavaScriptValue(source,
+          selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods));
       }
     } else if (node.type === "MemberExpression" && selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       throw new Error("Stored selector properties are unsupported when selector mangling is enabled.");
+    } else if (selectorContext !== undefined && selectorContext.argument === node
+      && isMappedCallArgument(selectorContext.call, selectorContext.argument)
+      && !["BinaryExpression", "ConditionalExpression", "LogicalExpression", "SequenceExpression"].includes(node.type)) {
+      throw new Error(`Selector expression ${node.type} is unsupported when selector mangling is enabled.`);
     } else if (node.type === "Identifier" && fragmentContext !== undefined) {
       recordStaticBindingReplacement(node.name, (source) => mapFragmentValue(source, ids));
     }

@@ -106,6 +106,13 @@ test("class mappings change selector APIs without rewriting JavaScript propertie
   assert.equal(result.javascript, 'console.log("message"); node.classList.add("a"); document.querySelector(".a")');
 });
 
+test("classList toggle ignores its boolean force argument", () => {
+  const result = applySelectorMappings({ css: ".visible {}", html: '<div class="visible"></div>',
+    javascript: 'node.classList.toggle("visible", shouldShow)' },
+  { enabled: true, ids: {}, classes: { visible: "a" }, safelist: [] });
+  assert.equal(result.javascript, 'node.classList.toggle("a", shouldShow)');
+});
+
 test("selector mappings rewrite static template-literal selector arguments", () => {
   const result = applySelectorMappings({
     css: ".internal #private {}",
@@ -306,6 +313,19 @@ test("selector mappings rewrite conditional and logical selector arguments", () 
     'const candidate = "#public"; document.querySelector(usePrivate ? "#a" : ".b"); document.querySelector(candidate || "#a")');
 });
 
+test("selector mappings rewrite the final value of sequence selector arguments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector((sideEffect(), "#private"))' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.querySelector((sideEffect(), "#a"))');
+});
+
+test("selector mappings reject unsupported top-level selector expressions", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector(getSelector())' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /CallExpression is unsupported/u);
+});
+
 test("selector mappings rewrite concatenations nested in conditional selector arguments", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'document.querySelector(flag ? "#private " + suffix : "#private")' },
@@ -405,4 +425,12 @@ test("selector mappings rewrite History API URL fragments", () => {
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript,
     'history.pushState({ value: "#private" }, "#private", "#a"); window.history.replaceState(null, "", "/page#a")');
+});
+
+test("selector mappings rewrite id and class setAttribute values", () => {
+  const result = applySelectorMappings({ css: "#private .internal {}",
+    html: '<div id="private" class="internal"></div>',
+    javascript: 'node.setAttribute("id", "private"); node.setAttribute("class", "internal public")' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript, 'node.setAttribute("id", "a"); node.setAttribute("class", "b public")');
 });

@@ -397,6 +397,14 @@ test("selector mappings reject reversed shadowed static bindings", () => {
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /must not be shadowed/u);
 });
 
+test("selector mappings distinguish bindings in disjoint lexical scopes", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function first() { const target = "#private"; return document.querySelector(target); } function second() { const target = "business"; return target; }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'function first() { const target = "#a"; return document.querySelector(target); } function second() { const target = "business"; return target; }');
+});
+
 test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
@@ -419,12 +427,32 @@ test("selector mappings rewrite conditional fragment assignments", () => {
     'const fallback = "#public"; anchor.href = flag ? "#a" : "#public"; location = fallback || "#a"');
 });
 
+test("selector mappings rewrite concatenated fragment assignments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'location.href = "/page#private?key=" + key' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'location.href = "/page#a?key=" + key');
+});
+
+test("selector mappings reject dynamic conditional selector branches", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector(flag ? getSelector() : "#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /CallExpression is unsupported/u);
+});
+
 test("selector mappings rewrite History API URL fragments", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'history.pushState({ value: "#private" }, "#private", "#private"); window.history.replaceState(null, "", "/page#private")' },
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript,
     'history.pushState({ value: "#private" }, "#private", "#a"); window.history.replaceState(null, "", "/page#a")');
+});
+
+test("selector mappings rewrite unshadowed global open fragments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'open("#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'open("#a")');
 });
 
 test("selector mappings rewrite id and class setAttribute values", () => {

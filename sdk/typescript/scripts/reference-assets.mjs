@@ -89,7 +89,8 @@ function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods
   } else if ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
     && call.arguments[0] === argument) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
-  } else if (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
+  } else if ((method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
+      || call.callee.type === "Identifier" && call.callee.name === "open")
     && call.arguments[0] === argument) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
   } else if ((method === "pushState" || method === "replaceState") && call.arguments[2] === argument
@@ -168,35 +169,14 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const replacements = [];
   const selectorMethods = new Set(["closest", "insertRule", "matches", "querySelector", "querySelectorAll"]);
   const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
-  const bindingCounts = new Map();
-  const varDeclarationCounts = new Map();
-  const varInitializerCounts = new Map();
-  const varBindingScopes = new Map();
-  const staticBindings = new Map();
-  const concatenatedBindings = new Set();
+  const bindingDeclarations = new Map();
+  const assignmentTargets = [];
   const assignedBindings = new Set();
-
-  function recordBindingPattern(pattern) {
-    if (pattern === null) return;
-    if (pattern.type === "Identifier") {
-      bindingCounts.set(pattern.name, (bindingCounts.get(pattern.name) ?? 0) + 1);
-    } else if (pattern.type === "RestElement") {
-      recordBindingPattern(pattern.argument);
-    } else if (pattern.type === "AssignmentPattern") {
-      recordBindingPattern(pattern.left);
-    } else if (pattern.type === "ArrayPattern") {
-      for (const element of pattern.elements) recordBindingPattern(element);
-    } else if (pattern.type === "ObjectPattern") {
-      for (const property of pattern.properties) {
-        recordBindingPattern(property.type === "RestElement" ? property.argument : property.value);
-      }
-    }
-  }
 
   function visitBindingIdentifiers(pattern, callback) {
     if (pattern === null) return;
     if (pattern.type === "Identifier") {
-      callback(pattern.name);
+      callback(pattern.name, pattern);
     } else if (pattern.type === "RestElement") {
       visitBindingIdentifiers(pattern.argument, callback);
     } else if (pattern.type === "AssignmentPattern") {
@@ -210,75 +190,109 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     }
   }
 
-  function recordAssignedPattern(pattern) {
-    visitBindingIdentifiers(pattern, (name) => assignedBindings.add(name));
+  function recordBindingPattern(pattern, scope, kind) {
+    const records = [];
+    visitBindingIdentifiers(pattern, (name) => {
+      if (!bindingDeclarations.has(name)) bindingDeclarations.set(name, []);
+      let record = kind === "var"
+        ? bindingDeclarations.get(name).find((candidate) => candidate.kind === "var" && candidate.scope === scope)
+        : undefined;
+      if (record === undefined) {
+        record = { kind, mutable: kind !== "const", name, scope };
+        bindingDeclarations.get(name).push(record);
+      }
+      records.push(record);
+    });
+    return records;
   }
 
-  function collectBindings(node, parent, functionScope) {
+  function recordAssignedPattern(pattern) {
+    visitBindingIdentifiers(pattern, (_name, identifier) => assignmentTargets.push(identifier));
+  }
+
+  function collectBindings(node, parent, functionScope, lexicalScope) {
     if (node === null || typeof node !== "object") return;
+    const createsLexicalScope = ["Program", "BlockStatement", "SwitchStatement", "ForStatement", "ForInStatement",
+      "ForOfStatement", "CatchClause"].includes(node.type);
+    const currentLexicalScope = createsLexicalScope ? node : lexicalScope;
     if (node.type === "VariableDeclarator") {
-      recordBindingPattern(node.id);
-      if (parent?.kind === "var") {
-        visitBindingIdentifiers(node.id, (name) => {
-          varDeclarationCounts.set(name, (varDeclarationCounts.get(name) ?? 0) + 1);
-          if (node.init !== null) {
-            const initializerCount = (varInitializerCounts.get(name) ?? 0) + 1;
-            varInitializerCounts.set(name, initializerCount);
-            if (initializerCount > 1) assignedBindings.add(name);
-          }
-          if (!varBindingScopes.has(name)) varBindingScopes.set(name, new Set());
-          varBindingScopes.get(name).add(functionScope);
-        });
+      const kind = parent?.kind;
+      const scope = kind === "var" ? functionScope : currentLexicalScope;
+      const records = recordBindingPattern(node.id, scope, kind);
+      if (node.init !== null) {
+        records[0].initializerCount = (records[0].initializerCount ?? 0) + 1;
+        if (records[0].initializerCount > 1) assignedBindings.add(records[0]);
       }
       if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && ["const", "let", "var"].includes(parent.kind)
         && (node.init?.type === "TemplateLiteral" || typeof staticStringValue(node.init) === "string")) {
-        if (!staticBindings.has(node.id.name)) staticBindings.set(node.id.name, { mutable: parent.kind !== "const", node: node.init });
+        const record = records[0];
+        if (record.static !== undefined) assignedBindings.add(record);
+        else record.static = { node: node.init };
       } else if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && ["const", "let", "var"].includes(parent.kind)
         && node.init?.type === "BinaryExpression" && node.init.operator === "+") {
-        concatenatedBindings.add(node.id.name);
+        records[0].concatenated = true;
+      } else if (node.id.type === "Identifier" && node.init !== null && records[0].static !== undefined) {
+        assignedBindings.add(records[0]);
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
-      if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
+      if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id, lexicalScope, "function");
       for (const parameter of node.params) {
-        recordBindingPattern(parameter);
+        recordBindingPattern(parameter, node, "parameter");
       }
     } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
-      if (node.id !== null) recordBindingPattern(node.id);
+      if (node.id !== null) recordBindingPattern(node.id, lexicalScope, "class");
     } else if (node.type === "CatchClause") {
-      recordBindingPattern(node.param);
+      recordBindingPattern(node.param, node, "catch");
     } else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") {
-      recordBindingPattern(node.local);
+      recordBindingPattern(node.local, syntaxTree, "import");
     } else if (node.type === "AssignmentExpression") {
       recordAssignedPattern(node.left);
     } else if (node.type === "UpdateExpression" && node.argument.type === "Identifier") {
-      assignedBindings.add(node.argument.name);
+      assignmentTargets.push(node.argument);
     } else if ((node.type === "ForInStatement" || node.type === "ForOfStatement")
       && node.left.type !== "VariableDeclaration") {
       recordAssignedPattern(node.left);
     }
     const childFunctionScope = node.type === "FunctionDeclaration" || node.type === "FunctionExpression"
       || node.type === "ArrowFunctionExpression" ? node : functionScope;
+    const childLexicalScope = node.type === "FunctionDeclaration" || node.type === "FunctionExpression"
+      || node.type === "ArrowFunctionExpression" ? node : currentLexicalScope;
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {
-        for (const item of child) collectBindings(item, node, childFunctionScope);
+        for (const item of child) collectBindings(item, node, childFunctionScope, childLexicalScope);
       } else if (child !== parent) {
-        collectBindings(child, node, childFunctionScope);
+        collectBindings(child, node, childFunctionScope, childLexicalScope);
       }
     }
   }
 
-  collectBindings(syntaxTree, undefined, syntaxTree);
+  collectBindings(syntaxTree, undefined, syntaxTree, syntaxTree);
+
+  function resolveBinding(name, position) {
+    const candidates = (bindingDeclarations.get(name) ?? [])
+      .filter((record) => record.scope.start <= position && position < record.scope.end)
+      .sort((left, right) => (left.scope.end - left.scope.start) - (right.scope.end - right.scope.start));
+    if (candidates.length > 1 && candidates[0].scope === candidates[1].scope) return undefined;
+    return candidates[0];
+  }
+
+  for (const target of assignmentTargets) {
+    const binding = resolveBinding(target.name, target.start);
+    if (binding !== undefined) assignedBindings.add(binding);
+  }
+
   const referenceCounts = new Map();
   const parents = new WeakMap();
   function collectReferences(node, parent) {
     if (node === null || typeof node !== "object") return;
-    if (node.type === "Identifier" && staticBindings.has(node.name)) {
+    if (node.type === "Identifier") {
+      const binding = resolveBinding(node.name, node.start);
       const declaration = (parent?.type === "VariableDeclarator" && parent.id === node)
         || (parent?.type === "AssignmentPattern" && parent.left === node);
       const propertyName = parent?.type === "MemberExpression" && parent.property === node && !parent.computed;
       const objectKey = parent?.type === "Property" && parent.key === node && !parent.computed && parent.value !== node;
-      if (!declaration && !propertyName && !objectKey) {
-        referenceCounts.set(node.name, (referenceCounts.get(node.name) ?? 0) + 1);
+      if (binding?.static !== undefined && !declaration && !propertyName && !objectKey) {
+        referenceCounts.set(binding, (referenceCounts.get(binding) ?? 0) + 1);
       }
     }
     for (const child of Object.values(node)) {
@@ -296,43 +310,51 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const bindingReplacements = new Map();
   const supportedBindingUses = new Map();
 
-  function recordStaticBindingReplacement(name, mapper) {
-    const binding = staticBindings.get(name);
-    if (binding === undefined) {
-      if (concatenatedBindings.has(name)) {
-        throw new Error(`Concatenated selector binding ${name} is unsupported; inline it or use a template literal.`);
+  function recordStaticBindingReplacement(identifier, mapper) {
+    const record = resolveBinding(identifier.name, identifier.start);
+    if (record?.static === undefined) {
+      if (record?.concatenated === true) {
+        throw new Error(`Concatenated selector binding ${identifier.name} is unsupported; inline it or use a template literal.`);
       }
-      throw new Error(`Dynamic selector binding ${name} is unsupported when selector mangling is enabled.`);
+      throw new Error(`Dynamic selector binding ${identifier.name} is unsupported when selector mangling is enabled.`);
     }
-    const repeatedVarDeclarations = (varDeclarationCounts.get(name) ?? 0) - (varBindingScopes.get(name)?.size ?? 0);
-    if ((bindingCounts.get(name) ?? 0) - repeatedVarDeclarations !== 1) {
-      throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
+    const nestedShadow = (bindingDeclarations.get(identifier.name) ?? []).some((candidate) => candidate !== record
+      && ((candidate.scope.start <= record.scope.start && record.scope.end <= candidate.scope.end)
+        || (record.scope.start <= candidate.scope.start && candidate.scope.end <= record.scope.end)));
+    if (nestedShadow) {
+      throw new Error(`Static selector binding ${identifier.name} must not be shadowed when selector mangling is enabled.`);
     }
-    if (binding.mutable && assignedBindings.has(name)) {
-      throw new Error(`Mutable selector binding ${name} must not be reassigned when selector mangling is enabled.`);
+    if (record.mutable && assignedBindings.has(record)) {
+      throw new Error(`Mutable selector binding ${identifier.name} must not be reassigned when selector mangling is enabled.`);
     }
-    const edits = stringExpressionReplacements(binding.node, mapper);
+    const edits = stringExpressionReplacements(record.static.node, mapper);
     if (edits.length === 0) return;
-    supportedBindingUses.set(name, (supportedBindingUses.get(name) ?? 0) + 1);
-    const previous = bindingReplacements.get(binding.node.start);
+    supportedBindingUses.set(record, (supportedBindingUses.get(record) ?? 0) + 1);
+    const previous = bindingReplacements.get(record.static.node.start);
     const signature = JSON.stringify(edits);
     if (previous !== undefined && previous.signature !== signature) {
-      throw new Error(`Static selector binding ${name} is used by incompatible selector APIs.`);
+      throw new Error(`Static selector binding ${identifier.name} is used by incompatible selector APIs.`);
     }
-    bindingReplacements.set(binding.node.start, {
-      start: binding.node.start,
-      end: binding.node.end,
-      name,
+    bindingReplacements.set(record.static.node.start, {
+      start: record.static.node.start,
+      end: record.static.node.end,
+      name: identifier.name,
+      record,
       edits,
       signature,
     });
   }
 
   function concatenationCall(node) {
-    let root = node;
-    while (parents.get(root)?.type === "BinaryExpression" && parents.get(root).operator === "+") root = parents.get(root);
+    const root = concatenationRoot(node);
     const context = selectorArgumentCall(root);
     return context === undefined ? undefined : { argument: context.argument, call: context.call, root };
+  }
+
+  function concatenationRoot(node) {
+    let root = node;
+    while (parents.get(root)?.type === "BinaryExpression" && parents.get(root).operator === "+") root = parents.get(root);
+    return root;
   }
 
   function selectorArgumentCall(node) {
@@ -358,7 +380,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     while ((valueParent?.type === "ConditionalExpression"
         && (valueParent.consequent === value || valueParent.alternate === value))
       || (valueParent?.type === "LogicalExpression"
-        && (valueParent.left === value || valueParent.right === value))) {
+        && (valueParent.left === value || valueParent.right === value))
+      || (valueParent?.type === "BinaryExpression" && valueParent.operator === "+")) {
       value = valueParent;
       valueParent = parents.get(value);
     }
@@ -376,6 +399,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         && call.arguments[0] === argument)
       || (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
         && call.arguments[0] === argument)
+      || (call.callee.type === "Identifier" && call.callee.name === "open" && call.arguments[0] === argument
+        && resolveBinding("open", call.start) === undefined)
       || setAttributeKind(call, argument) !== undefined
       || isHistoryUrlCall(call, argument);
   }
@@ -384,7 +409,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (node === null || typeof node !== "object") return;
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
-    if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined) {
+    if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
+      && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       const edits = stringExpressionReplacements(node, (source) => mapJavaScriptValue(source,
         selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods));
       replacements.push(...edits);
@@ -402,24 +428,34 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
           return mapped.slice(hasPrecedingOperand ? 1 : 0, hasFollowingOperand ? -1 : undefined);
         });
         replacements.push(...edits);
+      } else if (fragmentContext !== undefined) {
+        const root = concatenationRoot(node);
+        const hasFollowingOperand = node.end < root.end;
+        const hasPrecedingOperand = node.start > root.start;
+        const edits = stringExpressionReplacements(node, (source) => {
+          const guarded = `${hasPrecedingOperand ? "-" : ""}${source}${hasFollowingOperand ? "-" : ""}`;
+          const mapped = mapFragmentValue(guarded, ids);
+          return mapped.slice(hasPrecedingOperand ? 1 : 0, hasFollowingOperand ? -1 : undefined);
+        });
+        replacements.push(...edits);
       }
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && fragmentContext !== undefined) {
       const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
       replacements.push(...edits);
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
       if (isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
-        recordStaticBindingReplacement(node.name, (source) => mapJavaScriptValue(source,
+        recordStaticBindingReplacement(node, (source) => mapJavaScriptValue(source,
           selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods));
       }
     } else if (node.type === "MemberExpression" && selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       throw new Error("Stored selector properties are unsupported when selector mangling is enabled.");
-    } else if (selectorContext !== undefined && selectorContext.argument === node
+    } else if (selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)
       && !["BinaryExpression", "ConditionalExpression", "LogicalExpression", "SequenceExpression"].includes(node.type)) {
       throw new Error(`Selector expression ${node.type} is unsupported when selector mangling is enabled.`);
-    } else if (node.type === "Identifier" && fragmentContext !== undefined) {
-      recordStaticBindingReplacement(node.name, (source) => mapFragmentValue(source, ids));
+    } else if (node.type === "Identifier" && fragmentContext !== undefined && parent?.type !== "BinaryExpression") {
+      recordStaticBindingReplacement(node, (source) => mapFragmentValue(source, ids));
     }
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {
@@ -432,7 +468,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   visit(syntaxTree, undefined);
   for (const replacement of bindingReplacements.values()) {
-    if (supportedBindingUses.get(replacement.name) !== referenceCounts.get(replacement.name)) {
+    if (supportedBindingUses.get(replacement.record) !== referenceCounts.get(replacement.record)) {
       throw new Error(`Static selector binding ${replacement.name} has unsupported or conflicting uses.`);
     }
     replacements.push(...replacement.edits);

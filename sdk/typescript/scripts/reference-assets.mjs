@@ -34,13 +34,70 @@ function replaceTokenList(value, mappings) {
   return value.split(/\s+/u).map((token) => Object.hasOwn(mappings, token) ? mappings[token] : token).join(" ");
 }
 
-function escapeRegularExpression(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+function cssIdentifierEnd(value, start) {
+  let index = start;
+  while (index < value.length) {
+    const character = value[index];
+    if (character === "\\") {
+      if (index + 1 >= value.length || /[\r\n\f]/u.test(value[index + 1])) break;
+      index += 1;
+      if (/[0-9A-Fa-f]/u.test(value[index])) {
+        let digits = 0;
+        while (index < value.length && digits < 6 && /[0-9A-Fa-f]/u.test(value[index])) {
+          index += 1;
+          digits += 1;
+        }
+        if (index < value.length && /[\t\n\f\r ]/u.test(value[index])) index += 1;
+      } else {
+        index += 1;
+      }
+    } else if (/[A-Za-z0-9_-]/u.test(character) || character.codePointAt(0) >= 0x80) {
+      index += character.length;
+    } else {
+      break;
+    }
+  }
+  return index;
+}
+
+function decodeCssIdentifier(value) {
+  let decoded = "";
+  for (let index = 0; index < value.length;) {
+    if (value[index] !== "\\") {
+      const character = String.fromCodePoint(value.codePointAt(index));
+      decoded += character;
+      index += character.length;
+      continue;
+    }
+    index += 1;
+    const match = /^[0-9A-Fa-f]{1,6}/u.exec(value.slice(index));
+    if (match !== null) {
+      const codePoint = Number.parseInt(match[0], 16);
+      decoded += codePoint === 0 || codePoint > 0x10FFFF ? "\uFFFD" : String.fromCodePoint(codePoint);
+      index += match[0].length;
+      if (index < value.length && /[\t\n\f\r ]/u.test(value[index])) index += 1;
+    } else if (index < value.length) {
+      decoded += value[index];
+      index += 1;
+    }
+  }
+  return decoded;
 }
 
 function replaceSelector(value, prefix, source, target) {
-  const selector = new RegExp(`${escapeRegularExpression(prefix)}${escapeRegularExpression(source)}(?![A-Za-z0-9_-])`, "gu");
-  return value.replace(selector, `${prefix}${target}`);
+  let mapped = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const selectorStart = value.indexOf(prefix, cursor);
+    if (selectorStart < 0) return mapped + value.slice(cursor);
+    const identifierStart = selectorStart + prefix.length;
+    const identifierEnd = cssIdentifierEnd(value, identifierStart);
+    mapped += value.slice(cursor, selectorStart);
+    const identifier = value.slice(identifierStart, identifierEnd);
+    mapped += decodeCssIdentifier(identifier) === source ? `${prefix}${target}` : `${prefix}${identifier}`;
+    cursor = identifierEnd;
+  }
+  return mapped;
 }
 
 function memberName(member) {
@@ -115,9 +172,14 @@ function isLocationReference(node) {
 }
 
 function mapFragmentValue(value, ids) {
-  let mapped = value;
-  for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
-  return mapped;
+  return value.replace(/#([A-Za-z0-9%._~-]+)/gu, (match, encoded) => {
+    try {
+      const decoded = decodeURIComponent(encoded);
+      return Object.hasOwn(ids, decoded) ? `#${ids[decoded]}` : match;
+    } catch {
+      return match;
+    }
+  });
 }
 
 function isLocationUrlAssignment(left) {
@@ -210,9 +272,7 @@ function replaceHtmlSelectorReferences(html, ids, classes) {
   let mapped = replaceHtmlIdentityAttribute(html, "id",
     (value) => Object.hasOwn(ids, value) ? ids[value] : value);
   mapped = replaceHtmlIdentityAttribute(mapped, "class", (value) => replaceTokenList(value, classes));
-  for (const [source, target] of Object.entries(ids)) {
-    mapped = mapped.replace(new RegExp(`#${escapeRegularExpression(source)}(?![A-Za-z0-9_-])`, "gu"), `#${target}`);
-  }
+  mapped = mapFragmentValue(mapped, ids);
   return replaceHtmlIdReferences(mapped, ids);
 }
 
@@ -247,8 +307,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     visitBindingIdentifiers(pattern, (name) => {
       if (!bindingDeclarations.has(name)) bindingDeclarations.set(name, []);
       let record = kind === "var"
-        ? bindingDeclarations.get(name).find((candidate) => candidate.kind === "var" && candidate.scope === scope)
-        : undefined;
+        ? bindingDeclarations.get(name).find((candidate) => (candidate.kind === "var" || candidate.kind === "parameter")
+          && candidate.scope === scope)
+        : kind === "parameter"
+          ? bindingDeclarations.get(name).find((candidate) => candidate.kind === "parameter" && candidate.scope === scope)
+          : undefined;
       if (record === undefined) {
         record = { kind, mutable: kind !== "const", name, scope };
         bindingDeclarations.get(name).push(record);
@@ -285,6 +348,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         records[0].concatenated = true;
       } else if (node.id.type === "Identifier" && node.init !== null && records[0].static !== undefined) {
         assignedBindings.add(records[0]);
+      }
+      if (node.id.type === "Identifier" && node.init?.type === "CallExpression"
+        && memberName(node.init.callee) === "createElement" && staticStringValue(node.init.arguments[0]) === "style") {
+        records[0].styleElementInitializer = node.init;
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
       if (node.id !== null && node.id !== undefined) {
@@ -386,6 +453,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (record.mutable && assignedBindings.has(record)) {
       throw new Error(`Mutable selector binding ${identifier.name} must not be reassigned when selector mangling is enabled.`);
     }
+    assertNoMappedStaticTemplateExpressions(record.static.node, mapper);
     const edits = stringExpressionReplacements(record.static.node, mapper);
     if (edits.length === 0) return;
     supportedBindingUses.set(record, (supportedBindingUses.get(record) ?? 0) + 1);
@@ -471,8 +539,24 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     return valueParent?.type === "AssignmentExpression" && valueParent.right === value
       && valueParent.left.type === "MemberExpression"
       && (memberName(valueParent.left) === "innerHTML" || memberName(valueParent.left) === "outerHTML")
-      ? valueParent
+      ? { assignment: valueParent, proven: isProvenDomElement(valueParent.left.object) }
       : undefined;
+  }
+
+  function styleAssignment(node) {
+    let value = node;
+    let valueParent = parents.get(value);
+    while ((valueParent?.type === "ConditionalExpression"
+        && (valueParent.consequent === value || valueParent.alternate === value))
+      || (valueParent?.type === "LogicalExpression"
+        && (valueParent.left === value || valueParent.right === value))
+      || (valueParent?.type === "SequenceExpression" && valueParent.expressions.at(-1) === value)) {
+      value = valueParent;
+      valueParent = parents.get(value);
+    }
+    if (valueParent?.type !== "AssignmentExpression" || valueParent.right !== value
+      || valueParent.left.type !== "MemberExpression" || memberName(valueParent.left) !== "textContent") return undefined;
+    return { assignment: valueParent, proven: isProvenStyleElement(valueParent.left.object) };
   }
 
   function isUnshadowedLocationReference(node) {
@@ -489,6 +573,35 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && resolveBinding(node.object.name, node.object.start) === undefined;
   }
 
+  function unshadowedDocument(node) {
+    return isDocumentReference(node)
+      && !((node.type === "Identifier" && resolveBinding(node.name, node.start) !== undefined)
+        || (memberName(node) === "document" && node.object?.type === "Identifier"
+          && resolveBinding(node.object.name, node.object.start) !== undefined));
+  }
+
+  function isProvenDomElement(node) {
+    if (node?.type !== "CallExpression") return false;
+    const method = memberName(node.callee);
+    return (method === "getElementById" && isDomLookupCall(node, method) && unshadowedDocument(node.callee.object))
+      || (method === "querySelector" && unshadowedDocument(node.callee.object));
+  }
+
+  function isProvenStyleElement(node) {
+    const record = node?.type === "Identifier" ? resolveBinding(node.name, node.start) : undefined;
+    if (record !== undefined && assignedBindings.has(record)) return false;
+    const initializer = record?.styleElementInitializer ?? node;
+    return initializer?.type === "CallExpression" && memberName(initializer.callee) === "createElement"
+      && staticStringValue(initializer.arguments[0]) === "style" && unshadowedDocument(initializer.callee.object);
+  }
+
+  function mapCssValue(value) {
+    let mapped = value;
+    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+    for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
+    return mapped;
+  }
+
   function staticConcatenationValue(node) {
     if (node.type === "Literal" && typeof node.value === "string") return node.value;
     if (node.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis[0].value.cooked;
@@ -498,28 +611,45 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     return left === undefined || right === undefined ? undefined : left + right;
   }
 
-  function fragmentComparison(node) {
+  function assertNoMappedStaticTemplateExpressions(node, mapper) {
+    if (node.type !== "TemplateLiteral") return;
+    for (const expression of node.expressions) {
+      const value = staticConcatenationValue(expression);
+      if (value !== undefined && mapper(value) !== value) {
+        throw new Error("Static template interpolation is unsupported when selector mangling is enabled.");
+      }
+    }
+  }
+
+  function comparisonMapping(node) {
     const comparison = parents.get(node);
     if (comparison?.type !== "BinaryExpression" || !["==", "===", "!=", "!=="].includes(comparison.operator)) {
       return undefined;
     }
     const other = comparison.left === node ? comparison.right : comparison.right === node ? comparison.left : undefined;
-    if (other?.type !== "MemberExpression" || memberName(other) !== "hash"
-      || !isUnshadowedLocationReference(other.object)) {
-      return undefined;
+    if (other?.type !== "MemberExpression") return undefined;
+    const property = memberName(other);
+    if (property === "hash" && isUnshadowedLocationReference(other.object)) {
+      return { comparison, mapper: (source) => mapFragmentValue(source, ids) };
     }
-    return comparison;
+    if (property !== "id" && property !== "className") return undefined;
+    const mapper = property === "id"
+      ? (source) => Object.hasOwn(ids, source) ? ids[source] : source
+      : (source) => replaceTokenList(source, classes);
+    if (isProvenDomElement(other.object)) return { comparison, mapper };
+    const value = staticStringValue(node);
+    if ((value !== undefined && mapper(value) !== value) || node.type === "Identifier") {
+      throw new Error(`Comparison against ambiguous ${property} receiver is unsupported when selector mangling is enabled.`);
+    }
+    return undefined;
   }
 
   function isMappedCallArgument(call, argument) {
     const method = memberName(call.callee);
     const indirectMethod = method === "call" ? memberName(call.callee.object) : undefined;
-    const unshadowedDocument = (node) => isDocumentReference(node)
-      && !((node.type === "Identifier" && resolveBinding(node.name, node.start) !== undefined)
-        || (memberName(node) === "document" && node.object?.type === "Identifier"
-          && resolveBinding(node.object.name, node.object.start) !== undefined));
     return (selectorMethods.has(indirectMethod) && call.arguments[1] === argument)
-      || ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
+      || ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"
+          && resolveBinding("$", call.callee.start) === undefined))
         && call.arguments[0] === argument)
       || (isDomLookupCall(call, method) && unshadowedDocument(call.callee.object) && call.arguments[0] === argument)
       || (classListMethods.has(method) && isClassListTokenArgument(call, method, argument))
@@ -529,7 +659,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         && call.arguments[0] === argument && resolveBinding("window", call.callee.object.start) === undefined)
       || (call.callee.type === "Identifier" && call.callee.name === "open" && call.arguments[0] === argument
         && resolveBinding("open", call.start) === undefined)
-      || setAttributeKind(call, argument) !== undefined
+      || (setAttributeKind(call, argument) !== undefined && isProvenDomElement(call.callee.object))
       || (isHistoryUrlCall(call, argument) && isUnshadowedHistoryReference(call.callee.object));
   }
 
@@ -549,6 +679,15 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && !isDomLookupCall(node, "getElementsByClassName") && Object.keys(classes).length > 0) {
       throw new Error("Element-scoped getElementsByClassName is unsupported when selector mangling is enabled.");
     }
+    if (node.type === "CallExpression" && node.arguments.length > 1) {
+      const attribute = setAttributeKind(node, node.arguments[1]);
+      const mappedAttribute = attribute === "id" && Object.keys(ids).length > 0
+        || attribute === "class" && Object.keys(classes).length > 0
+        || attribute === "href" && Object.keys(ids).length > 0;
+      if (mappedAttribute && !isProvenDomElement(node.callee.object)) {
+        throw new Error("Ambiguous setAttribute receiver is unsupported when selector mangling is enabled.");
+      }
+    }
     if (node.type === "CallExpression" && memberName(node.callee) === "replace"
       && !isLocationReference(node.callee.object)) {
       const source = staticStringValue(node.arguments[0]);
@@ -561,8 +700,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     }
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
-    const comparisonContext = fragmentComparison(node);
+    const comparisonContext = comparisonMapping(node);
     const htmlContext = htmlAssignment(node);
+    const styleContext = styleAssignment(node);
     if (node.type === "BinaryExpression" && staticConcatenationValue(node) !== undefined
       && ((selectorContext !== undefined && isMappedCallArgument(selectorContext.call, selectorContext.argument))
         || fragmentContext !== undefined)) {
@@ -572,15 +712,37 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       throw new Error("Non-string DOM selector arguments are unsupported when selector mangling is enabled.");
     }
-    if (node.type === "TemplateLiteral" && node.expressions.length > 0 && htmlContext !== undefined) {
+    if ((node.type === "Literal" || node.type === "TemplateLiteral") && styleContext !== undefined) {
+      const source = staticStringValue(node);
+      if (!styleContext.proven && source !== undefined && mapCssValue(source) !== source) {
+        throw new Error("Assignment to ambiguous textContent receiver is unsupported when selector mangling is enabled.");
+      }
+      if (styleContext.proven) {
+        assertNoMappedStaticTemplateExpressions(node, mapCssValue);
+        replacements.push(...stringExpressionReplacements(node, mapCssValue));
+      }
+    } else if (node.type === "Identifier" && styleContext?.proven === true) {
+      recordStaticBindingReplacement(node, mapCssValue);
+    } else if (styleContext?.proven === true
+      && !["ConditionalExpression", "LogicalExpression", "SequenceExpression"].includes(node.type)) {
+      throw new Error(`Runtime style assignment expression ${node.type} is unsupported when selector mangling is enabled.`);
+    } else if (node.type === "TemplateLiteral" && node.expressions.length > 0 && htmlContext !== undefined) {
       throw new Error("Interpolated runtime HTML assignments are unsupported when selector mangling is enabled.");
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && htmlContext !== undefined) {
-      replacements.push(...stringExpressionReplacements(node,
-        (source) => replaceHtmlSelectorReferences(source, ids, classes)));
+      const mapper = (source) => replaceHtmlSelectorReferences(source, ids, classes);
+      const edits = stringExpressionReplacements(node, mapper);
+      if (!htmlContext.proven && edits.length > 0) {
+        throw new Error("Assignment to ambiguous runtime HTML receiver is unsupported when selector mangling is enabled.");
+      }
+      if (htmlContext.proven) replacements.push(...edits);
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && comparisonContext !== undefined) {
-      replacements.push(...stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids)));
+      assertNoMappedStaticTemplateExpressions(node, comparisonContext.mapper);
+      replacements.push(...stringExpressionReplacements(node, comparisonContext.mapper));
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
+      const mapper = (source) => mapJavaScriptValue(source,
+        selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods);
+      assertNoMappedStaticTemplateExpressions(node, mapper);
       const edits = stringExpressionReplacements(node, (source) => mapJavaScriptValue(source,
         selectorContext.call, selectorContext.argument, ids, classes, selectorMethods, classListMethods));
       replacements.push(...edits);
@@ -610,15 +772,16 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         replacements.push(...edits);
       }
     } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && fragmentContext !== undefined) {
+      assertNoMappedStaticTemplateExpressions(node, (source) => mapFragmentValue(source, ids));
       const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
       replacements.push(...edits);
-    } else if (node.type === "Identifier" && htmlContext !== undefined) {
+    } else if (node.type === "Identifier" && htmlContext?.proven === true) {
       recordStaticBindingReplacement(node, (source) => replaceHtmlSelectorReferences(source, ids, classes));
     } else if (htmlContext !== undefined
       && !["ConditionalExpression", "LogicalExpression", "SequenceExpression"].includes(node.type)) {
       throw new Error(`Runtime HTML assignment expression ${node.type} is unsupported when selector mangling is enabled.`);
     } else if (node.type === "Identifier" && comparisonContext !== undefined) {
-      recordStaticBindingReplacement(node, (source) => mapFragmentValue(source, ids));
+      recordStaticBindingReplacement(node, comparisonContext.mapper);
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
       if (isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
         recordStaticBindingReplacement(node, (source) => mapJavaScriptValue(source,

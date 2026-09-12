@@ -499,14 +499,14 @@ test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
     html: '<div id="private"></div>',
-    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.setAttribute("href", "#private"); window.location = "#private"; document.location = "#private"; location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
+    javascript: 'const fragment = "#private"; location.hash = fragment; document.querySelector("a").setAttribute("href", "#private"); window.location = "#private"; document.location = "#private"; location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
   }, {
     enabled: true,
     ids: { private: "a" },
     classes: {},
     safelist: [],
   });
-  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.setAttribute("href", "#a"); window.location = "#a"; document.location = "#a"; location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; document.querySelector("a").setAttribute("href", "#a"); window.location = "#a"; document.location = "#a"; location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
 });
 
 test("selector mappings fail closed for ambiguous URL and identity property assignments", () => {
@@ -544,10 +544,10 @@ test("selector mappings respect shadowed window navigation bindings", () => {
 
 test("selector mappings rewrite runtime HTML assignment references", () => {
   const result = applySelectorMappings({ css: "#private .internal {}", html: '<div id="private"></div>',
-    javascript: 'root.innerHTML = `<a href="#private" class="internal" id="private">go</a>`; root.outerHTML = \'<label for="private">go</label>\'' },
+    javascript: 'document.getElementById("private").innerHTML = `<a href="#private" class="internal" id="private">go</a>`; document.querySelector("#private").outerHTML = \'<label for="private">go</label>\'' },
   { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
   assert.equal(result.javascript,
-    'root.innerHTML = `<a href="#a" class="b" id="a">go</a>`; root.outerHTML = "<label for=\\"a\\">go</label>"');
+    'document.getElementById("a").innerHTML = `<a href="#a" class="b" id="a">go</a>`; document.querySelector("#a").outerHTML = "<label for=\\"a\\">go</label>"');
 });
 
 test("selector mappings reject dynamic runtime HTML assignments", () => {
@@ -556,6 +556,8 @@ test("selector mappings reject dynamic runtime HTML assignments", () => {
     javascript: 'root.innerHTML = `<a href="#private">${label}</a>`' }, options), /Interpolated runtime HTML/u);
   assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'root.outerHTML = renderMarkup()' }, options), /Runtime HTML assignment expression CallExpression/u);
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'root.innerHTML = \'<a href="#private">go</a>\'' }, options), /ambiguous runtime HTML receiver/u);
 });
 
 test("selector mappings rewrite Location hash comparisons", () => {
@@ -620,9 +622,10 @@ test("selector mappings rewrite unshadowed global open fragments", () => {
 test("selector mappings rewrite id and class setAttribute values", () => {
   const result = applySelectorMappings({ css: "#private .internal {}",
     html: '<div id="private" class="internal"></div>',
-    javascript: 'node.setAttribute("id", "private"); node.setAttribute("class", "internal public")' },
+    javascript: 'document.getElementById("private").setAttribute("id", "private"); document.querySelector("#private").setAttribute("class", "internal public")' },
   { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
-  assert.equal(result.javascript, 'node.setAttribute("id", "a"); node.setAttribute("class", "b public")');
+  assert.equal(result.javascript,
+    'document.getElementById("a").setAttribute("id", "a"); document.querySelector("#a").setAttribute("class", "b public")');
 });
 
 test("selector mappings handle stylesheet replacement rules conservatively", () => {
@@ -642,8 +645,80 @@ test("selector mappings handle stylesheet replacement rules conservatively", () 
 test("selector mappings reject non-string DOM token arguments", () => {
   const options = { enabled: true, ids: { true: "a" }, classes: { true: "b" }, safelist: [] };
   for (const javascript of ["document.getElementById(true)", "node.classList.add(true)",
-    'node.setAttribute("id", true)']) {
+    'document.getElementById("true").setAttribute("id", true)']) {
     assert.throws(() => applySelectorMappings({ css: "#true .true {}",
       html: '<div id="true" class="true"></div>', javascript }, options), /Non-string DOM selector arguments/u);
   }
+});
+
+test("selector mappings reject mapped static template interpolations", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.getElementById(`${"private"}`)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /Static template interpolation/u);
+});
+
+test("selector mappings decode escaped CSS identifiers", () => {
+  const result = applySelectorMappings({ css: "#priv\\61 te .intern\\61l {}",
+    html: '<div id="private" class="internal"></div>', javascript: 'document.querySelector("#private .internal")' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.css, "#a .b {}");
+});
+
+test("selector mappings treat parameter and var declarations as one shadowing binding", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function lookup(document) { var document; return document.getElementById("private"); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'function lookup(document) { var document; return document.getElementById("private"); }');
+});
+
+test("selector mappings normalize percent-encoded URL fragments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div><a href="#priv%61te">go</a>',
+    javascript: 'location.href = "/page#priv%61te"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.html, '<div id="a"></div><a href="#a">go</a>');
+  assert.equal(result.javascript, 'location.href = "/page#a"');
+});
+
+test("selector mappings rewrite proven DOM identity comparisons", () => {
+  const result = applySelectorMappings({ css: "#private .internal {}",
+    html: '<div id="private" class="internal"></div>',
+    javascript: 'document.getElementById("private").id === "private"; document.querySelector("#private").className === "internal public"' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript,
+    'document.getElementById("a").id === "a"; document.querySelector("#a").className === "b public"');
+});
+
+test("selector mappings reject ambiguous DOM identity comparisons", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'model.id === "private"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /ambiguous id receiver/u);
+});
+
+test("selector mappings rewrite proven runtime style text", () => {
+  const result = applySelectorMappings({ css: "#private .internal {}",
+    html: '<div id="private" class="internal"></div>',
+    javascript: 'const style = document.createElement("style"); style.textContent = "#private .internal {}"' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript,
+    'const style = document.createElement("style"); style.textContent = "#a .b {}"');
+});
+
+test("selector mappings reject ambiguous runtime style text", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'node.textContent = "#private {}"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /ambiguous textContent receiver/u);
+});
+
+test("selector mappings reject ambiguous setAttribute receivers", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'model.setAttribute("id", "private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /Ambiguous setAttribute receiver/u);
+});
+
+test("selector mappings respect shadowed dollar helpers", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function store($) { return $("#private"); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'function store($) { return $("#private"); }');
 });

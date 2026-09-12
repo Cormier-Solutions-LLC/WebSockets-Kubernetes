@@ -236,44 +236,108 @@ function stringExpressionReplacements(node, mapper) {
   }]);
 }
 
-function replaceHtmlIdReferences(html, ids) {
-  const singleIdAttributes = ["aria-activedescendant", "aria-details", "aria-errormessage", "commandfor", "for", "form",
-    "list", "popovertarget"];
-  const tokenIdAttributes = ["aria-controls", "aria-describedby", "aria-flowto", "aria-labelledby", "aria-owns", "headers"];
-  let mapped = html;
-  for (const attribute of singleIdAttributes) {
-    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}\\s*=\\s*)(?:(["'])([^"']*)\\3|([^\\s"'=<>\u0060]+))`, "gimu"),
-      (match, boundary, prefix, quote, quotedValue, unquotedValue) => {
-        const value = quotedValue ?? unquotedValue;
-        const replacement = Object.hasOwn(ids, value) ? ids[value] : value;
-        return `${boundary}${prefix}${quote ?? ""}${replacement}${quote ?? ""}`;
-      });
-  }
-  for (const attribute of tokenIdAttributes) {
-    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}\\s*=\\s*)(?:(["'])([^"']*)\\3|([^\\s"'=<>\u0060]+))`, "gimu"),
-      (match, boundary, prefix, quote, quotedValue, unquotedValue) => {
-        const replacement = replaceTokenList(quotedValue ?? unquotedValue, ids);
-        return `${boundary}${prefix}${quote ?? ""}${replacement}${quote ?? ""}`;
-      });
-  }
+function mapCssSelectors(value, ids, classes) {
+  let mapped = value;
+  for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+  for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
   return mapped;
 }
 
-function replaceHtmlIdentityAttribute(html, attribute, mapper) {
-  return html.replace(new RegExp(
-    `(^|[\\s<])(${attribute}\\s*=\\s*)(?:(["'])([^"']*)\\3|([^\\s"'=<>\u0060]+))`, "gimu"),
-  (match, boundary, prefix, quote, quotedValue, unquotedValue) => {
-    const replacement = mapper(quotedValue ?? unquotedValue);
-    return `${boundary}${prefix}${quote ?? ""}${replacement}${quote ?? ""}`;
-  });
+function mapHtmlAttribute(name, value, ids, classes) {
+  const singleIdAttributes = new Set(["aria-activedescendant", "aria-details", "aria-errormessage", "commandfor", "for",
+    "form", "list", "popovertarget"]);
+  const tokenIdAttributes = new Set(["aria-controls", "aria-describedby", "aria-flowto", "aria-labelledby", "aria-owns",
+    "headers"]);
+  const fragmentAttributes = new Set(["action", "cite", "clip-path", "fill", "filter", "formaction", "href", "mask",
+    "marker-end", "marker-mid", "marker-start", "src", "xlink:href"]);
+  if (name === "id" || singleIdAttributes.has(name)) return Object.hasOwn(ids, value) ? ids[value] : value;
+  if (name === "class") return replaceTokenList(value, classes);
+  if (tokenIdAttributes.has(name)) return replaceTokenList(value, ids);
+  if (fragmentAttributes.has(name)) return mapFragmentValue(value, ids);
+  return name === "style" ? mapCssSelectors(value, ids, classes) : value;
+}
+
+function mapHtmlStartTag(tag, ids, classes) {
+  const tagName = /^<\s*([A-Za-z][^\s/>]*)/u.exec(tag);
+  if (tagName === null) return tag;
+  const replacements = [];
+  let index = tagName[0].length;
+  while (index < tag.length) {
+    while (index < tag.length && /\s/u.test(tag[index])) index += 1;
+    if (index >= tag.length || tag[index] === ">" || tag[index] === "/") break;
+    const nameStart = index;
+    while (index < tag.length && !/[\s=/>]/u.test(tag[index])) index += 1;
+    const name = tag.slice(nameStart, index).toLowerCase();
+    while (index < tag.length && /\s/u.test(tag[index])) index += 1;
+    if (tag[index] !== "=") continue;
+    index += 1;
+    while (index < tag.length && /\s/u.test(tag[index])) index += 1;
+    const quote = tag[index] === "\"" || tag[index] === "'" ? tag[index++] : undefined;
+    const valueStart = index;
+    if (quote === undefined) {
+      while (index < tag.length && !/[\s>]/u.test(tag[index])) index += 1;
+    } else {
+      while (index < tag.length && tag[index] !== quote) index += 1;
+    }
+    const valueEnd = index;
+    const value = tag.slice(valueStart, valueEnd);
+    const mapped = mapHtmlAttribute(name, value, ids, classes);
+    if (mapped !== value) replacements.push({ start: valueStart, end: valueEnd, value: mapped });
+    if (quote !== undefined && tag[index] === quote) index += 1;
+  }
+  return replacements.sort((left, right) => right.start - left.start)
+    .reduce((result, replacement) =>
+      result.slice(0, replacement.start) + replacement.value + result.slice(replacement.end), tag);
 }
 
 function replaceHtmlSelectorReferences(html, ids, classes) {
-  let mapped = replaceHtmlIdentityAttribute(html, "id",
-    (value) => Object.hasOwn(ids, value) ? ids[value] : value);
-  mapped = replaceHtmlIdentityAttribute(mapped, "class", (value) => replaceTokenList(value, classes));
-  mapped = mapFragmentValue(mapped, ids);
-  return replaceHtmlIdReferences(mapped, ids);
+  let mapped = "";
+  let cursor = 0;
+  const lowerHtml = html.toLowerCase();
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart < 0) return mapped + html.slice(cursor);
+    mapped += html.slice(cursor, tagStart);
+    if (html.startsWith("<!--", tagStart)) {
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      if (commentEnd < 0) return mapped + html.slice(tagStart);
+      mapped += html.slice(tagStart, commentEnd + 3);
+      cursor = commentEnd + 3;
+      continue;
+    }
+    if (/[!/?]/u.test(html[tagStart + 1] ?? "")) {
+      const markupEnd = html.indexOf(">", tagStart + 2);
+      if (markupEnd < 0) return mapped + html.slice(tagStart);
+      mapped += html.slice(tagStart, markupEnd + 1);
+      cursor = markupEnd + 1;
+      continue;
+    }
+    if (!/[A-Za-z]/u.test(html[tagStart + 1] ?? "")) {
+      mapped += "<";
+      cursor = tagStart + 1;
+      continue;
+    }
+    let quote;
+    let tagEnd = tagStart + 1;
+    for (; tagEnd < html.length; tagEnd += 1) {
+      const character = html[tagEnd];
+      if (quote === undefined && (character === "\"" || character === "'")) quote = character;
+      else if (character === quote) quote = undefined;
+      else if (quote === undefined && character === ">") break;
+    }
+    if (tagEnd >= html.length) return mapped + html.slice(tagStart);
+    const tag = html.slice(tagStart, tagEnd + 1);
+    mapped += mapHtmlStartTag(tag, ids, classes);
+    cursor = tagEnd + 1;
+    const rawTag = /^<\s*(script|style|textarea|title)(?:\s|>)/iu.exec(tag)?.[1]?.toLowerCase();
+    if (rawTag !== undefined) {
+      const closingStart = lowerHtml.indexOf(`</${rawTag}`, cursor);
+      if (closingStart < 0) return mapped + html.slice(cursor);
+      mapped += html.slice(cursor, closingStart);
+      cursor = closingStart;
+    }
+  }
+  return mapped;
 }
 
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
@@ -307,10 +371,13 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     visitBindingIdentifiers(pattern, (name) => {
       if (!bindingDeclarations.has(name)) bindingDeclarations.set(name, []);
       let record = kind === "var"
-        ? bindingDeclarations.get(name).find((candidate) => (candidate.kind === "var" || candidate.kind === "parameter")
+        ? bindingDeclarations.get(name).find((candidate) => ["var", "parameter", "function"].includes(candidate.kind)
           && candidate.scope === scope)
         : kind === "parameter"
           ? bindingDeclarations.get(name).find((candidate) => candidate.kind === "parameter" && candidate.scope === scope)
+          : kind === "function"
+            ? bindingDeclarations.get(name).find((candidate) => ["var", "parameter", "function"].includes(candidate.kind)
+              && candidate.scope === scope)
           : undefined;
       if (record === undefined) {
         record = { kind, mutable: kind !== "const", name, scope };
@@ -327,8 +394,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   function collectBindings(node, parent, functionScope, lexicalScope) {
     if (node === null || typeof node !== "object") return;
-    const createsLexicalScope = ["Program", "BlockStatement", "SwitchStatement", "ForStatement", "ForInStatement",
-      "ForOfStatement", "CatchClause"].includes(node.type);
+    const createsLexicalScope = ["Program", "BlockStatement", "StaticBlock", "SwitchStatement", "ForStatement",
+      "ForInStatement", "ForOfStatement", "CatchClause"].includes(node.type);
     const currentLexicalScope = createsLexicalScope ? node : lexicalScope;
     if (node.type === "VariableDeclarator") {
       const kind = parent?.kind;
@@ -355,7 +422,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
       if (node.id !== null && node.id !== undefined) {
-        recordBindingPattern(node.id, node.type === "FunctionExpression" ? node : lexicalScope, "function");
+        const declarationScope = node.type === "FunctionExpression"
+          ? node
+          : functionScope?.body === parent ? functionScope : lexicalScope;
+        recordBindingPattern(node.id, declarationScope, "function");
       }
       for (const parameter of node.params) {
         recordBindingPattern(parameter, node, "parameter");
@@ -543,6 +613,23 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       : undefined;
   }
 
+  function htmlInsertionCall(node) {
+    let value = node;
+    let valueParent = parents.get(value);
+    while ((valueParent?.type === "ConditionalExpression"
+        && (valueParent.consequent === value || valueParent.alternate === value))
+      || (valueParent?.type === "LogicalExpression"
+        && (valueParent.left === value || valueParent.right === value))
+      || (valueParent?.type === "SequenceExpression" && valueParent.expressions.at(-1) === value)) {
+      value = valueParent;
+      valueParent = parents.get(value);
+    }
+    return valueParent?.type === "CallExpression" && memberName(valueParent.callee) === "insertAdjacentHTML"
+      && valueParent.arguments[1] === value
+      ? { call: valueParent, proven: isProvenDomElement(valueParent.callee.object) }
+      : undefined;
+  }
+
   function styleAssignment(node) {
     let value = node;
     let valueParent = parents.get(value);
@@ -596,10 +683,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   }
 
   function mapCssValue(value) {
-    let mapped = value;
-    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
-    for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
-    return mapped;
+    return mapCssSelectors(value, ids, classes);
   }
 
   function staticConcatenationValue(node) {
@@ -629,7 +713,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     const other = comparison.left === node ? comparison.right : comparison.right === node ? comparison.left : undefined;
     if (other?.type !== "MemberExpression") return undefined;
     const property = memberName(other);
-    if (property === "hash" && isUnshadowedLocationReference(other.object)) {
+    if ((property === "hash" || property === "href") && isUnshadowedLocationReference(other.object)) {
       return { comparison, mapper: (source) => mapFragmentValue(source, ids) };
     }
     if (property !== "id" && property !== "className") return undefined;
@@ -663,14 +747,25 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       || (isHistoryUrlCall(call, argument) && isUnshadowedHistoryReference(call.callee.object));
   }
 
+  function isProvenStringExpression(node) {
+    if (typeof staticStringValue(node) === "string") return true;
+    if (node?.type !== "Identifier") return false;
+    const record = resolveBinding(node.name, node.start);
+    return record?.static !== undefined && !assignedBindings.has(record);
+  }
+
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
     if (node.type === "AssignmentExpression" && node.left.type === "MemberExpression") {
       const property = memberName(node.left);
-      const ambiguousFragment = (property === "href" || property === "hash")
-        && !isLocationReference(node.left.object) && Object.keys(ids).length > 0;
-      const ambiguousIdentity = (property === "id" && Object.keys(ids).length > 0)
-        || (property === "className" && Object.keys(classes).length > 0);
+      const staticValue = staticStringValue(node.right);
+      const ambiguousFragment = (property === "href" || property === "hash") && !isLocationReference(node.left.object)
+        && Object.keys(ids).length > 0
+        && (staticValue === undefined || mapFragmentValue(staticValue, ids) !== staticValue);
+      const ambiguousIdentity = property === "id" && Object.keys(ids).length > 0
+          && (staticValue === undefined || Object.hasOwn(ids, staticValue))
+        || property === "className" && Object.keys(classes).length > 0
+          && (staticValue === undefined || replaceTokenList(staticValue, classes) !== staticValue);
       if (ambiguousFragment || ambiguousIdentity) {
         throw new Error(`Assignment to ambiguous ${property} receiver is unsupported when selector mangling is enabled.`);
       }
@@ -689,7 +784,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       }
     }
     if (node.type === "CallExpression" && memberName(node.callee) === "replace"
-      && !isLocationReference(node.callee.object)) {
+      && !isLocationReference(node.callee.object) && !isProvenStringExpression(node.callee.object)) {
       const source = staticStringValue(node.arguments[0]);
       const boundRule = node.arguments[0]?.type === "Identifier";
       if (boundRule || typeof source === "string" && (() => {
@@ -701,7 +796,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
     const comparisonContext = comparisonMapping(node);
-    const htmlContext = htmlAssignment(node);
+    const htmlContext = htmlAssignment(node) ?? htmlInsertionCall(node);
     const styleContext = styleAssignment(node);
     if (node.type === "BinaryExpression" && staticConcatenationValue(node) !== undefined
       && ((selectorContext !== undefined && isMappedCallArgument(selectorContext.call, selectorContext.argument))

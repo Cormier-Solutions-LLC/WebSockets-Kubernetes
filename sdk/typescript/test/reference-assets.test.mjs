@@ -722,3 +722,57 @@ test("selector mappings respect shadowed dollar helpers", () => {
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript, 'function store($) { return $("#private"); }');
 });
+
+test("selector mappings treat class static blocks as lexical scopes", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#private"; class C { static { const target = "business"; } } document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'const target = "#a"; class C { static { const target = "business"; } } document.querySelector(target)');
+});
+
+test("selector mappings merge function and var declarations sharing one binding", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function lookup() { var document; function document() {} return document.getElementById("private"); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'function lookup() { var document; function document() {} return document.getElementById("private"); }');
+});
+
+test("selector mappings rewrite insertAdjacentHTML markup", () => {
+  const result = applySelectorMappings({ css: "#private .internal {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector("#private").insertAdjacentHTML("beforeend", \'<a href="#private" class="internal">go</a>\')' },
+  { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
+  assert.equal(result.javascript,
+    'document.querySelector("#a").insertAdjacentHTML("beforeend", "<a href=\\"#a\\" class=\\"b\\">go</a>")');
+});
+
+test("selector mappings restrict HTML rewrites to parsed start-tag attributes", () => {
+  const result = applySelectorMappings({ css: "#private {}",
+    html: '<p>Use id = "private" in examples.</p><!-- <div id="private"> --><div data-example=\'id = "private"\' id = private></div>',
+    javascript: 'document.getElementById("private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.html,
+    '<p>Use id = "private" in examples.</p><!-- <div id="private"> --><div data-example=\'id = "private"\' id = a></div>');
+});
+
+test("selector mappings rewrite Location href comparisons", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'location.href === "https://example.test/page#private"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'location.href === "https://example.test/page#a"');
+});
+
+test("selector mappings preserve proven string replacement", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const pattern = /x/g; "text".replace(pattern, "")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'const pattern = /x/g; "text".replace(pattern, "")');
+});
+
+test("selector mappings preserve unaffected ambiguous href assignments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'link.href = "/docs"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'link.href = "/docs"');
+});

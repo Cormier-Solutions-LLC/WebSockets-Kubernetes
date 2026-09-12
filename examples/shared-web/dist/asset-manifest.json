@@ -96,6 +96,7 @@
     }
   },
   "tools": {
+    "acorn": "8.18.0",
     "esbuild": "0.28.2",
     "htmlMinifierTerser": "7.2.0",
     "javascriptObfuscator": "5.7.0",

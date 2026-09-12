@@ -15,6 +15,7 @@ test("the coordinated asset manifest retains readable and optimized profiles", a
   assert.equal(manifest.defaults.production, "optimized");
   assert.equal(manifest.obfuscationEnabled, false);
   assert.match(manifest.profiles.optimized.sdk.path, /\.min\.js$/u);
+  assert.equal(manifest.tools.acorn, "8.18.0");
   assert(manifest.profiles.optimized.files.some((file) => file.path === "source-maps/optimized/app.js.map"));
   assert(!manifest.profiles.optimized.files.some((file) => file.path === "optimized/app.js.map"));
 });
@@ -185,6 +186,19 @@ test("selector mappings rewrite statically bound selector arguments", () => {
   assert.equal(result.javascript, 'const target = "#a .b"; document.querySelector(target)');
 });
 
+test("selector mappings rewrite unreassigned let selector bindings", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'let target = "#private"; document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'let target = "#a"; document.querySelector(target)');
+});
+
+test("selector mappings reject reassigned let selector bindings", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'let target = "#private"; target = "#public"; document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /must not be reassigned/u);
+});
+
 test("selector mappings reject ambiguous static selector bindings", () => {
   assert.throws(() => applySelectorMappings({
     css: "#private {}",
@@ -292,12 +306,12 @@ test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
     html: '<div id="private"></div>',
-    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.href = "#private"; window.location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
+    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.href = "#private"; anchor.setAttribute("href", "#private"); window.location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
   }, {
     enabled: true,
     ids: { private: "a" },
     classes: {},
     safelist: [],
   });
-  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; window.location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; anchor.setAttribute("href", "#a"); window.location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
 });

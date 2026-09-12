@@ -92,6 +92,12 @@ function isLocationUrlAssignment(left) {
     || (property === "location" && left.object?.type === "Identifier" && left.object.name === "window");
 }
 
+function isHrefSetAttributeCall(call, argument) {
+  return memberName(call?.callee) === "setAttribute"
+    && call.arguments[1] === argument
+    && staticStringValue(call.arguments[0])?.toLowerCase() === "href";
+}
+
 function stringExpressionReplacements(node, mapper) {
   if (node.type === "Literal" && typeof node.value === "string") {
     const mapped = mapper(node.value);
@@ -120,6 +126,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const bindingCounts = new Map();
   const staticBindings = new Map();
   const concatenatedBindings = new Set();
+  const assignedBindings = new Set();
 
   function recordBindingPattern(pattern) {
     if (pattern === null) return;
@@ -142,10 +149,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (node === null || typeof node !== "object") return;
     if (node.type === "VariableDeclarator") {
       recordBindingPattern(node.id);
-      if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const"
+      if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && (parent.kind === "const" || parent.kind === "let")
         && (node.init?.type === "TemplateLiteral" || typeof staticStringValue(node.init) === "string")) {
-        if (!staticBindings.has(node.id.name)) staticBindings.set(node.id.name, { node: node.init });
-      } else if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && parent.kind === "const"
+        if (!staticBindings.has(node.id.name)) staticBindings.set(node.id.name, { mutable: parent.kind === "let", node: node.init });
+      } else if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && (parent.kind === "const" || parent.kind === "let")
         && node.init?.type === "BinaryExpression" && node.init.operator === "+") {
         concatenatedBindings.add(node.id.name);
       }
@@ -158,6 +165,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       recordBindingPattern(node.param);
     } else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") {
       recordBindingPattern(node.local);
+    } else if (node.type === "AssignmentExpression" && node.left.type === "Identifier") {
+      assignedBindings.add(node.left.name);
+    } else if (node.type === "UpdateExpression" && node.argument.type === "Identifier") {
+      assignedBindings.add(node.argument.name);
     }
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {
@@ -207,6 +218,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     if (bindingCounts.get(name) !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }
+    if (binding.mutable && assignedBindings.has(name)) {
+      throw new Error(`Mutable selector binding ${name} must not be reassigned when selector mangling is enabled.`);
+    }
     const edits = stringExpressionReplacements(binding.node, mapper);
     if (edits.length === 0) return;
     supportedBindingUses.set(name, (supportedBindingUses.get(name) ?? 0) + 1);
@@ -234,8 +248,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "CallExpression") {
-      const edits = stringExpressionReplacements(node, (source) =>
-        mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
+      const edits = stringExpressionReplacements(node, (source) => isHrefSetAttributeCall(parent, node)
+        ? mapFragmentValue(source, ids)
+        : mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
       replacements.push(...edits);
     } else if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "BinaryExpression") {
       const context = concatenationCall(node);
@@ -261,9 +276,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         || method === "getElementsByClassName"
         || (classListMethods.has(method) && memberName(parent.callee.object) === "classList")
         || ((method === "assign" || method === "replace") && isLocationReference(parent.callee.object))
-        || (method === "open" && parent.callee.object?.type === "Identifier" && parent.callee.object.name === "window");
-      if (selectorCall) recordStaticBindingReplacement(node.name, (source) =>
-        mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
+        || (method === "open" && parent.callee.object?.type === "Identifier" && parent.callee.object.name === "window")
+        || isHrefSetAttributeCall(parent, node);
+      if (selectorCall) recordStaticBindingReplacement(node.name, (source) => isHrefSetAttributeCall(parent, node)
+        ? mapFragmentValue(source, ids)
+        : mapJavaScriptValue(source, parent, ids, classes, selectorMethods, classListMethods));
     } else if (node.type === "Identifier" && parent?.type === "AssignmentExpression"
       && parent.right === node && isLocationUrlAssignment(parent.left)) {
       recordStaticBindingReplacement(node.name, (source) => mapFragmentValue(source, ids));
@@ -550,6 +567,7 @@ export async function buildReferenceAssets({ sdkRoot, obfuscate = false }) {
     csp: "default-src 'self'; connect-src 'self' ws: wss:; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'",
     profiles: Object.fromEntries(profiles.map((profile) => [profile, profileResults[profile]])),
     tools: {
+      acorn: packageMetadata.devDependencies.acorn,
       esbuild: packageMetadata.devDependencies.esbuild,
       htmlMinifierTerser: packageMetadata.devDependencies["html-minifier-terser"],
       javascriptObfuscator: packageMetadata.devDependencies["javascript-obfuscator"],

@@ -81,9 +81,12 @@ for (const profile of Object.keys(manifest.profiles).filter((name) => name !== "
   for (const name of ["app.css.map", "app.js.map"]) {
     assert(!existsSync(resolve(outputRoot, profile, name)), `${profile}/${name} must not be placed in a served profile.`);
     const sourceMap = JSON.parse(readFileSync(resolve(outputRoot, "source-maps", profile, name), "utf8"));
-    for (const source of sourceMap.sources ?? []) {
+    for (const [index, source] of (sourceMap.sources ?? []).entries()) {
       assert(!isAbsolute(source) && !/^[A-Za-z]:[\\/]/u.test(source) && !source.includes("\\Users\\"),
         `${profile}/${name} contains a source-machine path.`);
+      const embedded = typeof sourceMap.sourcesContent?.[index] === "string";
+      const resolvedSource = resolve(outputRoot, "source-maps", profile, sourceMap.sourceRoot ?? "", source);
+      assert(embedded || existsSync(resolvedSource), `${profile}/${name} source ${source} is neither embedded nor resolvable.`);
     }
   }
 }

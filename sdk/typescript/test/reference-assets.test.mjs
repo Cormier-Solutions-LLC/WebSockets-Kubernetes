@@ -5,6 +5,7 @@ import test from "node:test";
 import { applySelectorMappings } from "../scripts/reference-assets.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const assetConfig = JSON.parse(await readFile(resolve(root, "asset-pipeline.config.json"), "utf8"));
 
 test("the coordinated asset manifest retains readable and optimized profiles", async () => {
   const manifest = JSON.parse(await readFile(resolve(root, "../../examples/shared-web/dist/asset-manifest.json"), "utf8"));
@@ -22,9 +23,14 @@ test("relocated source maps resolve their canonical sources", async () => {
   const mapRoot = resolve(root, "../../examples/shared-web/dist/source-maps/optimized");
   for (const name of ["app.css.map", "app.js.map"]) {
     const sourceMap = JSON.parse(await readFile(resolve(mapRoot, name), "utf8"));
-    assert.equal(sourceMap.sourceRoot, "../../../wwwroot/");
-    assert.deepEqual(sourceMap.sources, [name.replace(/\.map$/u, "")]);
-    await access(resolve(mapRoot, sourceMap.sourceRoot, sourceMap.sources[0]));
+    if (assetConfig.selectorMangling.enabled) {
+      assert.equal(sourceMap.sourceRoot, undefined);
+      assert.deepEqual(sourceMap.sources, [name.startsWith("app.css") ? "app.mangled.css" : "app.mangled.js"]);
+    } else {
+      assert.equal(sourceMap.sourceRoot, "../../../wwwroot/");
+      assert.deepEqual(sourceMap.sources, [name.replace(/\.map$/u, "")]);
+    }
+    await access(resolve(mapRoot, sourceMap.sourceRoot ?? "", sourceMap.sources[0]));
   }
 });
 
@@ -247,6 +253,26 @@ test("selector mappings parse classic scripts", () => {
     javascript: 'var await = 1; document.querySelector("#private")' },
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript, 'var await = 1; document.querySelector("#a")');
+});
+
+test("selector mappings accept loop declarations without initializers", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'for (const item of items) document.querySelector("#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'for (const item of items) document.querySelector("#a")');
+});
+
+test("selector mappings guard concatenation literals after dynamic operands", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.getElementById(prefix + "private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.getElementById(prefix + "private")');
+});
+
+test("selector mappings reject reversed shadowed static bindings", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#public"; { const target = "#private"; document.querySelector(target) }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /must not be shadowed/u);
 });
 
 test("selector mappings rewrite JavaScript fragment navigation", () => {

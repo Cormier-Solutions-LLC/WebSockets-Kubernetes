@@ -50,6 +50,7 @@ function memberName(member) {
 }
 
 function staticStringValue(node) {
+  if (node === null) return undefined;
   if (node.type === "Literal" && typeof node.value === "string") return node.value;
   if (node.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis[0].value.cooked;
   return undefined;
@@ -193,11 +194,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   function recordStaticBindingReplacement(name, mapper) {
     const binding = staticBindings.get(name);
     if (binding === undefined) return;
-    const edits = stringExpressionReplacements(binding.node, mapper);
-    if (edits.length === 0) return;
     if (bindingCounts.get(name) !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }
+    const edits = stringExpressionReplacements(binding.node, mapper);
+    if (edits.length === 0) return;
     supportedBindingUses.set(name, (supportedBindingUses.get(name) ?? 0) + 1);
     const previous = bindingReplacements.get(binding.node.start);
     const signature = JSON.stringify(edits);
@@ -230,10 +231,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       const context = concatenationCall(node);
       if (context !== undefined) {
         const hasFollowingOperand = node.end < context.root.end;
+        const hasPrecedingOperand = node.start > context.root.start;
         const edits = stringExpressionReplacements(node, (source) => {
-          const guarded = hasFollowingOperand ? `${source}-` : source;
+          const guarded = `${hasPrecedingOperand ? "-" : ""}${source}${hasFollowingOperand ? "-" : ""}`;
           const mapped = mapJavaScriptValue(guarded, context.call, ids, classes, selectorMethods, classListMethods);
-          return hasFollowingOperand ? mapped.slice(0, -1) : mapped;
+          return mapped.slice(hasPrecedingOperand ? 1 : 0, hasFollowingOperand ? -1 : undefined);
         });
         replacements.push(...edits);
       }
@@ -421,10 +423,10 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
         const name = `${kind.replace(/\.[^.]+$/u, "")}.mangled.${kind.split(".").at(-1)}`;
         const content = kind === "app.js" ? source.javascript : source.css;
         metadata.sources = [name];
+        sourceArtifacts.push({ name, content });
         if (config.sourceMaps.includeSourcesContent) metadata.sourcesContent = [content];
         else {
           delete metadata.sourcesContent;
-          sourceArtifacts.push({ name, content });
         }
       } else {
         metadata.sourceRoot = "../../../wwwroot/";

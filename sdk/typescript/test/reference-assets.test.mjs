@@ -92,6 +92,15 @@ test("selector mappings preserve identifiers that only share a prefix", () => {
   assert.equal(result.javascript, 'document.querySelector("#a .b"); document.querySelector("#private-value .internal-panel")');
 });
 
+test("selector mappings rewrite HTML ID-reference attributes", () => {
+  const result = applySelectorMappings({ css: "#private #details {}",
+    html: '<label for="private" aria-controls="private details public">Label</label><input id="private"><div id="details"></div>',
+    javascript: 'document.querySelector("#private")' },
+  { enabled: true, ids: { private: "a", details: "b" }, classes: {}, safelist: [] });
+  assert.equal(result.html,
+    '<label for="a" aria-controls="a b public">Label</label><input id="a"><div id="b"></div>');
+});
+
 test("class mappings change selector APIs without rewriting JavaScript properties", () => {
   const result = applySelectorMappings({
     css: ".log {}",
@@ -125,6 +134,13 @@ test("selector mappings rewrite static template-literal selector arguments", () 
     safelist: [],
   });
   assert.equal(result.javascript, 'document.querySelector(`#a .b`); node.classList.add(`b`)');
+});
+
+test("selector mappings rewrite cooked escaped template selectors", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector(`#priv\\u0061te`)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.querySelector(`#a`)');
 });
 
 test("selector mappings rewrite interpolated selector templates", () => {
@@ -381,6 +397,12 @@ test("selector mappings restrict bare DOM lookups to document receivers", () => 
     'document.getElementById("a"); window.document.getElementById("a"); registry.getElementById("private")');
 });
 
+test("selector mappings fail closed for ambiguous element-scoped class lookups", () => {
+  assert.throws(() => applySelectorMappings({ css: ".internal {}", html: '<div class="internal"></div>',
+    javascript: 'root.getElementsByClassName("internal")' },
+  { enabled: true, ids: {}, classes: { internal: "a" }, safelist: [] }), /Element-scoped/u);
+});
+
 test("selector mappings reject late-initialized and stored selector values", () => {
   const options = { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] };
   assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
@@ -409,22 +431,31 @@ test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
     html: '<div id="private"></div>',
-    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.href = "#private"; anchor.setAttribute("href", "#private"); window.location = "#private"; document.location = "#private"; location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
+    javascript: 'const fragment = "#private"; location.hash = fragment; anchor.setAttribute("href", "#private"); window.location = "#private"; document.location = "#private"; location = "#private"; location.href = "/page#private"; location.assign(`/page#private?key=${key}`)',
   }, {
     enabled: true,
     ids: { private: "a" },
     classes: {},
     safelist: [],
   });
-  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; anchor.setAttribute("href", "#a"); window.location = "#a"; document.location = "#a"; location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+  assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.setAttribute("href", "#a"); window.location = "#a"; document.location = "#a"; location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+});
+
+test("selector mappings fail closed for ambiguous URL and identity property assignments", () => {
+  const options = { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] };
+  for (const javascript of ['settings.href = "#private"', 'record.hash = "#private"', 'node.id = "private"',
+    'node.className = "internal"']) {
+    assert.throws(() => applySelectorMappings({ css: "#private .internal {}",
+      html: '<div id="private" class="internal"></div>', javascript }, options), /ambiguous/u);
+  }
 });
 
 test("selector mappings rewrite conditional fragment assignments", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
-    javascript: 'const fallback = "#public"; anchor.href = flag ? "#private" : "#public"; location = fallback || "#private"' },
+    javascript: 'const fallback = "#public"; location.href = flag ? "#private" : "#public"; location = fallback || "#private"' },
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript,
-    'const fallback = "#public"; anchor.href = flag ? "#a" : "#public"; location = fallback || "#a"');
+    'const fallback = "#public"; location.href = flag ? "#a" : "#public"; location = fallback || "#a"');
 });
 
 test("selector mappings rewrite concatenated fragment assignments", () => {

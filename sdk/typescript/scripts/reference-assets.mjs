@@ -116,8 +116,7 @@ function mapFragmentValue(value, ids) {
 function isLocationUrlAssignment(left) {
   const property = memberName(left);
   return (left?.type === "Identifier" && left.name === "location")
-    || property === "hash"
-    || property === "href"
+    || ((property === "hash" || property === "href") && isLocationReference(left.object))
     || (property === "location" && left.object?.type === "Identifier"
       && (left.object.name === "window" || left.object.name === "document"));
 }
@@ -153,15 +152,35 @@ function stringExpressionReplacements(node, mapper) {
   const mappedQuasis = node.quasis.map((quasi, index) => {
     const hasPrecedingExpression = index > 0;
     const hasFollowingExpression = index < node.expressions.length;
-    const guarded = `${hasPrecedingExpression ? "-" : ""}${quasi.value.raw}${hasFollowingExpression ? "-" : ""}`;
+    const original = quasi.value.cooked ?? quasi.value.raw;
+    const guarded = `${hasPrecedingExpression ? "-" : ""}${original}${hasFollowingExpression ? "-" : ""}`;
     const mapped = mapper(guarded);
-    return mapped.slice(hasPrecedingExpression ? 1 : 0, hasFollowingExpression ? -1 : undefined);
+    return {
+      original,
+      value: mapped.slice(hasPrecedingExpression ? 1 : 0, hasFollowingExpression ? -1 : undefined),
+    };
   });
-  return mappedQuasis.flatMap((value, index) => value === node.quasis[index].value.raw ? [] : [{
+  return mappedQuasis.flatMap(({ original, value }, index) => value === original ? [] : [{
     start: node.quasis[index].start,
     end: node.quasis[index].end,
-    value,
+    value: value.replace(/\\/gu, "\\\\").replace(/`/gu, "\\`").replace(/\$\{/gu, "\\${"),
   }]);
+}
+
+function replaceHtmlIdReferences(html, ids) {
+  const singleIdAttributes = ["aria-activedescendant", "aria-details", "aria-errormessage", "commandfor", "for", "form",
+    "list", "popovertarget"];
+  const tokenIdAttributes = ["aria-controls", "aria-describedby", "aria-flowto", "aria-labelledby", "aria-owns", "headers"];
+  let mapped = html;
+  for (const attribute of singleIdAttributes) {
+    mapped = mapped.replace(new RegExp(`(\\b${attribute}=["'])([^"']*)(["'])`, "giu"),
+      (match, prefix, value, suffix) => `${prefix}${Object.hasOwn(ids, value) ? ids[value] : value}${suffix}`);
+  }
+  for (const attribute of tokenIdAttributes) {
+    mapped = mapped.replace(new RegExp(`(\\b${attribute}=["'])([^"']*)(["'])`, "giu"),
+      (match, prefix, value, suffix) => `${prefix}${replaceTokenList(value, ids)}${suffix}`);
+  }
+  return mapped;
 }
 
 function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
@@ -407,6 +426,20 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
+    if (node.type === "AssignmentExpression" && node.left.type === "MemberExpression") {
+      const property = memberName(node.left);
+      const ambiguousFragment = (property === "href" || property === "hash")
+        && !isLocationReference(node.left.object) && Object.keys(ids).length > 0;
+      const ambiguousIdentity = (property === "id" && Object.keys(ids).length > 0)
+        || (property === "className" && Object.keys(classes).length > 0);
+      if (ambiguousFragment || ambiguousIdentity) {
+        throw new Error(`Assignment to ambiguous ${property} receiver is unsupported when selector mangling is enabled.`);
+      }
+    }
+    if (node.type === "CallExpression" && memberName(node.callee) === "getElementsByClassName"
+      && !isDomLookupCall(node, "getElementsByClassName") && Object.keys(classes).length > 0) {
+      throw new Error("Element-scoped getElementsByClassName is unsupported when selector mangling is enabled.");
+    }
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
@@ -513,6 +546,7 @@ export function applySelectorMappings({ css, html, javascript }, selectorManglin
       .replace(new RegExp(`(\\bid=["'])${source}(["'])`, "gu"), `$1${target}$2`)
       .replace(new RegExp(`#${escapeRegularExpression(source)}(?![A-Za-z0-9_-])`, "gu"), `#${target}`);
   }
+  mappedHtml = replaceHtmlIdReferences(mappedHtml, selectorMangling.ids);
   for (const [source, target] of Object.entries(selectorMangling.classes)) {
     mappedCss = replaceSelector(mappedCss, ".", source, target);
     mappedHtml = mappedHtml.replace(/\bclass=(['"])([^'"]*)\1/gu, (match, quote, tokens) =>

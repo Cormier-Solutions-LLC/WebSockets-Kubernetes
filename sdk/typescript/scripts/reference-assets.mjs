@@ -66,21 +66,28 @@ function isDomLookupCall(call, method) {
     && isDocumentReference(call.callee.object);
 }
 
-function mapJavaScriptValue(value, call, ids, classes, selectorMethods, classListMethods) {
+function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods, classListMethods) {
   const method = memberName(call.callee);
   let mapped = value;
-  if (selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$")) {
+  if ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
+    && call.arguments[0] === argument) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
     for (const [source, target] of Object.entries(classes)) mapped = replaceSelector(mapped, ".", source, target);
-  } else if (method === "getElementById" && isDomLookupCall(call, method)) {
+  } else if (method === "getElementById" && isDomLookupCall(call, method) && call.arguments[0] === argument) {
     mapped = Object.hasOwn(ids, mapped) ? ids[mapped] : mapped;
-  } else if (method === "getElementsByClassName" && isDomLookupCall(call, method)) {
+  } else if (method === "getElementsByClassName" && isDomLookupCall(call, method) && call.arguments[0] === argument) {
     mapped = replaceTokenList(mapped, classes);
   } else if (classListMethods.has(method) && memberName(call.callee.object) === "classList") {
     mapped = Object.hasOwn(classes, mapped) ? classes[mapped] : mapped;
-  } else if ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)) {
+  } else if ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
+    && call.arguments[0] === argument) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
-  } else if (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window") {
+  } else if (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
+    && call.arguments[0] === argument) {
+    for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
+  } else if ((method === "pushState" || method === "replaceState") && call.arguments[2] === argument
+    && (call.callee.object?.type === "Identifier" && call.callee.object.name === "history"
+      || memberName(call.callee.object) === "history" && call.callee.object.object?.name === "window")) {
     for (const [source, target] of Object.entries(ids)) mapped = replaceSelector(mapped, "#", source, target);
   }
   return mapped;
@@ -111,6 +118,14 @@ function isHrefSetAttributeCall(call, argument) {
   return memberName(call?.callee) === "setAttribute"
     && call.arguments[1] === argument
     && staticStringValue(call.arguments[0])?.toLowerCase() === "href";
+}
+
+function isHistoryUrlCall(call, argument) {
+  const method = memberName(call?.callee);
+  return (method === "pushState" || method === "replaceState")
+    && call.arguments[2] === argument
+    && ((call.callee.object?.type === "Identifier" && call.callee.object.name === "history")
+      || (memberName(call.callee.object) === "history" && call.callee.object.object?.name === "window"));
 }
 
 function stringExpressionReplacements(node, mapper) {
@@ -211,15 +226,6 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
       for (const parameter of node.params) {
         recordBindingPattern(parameter);
-        if (parameter.type === "AssignmentPattern" && parameter.left.type === "Identifier"
-          && (parameter.right.type === "TemplateLiteral" || typeof staticStringValue(parameter.right) === "string")) {
-          if (!staticBindings.has(parameter.left.name)) {
-            staticBindings.set(parameter.left.name, { mutable: true, node: parameter.right });
-          }
-        } else if (parameter.type === "AssignmentPattern" && parameter.left.type === "Identifier"
-          && parameter.right.type === "BinaryExpression" && parameter.right.operator === "+") {
-          concatenatedBindings.add(parameter.left.name);
-        }
       }
     } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
       if (node.id !== null) recordBindingPattern(node.id);
@@ -281,7 +287,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       if (concatenatedBindings.has(name)) {
         throw new Error(`Concatenated selector binding ${name} is unsupported; inline it or use a template literal.`);
       }
-      return;
+      throw new Error(`Dynamic selector binding ${name} is unsupported when selector mangling is enabled.`);
     }
     const repeatedVarDeclarations = (varDeclarationCounts.get(name) ?? 0) - (varBindingScopes.get(name)?.size ?? 0);
     if ((bindingCounts.get(name) ?? 0) - repeatedVarDeclarations !== 1) {
@@ -311,7 +317,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     let root = node;
     while (parents.get(root)?.type === "BinaryExpression" && parents.get(root).operator === "+") root = parents.get(root);
     const context = selectorArgumentCall(root);
-    return context === undefined ? undefined : { call: context.call, root };
+    return context === undefined ? undefined : { argument: context.argument, call: context.call, root };
   }
 
   function selectorArgumentCall(node) {
@@ -343,14 +349,31 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && isLocationUrlAssignment(valueParent.left) ? valueParent : undefined;
   }
 
+  function isMappedCallArgument(call, argument) {
+    const method = memberName(call.callee);
+    return ((selectorMethods.has(method) || (call.callee.type === "Identifier" && call.callee.name === "$"))
+        && call.arguments[0] === argument)
+      || (isDomLookupCall(call, method) && call.arguments[0] === argument)
+      || (classListMethods.has(method) && memberName(call.callee.object) === "classList"
+        && call.arguments.includes(argument))
+      || ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
+        && call.arguments[0] === argument)
+      || (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
+        && call.arguments[0] === argument)
+      || isHrefSetAttributeCall(call, argument)
+      || isHistoryUrlCall(call, argument);
+  }
+
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined) {
       const edits = stringExpressionReplacements(node, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
+        || isHistoryUrlCall(selectorContext.call, selectorContext.argument)
         ? mapFragmentValue(source, ids)
-        : mapJavaScriptValue(source, selectorContext.call, ids, classes, selectorMethods, classListMethods));
+        : mapJavaScriptValue(source, selectorContext.call, selectorContext.argument,
+          ids, classes, selectorMethods, classListMethods));
       replacements.push(...edits);
     } else if (node.type === "Literal" && typeof node.value === "string" && parent?.type === "BinaryExpression") {
       const context = concatenationCall(node);
@@ -359,7 +382,10 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         const hasPrecedingOperand = node.start > context.root.start;
         const edits = stringExpressionReplacements(node, (source) => {
           const guarded = `${hasPrecedingOperand ? "-" : ""}${source}${hasFollowingOperand ? "-" : ""}`;
-          const mapped = mapJavaScriptValue(guarded, context.call, ids, classes, selectorMethods, classListMethods);
+          const mapped = isHistoryUrlCall(context.call, context.argument)
+            ? mapFragmentValue(guarded, ids)
+            : mapJavaScriptValue(guarded, context.call, context.argument,
+              ids, classes, selectorMethods, classListMethods);
           return mapped.slice(hasPrecedingOperand ? 1 : 0, hasFollowingOperand ? -1 : undefined);
         });
         replacements.push(...edits);
@@ -368,18 +394,16 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
       replacements.push(...edits);
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
-      const method = memberName(selectorContext.call.callee);
-      const selectorCall = selectorMethods.has(method)
-        || (selectorContext.call.callee.type === "Identifier" && selectorContext.call.callee.name === "$")
-        || isDomLookupCall(selectorContext.call, method)
-        || (classListMethods.has(method) && memberName(selectorContext.call.callee.object) === "classList")
-        || ((method === "assign" || method === "replace") && isLocationReference(selectorContext.call.callee.object))
-        || (method === "open" && selectorContext.call.callee.object?.type === "Identifier"
-          && selectorContext.call.callee.object.name === "window")
-        || isHrefSetAttributeCall(selectorContext.call, selectorContext.argument);
-      if (selectorCall) recordStaticBindingReplacement(node.name, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
+      if (isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
+        recordStaticBindingReplacement(node.name, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
+          || isHistoryUrlCall(selectorContext.call, selectorContext.argument)
         ? mapFragmentValue(source, ids)
-        : mapJavaScriptValue(source, selectorContext.call, ids, classes, selectorMethods, classListMethods));
+          : mapJavaScriptValue(source, selectorContext.call, selectorContext.argument,
+            ids, classes, selectorMethods, classListMethods));
+      }
+    } else if (node.type === "MemberExpression" && selectorContext !== undefined
+      && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
+      throw new Error("Stored selector properties are unsupported when selector mangling is enabled.");
     } else if (node.type === "Identifier" && fragmentContext !== undefined) {
       recordStaticBindingReplacement(node.name, (source) => mapFragmentValue(source, ids));
     }

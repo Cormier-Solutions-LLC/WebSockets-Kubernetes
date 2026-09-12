@@ -173,12 +173,13 @@ function replaceHtmlIdReferences(html, ids) {
   const tokenIdAttributes = ["aria-controls", "aria-describedby", "aria-flowto", "aria-labelledby", "aria-owns", "headers"];
   let mapped = html;
   for (const attribute of singleIdAttributes) {
-    mapped = mapped.replace(new RegExp(`(\\b${attribute}=["'])([^"']*)(["'])`, "giu"),
-      (match, prefix, value, suffix) => `${prefix}${Object.hasOwn(ids, value) ? ids[value] : value}${suffix}`);
+    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}=["'])([^"']*)(["'])`, "gimu"),
+      (match, boundary, prefix, value, suffix) =>
+        `${boundary}${prefix}${Object.hasOwn(ids, value) ? ids[value] : value}${suffix}`);
   }
   for (const attribute of tokenIdAttributes) {
-    mapped = mapped.replace(new RegExp(`(\\b${attribute}=["'])([^"']*)(["'])`, "giu"),
-      (match, prefix, value, suffix) => `${prefix}${replaceTokenList(value, ids)}${suffix}`);
+    mapped = mapped.replace(new RegExp(`(^|[\\s<])(${attribute}=["'])([^"']*)(["'])`, "gimu"),
+      (match, boundary, prefix, value, suffix) => `${boundary}${prefix}${replaceTokenList(value, ids)}${suffix}`);
   }
   return mapped;
 }
@@ -310,7 +311,11 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         || (parent?.type === "AssignmentPattern" && parent.left === node);
       const propertyName = parent?.type === "MemberExpression" && parent.property === node && !parent.computed;
       const objectKey = parent?.type === "Property" && parent.key === node && !parent.computed && parent.value !== node;
-      if (binding?.static !== undefined && !declaration && !propertyName && !objectKey) {
+      const classKey = (parent?.type === "MethodDefinition" || parent?.type === "PropertyDefinition")
+        && parent.key === node && !parent.computed;
+      const label = (parent?.type === "LabeledStatement" && parent.label === node)
+        || ((parent?.type === "BreakStatement" || parent?.type === "ContinueStatement") && parent.label === node);
+      if (binding?.static !== undefined && !declaration && !propertyName && !objectKey && !classKey && !label) {
         referenceCounts.set(binding, (referenceCounts.get(binding) ?? 0) + 1);
       }
     }
@@ -400,12 +405,30 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         && (valueParent.consequent === value || valueParent.alternate === value))
       || (valueParent?.type === "LogicalExpression"
         && (valueParent.left === value || valueParent.right === value))
+      || (valueParent?.type === "SequenceExpression" && valueParent.expressions.at(-1) === value)
       || (valueParent?.type === "BinaryExpression" && valueParent.operator === "+")) {
       value = valueParent;
       valueParent = parents.get(value);
     }
-    return valueParent?.type === "AssignmentExpression" && valueParent.right === value
-      && isLocationUrlAssignment(valueParent.left) ? valueParent : undefined;
+    if (valueParent?.type !== "AssignmentExpression" || valueParent.right !== value
+      || !isLocationUrlAssignment(valueParent.left)) return undefined;
+    const locationIdentifier = valueParent.left.type === "Identifier" && valueParent.left.name === "location"
+      ? valueParent.left
+      : valueParent.left.object?.type === "Identifier" && valueParent.left.object.name === "location"
+        ? valueParent.left.object
+        : undefined;
+    return locationIdentifier !== undefined && resolveBinding("location", locationIdentifier.start) !== undefined
+      ? undefined
+      : valueParent;
+  }
+
+  function staticConcatenationValue(node) {
+    if (node.type === "Literal" && typeof node.value === "string") return node.value;
+    if (node.type === "TemplateLiteral" && node.expressions.length === 0) return node.quasis[0].value.cooked;
+    if (node.type !== "BinaryExpression" || node.operator !== "+") return undefined;
+    const left = staticConcatenationValue(node.left);
+    const right = staticConcatenationValue(node.right);
+    return left === undefined || right === undefined ? undefined : left + right;
   }
 
   function isMappedCallArgument(call, argument) {
@@ -415,7 +438,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       || (isDomLookupCall(call, method) && call.arguments[0] === argument)
       || (classListMethods.has(method) && isClassListTokenArgument(call, method, argument))
       || ((method === "assign" || method === "replace") && isLocationReference(call.callee.object)
-        && call.arguments[0] === argument)
+        && call.arguments[0] === argument
+        && !(call.callee.object.type === "Identifier"
+          && resolveBinding(call.callee.object.name, call.callee.object.start) !== undefined))
       || (method === "open" && call.callee.object?.type === "Identifier" && call.callee.object.name === "window"
         && call.arguments[0] === argument)
       || (call.callee.type === "Identifier" && call.callee.name === "open" && call.arguments[0] === argument
@@ -442,6 +467,15 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     }
     const selectorContext = selectorArgumentCall(node);
     const fragmentContext = fragmentAssignment(node);
+    if (node.type === "BinaryExpression" && staticConcatenationValue(node) !== undefined
+      && ((selectorContext !== undefined && isMappedCallArgument(selectorContext.call, selectorContext.argument))
+        || fragmentContext !== undefined)) {
+      throw new Error("Split static selector concatenations are unsupported when selector mangling is enabled.");
+    }
+    if (node.type === "Literal" && typeof node.value !== "string" && selectorContext !== undefined
+      && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
+      throw new Error("Non-string DOM selector arguments are unsupported when selector mangling is enabled.");
+    }
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       const edits = stringExpressionReplacements(node, (source) => mapJavaScriptValue(source,

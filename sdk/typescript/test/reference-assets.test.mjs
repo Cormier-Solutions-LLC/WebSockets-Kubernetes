@@ -94,11 +94,11 @@ test("selector mappings preserve identifiers that only share a prefix", () => {
 
 test("selector mappings rewrite HTML ID-reference attributes", () => {
   const result = applySelectorMappings({ css: "#private #details {}",
-    html: '<label for="private" aria-controls="private details public">Label</label><input id="private"><div id="details"></div>',
+    html: '<label for="private" aria-controls="private details public" data-for="private" x-aria-controls="private">Label</label><input id="private"><div id="details"></div>',
     javascript: 'document.querySelector("#private")' },
   { enabled: true, ids: { private: "a", details: "b" }, classes: {}, safelist: [] });
   assert.equal(result.html,
-    '<label for="a" aria-controls="a b public">Label</label><input id="a"><div id="b"></div>');
+    '<label for="a" aria-controls="a b public" data-for="private" x-aria-controls="private">Label</label><input id="a"><div id="b"></div>');
 });
 
 test("class mappings change selector APIs without rewriting JavaScript properties", () => {
@@ -349,6 +349,12 @@ test("selector mappings rewrite concatenations nested in conditional selector ar
   assert.equal(result.javascript, 'document.querySelector(flag ? "#a " + suffix : "#a")');
 });
 
+test("selector mappings reject split static selector concatenations", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector("#pri" + "vate")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /Split static selector concatenations/u);
+});
+
 test("selector mappings reject concatenated selector constants", () => {
   assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'const target = "#private [data-key=\'" + key + "\']"; document.querySelector(target)' },
@@ -427,6 +433,14 @@ test("selector mappings distinguish bindings in disjoint lexical scopes", () => 
     'function first() { const target = "#a"; return document.querySelector(target); } function second() { const target = "business"; return target; }');
 });
 
+test("selector binding use counts exclude class keys and labels", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'const target = "#private"; class Widget { target() {} } targetLabel: for (;;) { break targetLabel; } document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'const target = "#a"; class Widget { target() {} } targetLabel: for (;;) { break targetLabel; } document.querySelector(target)');
+});
+
 test("selector mappings rewrite JavaScript fragment navigation", () => {
   const result = applySelectorMappings({
     css: "#private {}",
@@ -450,6 +464,14 @@ test("selector mappings fail closed for ambiguous URL and identity property assi
   }
 });
 
+test("selector mappings respect shadowed browser location bindings", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function store(location) { location = "#private"; location.href = "#private"; location.assign("#private"); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'function store(location) { location = "#private"; location.href = "#private"; location.assign("#private"); }');
+});
+
 test("selector mappings rewrite conditional fragment assignments", () => {
   const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
     javascript: 'const fallback = "#public"; location.href = flag ? "#private" : "#public"; location = fallback || "#private"' },
@@ -463,6 +485,13 @@ test("selector mappings rewrite concatenated fragment assignments", () => {
     javascript: 'location.href = "/page#private?key=" + key' },
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript, 'location.href = "/page#a?key=" + key');
+});
+
+test("selector mappings rewrite final sequence operands in fragment assignments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'location.href = (sideEffect(), "#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'location.href = (sideEffect(), "#a")');
 });
 
 test("selector mappings reject dynamic conditional selector branches", () => {
@@ -492,4 +521,13 @@ test("selector mappings rewrite id and class setAttribute values", () => {
     javascript: 'node.setAttribute("id", "private"); node.setAttribute("class", "internal public")' },
   { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
   assert.equal(result.javascript, 'node.setAttribute("id", "a"); node.setAttribute("class", "b public")');
+});
+
+test("selector mappings reject non-string DOM token arguments", () => {
+  const options = { enabled: true, ids: { true: "a" }, classes: { true: "b" }, safelist: [] };
+  for (const javascript of ["document.getElementById(true)", "node.classList.add(true)",
+    'node.setAttribute("id", true)']) {
+    assert.throws(() => applySelectorMappings({ css: "#true .true {}",
+      html: '<div id="true" class="true"></div>', javascript }, options), /Non-string DOM selector arguments/u);
+  }
 });

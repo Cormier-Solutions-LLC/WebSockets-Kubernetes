@@ -139,6 +139,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   const selectorMethods = new Set(["closest", "insertRule", "matches", "querySelector", "querySelectorAll"]);
   const classListMethods = new Set(["add", "contains", "remove", "replace", "toggle"]);
   const bindingCounts = new Map();
+  const varDeclarationCounts = new Map();
+  const varInitializerCounts = new Map();
+  const varBindingScopes = new Map();
   const staticBindings = new Map();
   const concatenatedBindings = new Set();
   const assignedBindings = new Set();
@@ -160,10 +163,43 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     }
   }
 
-  function collectBindings(node, parent) {
+  function visitBindingIdentifiers(pattern, callback) {
+    if (pattern === null) return;
+    if (pattern.type === "Identifier") {
+      callback(pattern.name);
+    } else if (pattern.type === "RestElement") {
+      visitBindingIdentifiers(pattern.argument, callback);
+    } else if (pattern.type === "AssignmentPattern") {
+      visitBindingIdentifiers(pattern.left, callback);
+    } else if (pattern.type === "ArrayPattern") {
+      for (const element of pattern.elements) visitBindingIdentifiers(element, callback);
+    } else if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        visitBindingIdentifiers(property.type === "RestElement" ? property.argument : property.value, callback);
+      }
+    }
+  }
+
+  function recordAssignedPattern(pattern) {
+    visitBindingIdentifiers(pattern, (name) => assignedBindings.add(name));
+  }
+
+  function collectBindings(node, parent, functionScope) {
     if (node === null || typeof node !== "object") return;
     if (node.type === "VariableDeclarator") {
       recordBindingPattern(node.id);
+      if (parent?.kind === "var") {
+        visitBindingIdentifiers(node.id, (name) => {
+          varDeclarationCounts.set(name, (varDeclarationCounts.get(name) ?? 0) + 1);
+          if (node.init !== null) {
+            const initializerCount = (varInitializerCounts.get(name) ?? 0) + 1;
+            varInitializerCounts.set(name, initializerCount);
+            if (initializerCount > 1) assignedBindings.add(name);
+          }
+          if (!varBindingScopes.has(name)) varBindingScopes.set(name, new Set());
+          varBindingScopes.get(name).add(functionScope);
+        });
+      }
       if (node.id.type === "Identifier" && parent?.type === "VariableDeclaration" && ["const", "let", "var"].includes(parent.kind)
         && (node.init?.type === "TemplateLiteral" || typeof staticStringValue(node.init) === "string")) {
         if (!staticBindings.has(node.id.name)) staticBindings.set(node.id.name, { mutable: parent.kind !== "const", node: node.init });
@@ -173,34 +209,51 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       }
     } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
       if (node.id !== null && node.id !== undefined) recordBindingPattern(node.id);
-      for (const parameter of node.params) recordBindingPattern(parameter);
+      for (const parameter of node.params) {
+        recordBindingPattern(parameter);
+        if (parameter.type === "AssignmentPattern" && parameter.left.type === "Identifier"
+          && (parameter.right.type === "TemplateLiteral" || typeof staticStringValue(parameter.right) === "string")) {
+          if (!staticBindings.has(parameter.left.name)) {
+            staticBindings.set(parameter.left.name, { mutable: true, node: parameter.right });
+          }
+        } else if (parameter.type === "AssignmentPattern" && parameter.left.type === "Identifier"
+          && parameter.right.type === "BinaryExpression" && parameter.right.operator === "+") {
+          concatenatedBindings.add(parameter.left.name);
+        }
+      }
     } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
       if (node.id !== null) recordBindingPattern(node.id);
     } else if (node.type === "CatchClause") {
       recordBindingPattern(node.param);
     } else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") {
       recordBindingPattern(node.local);
-    } else if (node.type === "AssignmentExpression" && node.left.type === "Identifier") {
-      assignedBindings.add(node.left.name);
+    } else if (node.type === "AssignmentExpression") {
+      recordAssignedPattern(node.left);
     } else if (node.type === "UpdateExpression" && node.argument.type === "Identifier") {
       assignedBindings.add(node.argument.name);
+    } else if ((node.type === "ForInStatement" || node.type === "ForOfStatement")
+      && node.left.type !== "VariableDeclaration") {
+      recordAssignedPattern(node.left);
     }
+    const childFunctionScope = node.type === "FunctionDeclaration" || node.type === "FunctionExpression"
+      || node.type === "ArrowFunctionExpression" ? node : functionScope;
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) {
-        for (const item of child) collectBindings(item, node);
+        for (const item of child) collectBindings(item, node, childFunctionScope);
       } else if (child !== parent) {
-        collectBindings(child, node);
+        collectBindings(child, node, childFunctionScope);
       }
     }
   }
 
-  collectBindings(syntaxTree, undefined);
+  collectBindings(syntaxTree, undefined, syntaxTree);
   const referenceCounts = new Map();
   const parents = new WeakMap();
   function collectReferences(node, parent) {
     if (node === null || typeof node !== "object") return;
     if (node.type === "Identifier" && staticBindings.has(node.name)) {
-      const declaration = parent?.type === "VariableDeclarator" && parent.id === node;
+      const declaration = (parent?.type === "VariableDeclarator" && parent.id === node)
+        || (parent?.type === "AssignmentPattern" && parent.left === node);
       const propertyName = parent?.type === "MemberExpression" && parent.property === node && !parent.computed;
       const objectKey = parent?.type === "Property" && parent.key === node && !parent.computed && parent.value !== node;
       if (!declaration && !propertyName && !objectKey) {
@@ -230,7 +283,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       }
       return;
     }
-    if (bindingCounts.get(name) !== 1) {
+    const repeatedVarDeclarations = (varDeclarationCounts.get(name) ?? 0) - (varBindingScopes.get(name)?.size ?? 0);
+    if ((bindingCounts.get(name) ?? 0) - repeatedVarDeclarations !== 1) {
       throw new Error(`Static selector binding ${name} must not be shadowed when selector mangling is enabled.`);
     }
     if (binding.mutable && assignedBindings.has(name)) {
@@ -256,8 +310,8 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
   function concatenationCall(node) {
     let root = node;
     while (parents.get(root)?.type === "BinaryExpression" && parents.get(root).operator === "+") root = parents.get(root);
-    const call = parents.get(root);
-    return call?.type === "CallExpression" && call.arguments.includes(root) ? { call, root } : undefined;
+    const context = selectorArgumentCall(root);
+    return context === undefined ? undefined : { call: context.call, root };
   }
 
   function selectorArgumentCall(node) {
@@ -275,9 +329,24 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       : undefined;
   }
 
+  function fragmentAssignment(node) {
+    let value = node;
+    let valueParent = parents.get(value);
+    while ((valueParent?.type === "ConditionalExpression"
+        && (valueParent.consequent === value || valueParent.alternate === value))
+      || (valueParent?.type === "LogicalExpression"
+        && (valueParent.left === value || valueParent.right === value))) {
+      value = valueParent;
+      valueParent = parents.get(value);
+    }
+    return valueParent?.type === "AssignmentExpression" && valueParent.right === value
+      && isLocationUrlAssignment(valueParent.left) ? valueParent : undefined;
+  }
+
   function visit(node, parent) {
     if (node === null || typeof node !== "object") return;
     const selectorContext = selectorArgumentCall(node);
+    const fragmentContext = fragmentAssignment(node);
     if ((node.type === "Literal" || node.type === "TemplateLiteral") && selectorContext !== undefined) {
       const edits = stringExpressionReplacements(node, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
         ? mapFragmentValue(source, ids)
@@ -295,8 +364,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
         });
         replacements.push(...edits);
       }
-    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && parent?.type === "AssignmentExpression"
-      && parent.right === node && isLocationUrlAssignment(parent.left)) {
+    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && fragmentContext !== undefined) {
       const edits = stringExpressionReplacements(node, (source) => mapFragmentValue(source, ids));
       replacements.push(...edits);
     } else if (node.type === "Identifier" && selectorContext !== undefined) {
@@ -312,8 +380,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       if (selectorCall) recordStaticBindingReplacement(node.name, (source) => isHrefSetAttributeCall(selectorContext.call, selectorContext.argument)
         ? mapFragmentValue(source, ids)
         : mapJavaScriptValue(source, selectorContext.call, ids, classes, selectorMethods, classListMethods));
-    } else if (node.type === "Identifier" && parent?.type === "AssignmentExpression"
-      && parent.right === node && isLocationUrlAssignment(parent.left)) {
+    } else if (node.type === "Identifier" && fragmentContext !== undefined) {
       recordStaticBindingReplacement(node.name, (source) => mapFragmentValue(source, ids));
     }
     for (const child of Object.values(node)) {

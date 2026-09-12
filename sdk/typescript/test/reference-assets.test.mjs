@@ -212,6 +212,36 @@ test("selector mappings reject reassigned var selector bindings", () => {
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /must not be reassigned/u);
 });
 
+test("selector mappings treat repeated var declarations in one scope as one binding", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'var target; var target = "#private"; document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'var target; var target = "#a"; document.querySelector(target)');
+});
+
+test("selector mappings reject repeatedly initialized var bindings", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'var target = "#public"; var target = "#private"; document.querySelector(target)' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] }), /must not be reassigned/u);
+});
+
+test("selector mappings rewrite selector parameter defaults", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'function find(target = "#private") { return document.querySelector(target); }' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'function find(target = "#a") { return document.querySelector(target); }');
+});
+
+test("selector mappings reject destructuring and loop reassignment", () => {
+  const options = { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] };
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'let target = "#public"; [target] = ["#private"]; document.querySelector(target)' }, options),
+  /must not be reassigned/u);
+  assert.throws(() => applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'let target = "#public"; for (target of selectors) {} document.querySelector(target)' }, options),
+  /must not be reassigned/u);
+});
+
 test("selector mappings reject ambiguous static selector bindings", () => {
   assert.throws(() => applySelectorMappings({
     css: "#private {}",
@@ -275,6 +305,13 @@ test("selector mappings rewrite conditional and logical selector arguments", () 
   { enabled: true, ids: { private: "a" }, classes: { internal: "b" }, safelist: [] });
   assert.equal(result.javascript,
     'document.querySelector(usePrivate ? "#a" : ".b"); document.querySelector(candidate || "#a")');
+});
+
+test("selector mappings rewrite concatenations nested in conditional selector arguments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'document.querySelector(flag ? "#private " + suffix : "#private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'document.querySelector(flag ? "#a " + suffix : "#a")');
 });
 
 test("selector mappings reject concatenated selector constants", () => {
@@ -343,4 +380,11 @@ test("selector mappings rewrite JavaScript fragment navigation", () => {
     safelist: [],
   });
   assert.equal(result.javascript, 'const fragment = "#a"; location.hash = fragment; anchor.href = "#a"; anchor.setAttribute("href", "#a"); window.location = "#a"; document.location = "#a"; location = "#a"; location.href = "/page#a"; location.assign(`/page#a?key=${key}`)');
+});
+
+test("selector mappings rewrite conditional fragment assignments", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'anchor.href = flag ? "#private" : "#public"; location = fallback || "#private"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript, 'anchor.href = flag ? "#a" : "#public"; location = fallback || "#a"');
 });

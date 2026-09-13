@@ -53,6 +53,8 @@ jobs:
           node-version: 24
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
+      - name: Install Bash analysis prerequisite
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck
       - name: Parse PowerShell lifecycle scripts
         run: |
           docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview "$CI_POWERSHELL_IMAGE" -NoLogo -NoProfile -Command '
@@ -83,10 +85,10 @@ jobs:
       - name: Render both explicit bootstrap topology profiles
         run: |
           node scripts/realtime-bootstrap.mjs plan --config bootstrap/config.example.json --profile non-ha
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-non-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/non-ha.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-non-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/non-ha.yaml
           jq '.topology = "ha" | .kubernetes.failureDomains = 3' bootstrap/config.example.json > /tmp/bootstrap-ha.json
           node scripts/realtime-bootstrap.mjs plan --config /tmp/bootstrap-ha.json --profile ha
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/ha.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/ha.yaml
           grep --quiet 'replicas: 1' /tmp/non-ha.yaml
           if grep --quiet 'kind: PodDisruptionBudget' /tmp/non-ha.yaml; then exit 1; fi
           grep --quiet 'Gateway__Topology: "non-ha"' /tmp/non-ha.yaml

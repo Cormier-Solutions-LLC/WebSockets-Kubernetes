@@ -21,8 +21,9 @@
 
 - Fixed WebSocket query forwarding, made the listener host explicitly configurable, and rejected noncanonical origins with explicit default HTTP(S) ports.
 - Added a failing HIGH/CRITICAL image scan and upgraded runtime OS packages during image construction.
+- Clarified that `.env.example` is an external configuration template, not an application-loaded file, and that generated SDK/shared-web assets must come from the same verified build.
 - Future deprecations must identify a replacement, migration/rollback instructions, verification, and removal release/support window before behavior changes.
 
 ### Operator action
 
-- Supply required configuration and compatible Redis/gateway/SDK assets, then follow `UPDATE.md`. No migration is required for the initial version.
+- Build the canonical SDK/shared-web assets, supply every `.env.example` setting through the process environment, provide compatible Redis and gateway instances, then follow `UPDATE.md`. No data migration is required for the initial version.

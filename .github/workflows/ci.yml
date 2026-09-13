@@ -48,6 +48,13 @@ jobs:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install pinned PowerShell
+        run: bash scripts/setup-ci-powershell.sh
+      - name: Install Bash analysis prerequisite
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck
       - name: Parse PowerShell lifecycle scripts
         run: |
           docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview "$CI_POWERSHELL_IMAGE" -NoLogo -NoProfile -Command '
@@ -59,10 +66,51 @@ jobs:
             }
             if ($failed) { exit 1 }
           '
+      - name: Analyze PowerShell entry point
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          $findings = Invoke-ScriptAnalyzer -Path ./scripts/Realtime-Bootstrap.ps1 -Severity Error,Warning
+          if ($findings) { $findings | Format-Table -AutoSize; exit 1 }
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
+      - name: Validate Bash syntax and static analysis
+        run: |
+          bash -n scripts/realtime-bootstrap.sh
+          shellcheck scripts/realtime-bootstrap.sh
+      - name: Test bootstrap contract and cross-shell parity
+        env:
+          BOOTSTRAP_SKIP_LIFECYCLE: '1'
+        run: node --test tests/bootstrap/*.test.mjs
+      - name: Render both explicit bootstrap topology profiles
+        run: |
+          node scripts/realtime-bootstrap.mjs plan --config bootstrap/config.example.json --profile non-ha
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-non-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/non-ha.yaml
+          jq '.topology = "ha" | .kubernetes.failureDomains = 3' bootstrap/config.example.json > /tmp/bootstrap-ha.json
+          node scripts/realtime-bootstrap.mjs plan --config /tmp/bootstrap-ha.json --profile ha
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/ha.yaml
+          grep --quiet 'replicas: 1' /tmp/non-ha.yaml
+          if grep --quiet 'kind: PodDisruptionBudget' /tmp/non-ha.yaml; then exit 1; fi
+          grep --quiet 'Gateway__Topology: "non-ha"' /tmp/non-ha.yaml
+          grep --quiet 'Redis__Endpoint: "dev-realtime-redis-master:6379"' /tmp/non-ha.yaml
+          if grep --quiet 'Redis__SentinelPassword' /tmp/non-ha.yaml; then exit 1; fi
+          grep --quiet 'replicas: 3' /tmp/ha.yaml
+          grep --quiet 'kind: PodDisruptionBudget' /tmp/ha.yaml
+          grep --quiet 'topologySpreadConstraints:' /tmp/ha.yaml
+          grep --quiet 'whenUnsatisfiable: DoNotSchedule' /tmp/ha.yaml
+          grep --quiet 'Gateway__Topology: "ha"' /tmp/ha.yaml
+          grep --quiet 'Redis__Endpoint: "dev-realtime-redis:26379"' /tmp/ha.yaml
+          grep --quiet 'Redis__SentinelPassword' /tmp/ha.yaml
+          grep --quiet 'port: 6379' /tmp/ha.yaml
+          grep --quiet 'port: 26379' /tmp/ha.yaml
       - name: Helm lint, schema, and render validation
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" lint helm/realtime-gateway --strict
+          if docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template invalid-ip helm/realtime-gateway --set observability.prometheusRule.ingressEnabled=true --set-string observability.platformMetrics.metalLbAddress=':::' >/tmp/invalid-ip.yaml 2>/tmp/invalid-ip.err; then
+            echo 'Helm schema accepted an invalid IPv6 MetalLB address.' >&2
+            exit 1
+          fi
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime > /tmp/external.yaml
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --values cluster/redis/managed-gateway-values.example.yaml > /tmp/managed.yaml
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --api-versions monitoring.coreos.com/v1/ServiceMonitor --api-versions monitoring.coreos.com/v1/PrometheusRule --api-versions monitoring.coreos.com/v1alpha1/AlertmanagerConfig --set observability.alertmanagerConfig.enabled=true --set observability.alertmanagerConfig.webhookSecret.name=ci-alert-webhook --set autoscaling.connectionsMetric.enabled=true --set autoscaling.queueDepthMetric.enabled=true --set metrics.authorizationPolicy=ci-metrics --set metrics.scrapeTokenSecret.name=ci-metrics > /tmp/observability.yaml
@@ -86,10 +134,47 @@ jobs:
           docker run --rm -v "$PWD:/work" -w /work --entrypoint promtool "$CI_PROMETHEUS_IMAGE" check rules artifacts/helm/prometheus-rules.yaml
       - name: Render pinned managed Redis topology
         run: |
-          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template dev-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --values .bootstrap/lifecycle/dev-realtime/redis-values.json > /tmp/redis.yaml
           grep --quiet 'kind: StatefulSet' /tmp/redis.yaml
           grep --quiet 'kind: PodDisruptionBudget' /tmp/redis.yaml
           grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
+          grep --quiet 'topologyKey: topology.kubernetes.io/zone' /tmp/redis.yaml
+          grep --quiet 'whenUnsatisfiable: DoNotSchedule' /tmp/redis.yaml
+
+  bootstrap-powershell-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test shared contract on Windows
+        env:
+          BOOTSTRAP_SKIP_LIFECYCLE: '1'
+        run: node --test tests/bootstrap/*.test.mjs
+      - name: Test PowerShell entry point on Windows
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
+
+  bootstrap-lifecycle-parity:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [bash, pwsh]
+        profile: [non-ha, ha]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Exercise lifecycle with failure injection
+        env:
+          BOOTSTRAP_TEST_SHELLS: ${{ matrix.shell }}
+          BOOTSTRAP_TEST_PROFILES: ${{ matrix.profile }}
+        run: node --test --test-name-pattern="complete lifecycle" tests/bootstrap/bootstrap-contract.test.mjs
 
   build-test-aot:
     runs-on: cormier-runners

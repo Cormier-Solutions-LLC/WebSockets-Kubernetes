@@ -17,7 +17,7 @@ data:
   Gateway__ServiceName: {{ include "realtime-gateway.fullname" . | quote }}
   Gateway__ShutdownDrainSeconds: {{ .Values.gateway.shutdownDrainSeconds | quote }}
   Gateway__DetailedHealthChecks: {{ .Values.gateway.detailedHealthChecks | quote }}
-  Gateway__Topology: {{ ternary "ha" "non-ha" (gt (int .Values.replicaCount) 1) | quote }}
+  Gateway__Topology: {{ .Values.topology | quote }}
   Diagnostics__Enabled: {{ .Values.diagnostics.enabled | quote }}
   Diagnostics__ProductionEnabled: {{ .Values.diagnostics.productionEnabled | quote }}
   Diagnostics__BasePath: {{ .Values.diagnostics.basePath | quote }}
@@ -42,7 +42,7 @@ data:
   OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.observability.otlp.protocol | quote }}
   {{- end }}
   Redis__Endpoint: {{ include "realtime-gateway.redisEndpoint" . | quote }}
-  Redis__SentinelServiceName: {{ ternary .Values.redis.sentinelServiceName "" (eq .Values.redis.mode "managed") | quote }}
+  Redis__SentinelServiceName: {{ ternary .Values.redis.sentinelServiceName "" (and (eq .Values.redis.mode "managed") (eq .Values.topology "ha")) | quote }}
   Redis__RequiredForReadiness: {{ .Values.redis.requiredForReadiness | quote }}
   Redis__InstancePrefix: {{ .Values.redis.instancePrefix | quote }}
   Redis__SessionKeyPrefix: {{ .Values.redis.sessionKeyPrefix | quote }}

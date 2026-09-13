@@ -1,5 +1,5 @@
 {{- if and .Values.metrics.enabled .Values.observability.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
-{{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
+{{- $certificateName := .Values.observability.platformMetrics.certificateName }}
 {{- $traefikServicePattern := default (printf "^%s-%s-%v@kubernetescrd$" .Release.Namespace (include "realtime-gateway.fullname" .) .Values.service.port) .Values.observability.platformMetrics.traefikServicePattern }}
 {{- $_ := set .Values.observability.prometheusRule.routingLabels "service" (default (include "realtime-gateway.fullname" .) .Values.observability.prometheusRule.routingLabels.service) }}
 {{- $_ := set .Values.observability.prometheusRule.routingLabels "namespace" .Release.Namespace }}
@@ -147,6 +147,8 @@ spec:
           annotations:
             summary: Realtime Redis operation p99 exceeds the configured threshold
             runbook_url: {{ printf "%s/redis" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        {{- if .Values.observability.prometheusRule.ingressEnabled }}
+        {{- if $certificateName }}
         - alert: RealtimeGatewayCertificateExpiring
           expr: min(certmanager_certificate_expiration_timestamp_seconds{namespace={{ .Release.Namespace | quote }},name={{ $certificateName | quote }}} - time()) < 604800
           for: 1h
@@ -165,6 +167,7 @@ spec:
           annotations:
             summary: A realtime certificate is not ready
             runbook_url: {{ printf "%s/certificates" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        {{- end }}
         - alert: RealtimeGatewayEdgeErrors
           expr: sum(rate(traefik_service_requests_total{namespace={{ .Values.observability.platformMetrics.traefikNamespace | quote }},service=~{{ $traefikServicePattern | quote }},code=~"5.."}[5m])) > 1
           for: 10m
@@ -187,6 +190,7 @@ spec:
           annotations:
             summary: MetalLB is not responding for the configured advertisement mode
             runbook_url: {{ printf "%s/edge" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        {{- end }}
         - alert: RealtimeGatewayRolloutFailed
           expr: max(kube_deployment_status_condition{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }},condition="Progressing",status="false"}) > 0
           for: 10m

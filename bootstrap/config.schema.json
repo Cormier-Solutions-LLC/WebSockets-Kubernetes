@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/cormier/realtime/bootstrap/v1",
+  "title": "Cormier.Realtime bootstrap configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "kubernetesLabels": {
+      "type": "object",
+      "propertyNames": { "pattern": "^(?=.{1,253}$)(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$" },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$" }
+    },
+    "ipv4Address": { "type": "string", "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\\.){3}(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$" },
+    "ipv6Address": { "type": "string", "format": "ipv6" },
+    "cidr": { "type": "string", "pattern": "^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/(3[0-2]|[12]?[0-9])|((([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){1,7}:)|(([0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){1,5}(:[0-9A-Fa-f]{1,4}){1,2})|(([0-9A-Fa-f]{1,4}:){1,4}(:[0-9A-Fa-f]{1,4}){1,3})|(([0-9A-Fa-f]{1,4}:){1,3}(:[0-9A-Fa-f]{1,4}){1,4})|(([0-9A-Fa-f]{1,4}:){1,2}(:[0-9A-Fa-f]{1,4}){1,5})|([0-9A-Fa-f]{1,4}:((:[0-9A-Fa-f]{1,4}){1,6}))|(:((:[0-9A-Fa-f]{1,4}){1,7}|:)))/(12[0-8]|1[01][0-9]|[1-9]?[0-9]))$" }
+  },
+  "required": ["schemaVersion", "environment", "naming", "paths", "image", "kubernetes", "networking", "redis", "ingress", "observability", "resources", "topology"],
+  "allOf": [
+    {
+      "if": { "properties": { "redis": { "properties": { "mode": { "const": "managed" } } } } },
+      "then": { "properties": { "redis": { "properties": { "tls": { "const": false } } } } }
+    },
+    {
+      "if": { "properties": { "redis": { "properties": { "mode": { "const": "external" } } } } },
+      "then": { "properties": { "redis": { "properties": { "externalEgressCidrs": { "minItems": 1 } } } } }
+    },
+    {
+      "if": { "properties": { "observability": { "properties": { "serviceMonitor": { "const": true } } } } },
+      "then": { "properties": { "observability": { "properties": { "monitoringNamespaceLabels": { "minProperties": 1 }, "monitoringPodLabels": { "minProperties": 1 } } } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "topology": { "const": "ha" },
+          "redis": { "properties": { "mode": { "const": "external" } } }
+        }
+      },
+      "then": {
+        "properties": {
+          "redis": { "properties": { "externalHaConfirmed": { "const": true } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "ingress": { "properties": { "enabled": { "const": false } } } } },
+      "then": { "properties": { "networking": { "properties": { "directIngressNamespaceLabels": { "minProperties": 1 } } } } }
+    },
+    {
+      "if": { "properties": { "ingress": { "properties": { "enabled": { "const": true } } } } },
+      "then": { "properties": { "ingress": { "properties": { "host": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 } } } } }
+    },
+    {
+      "if": { "properties": { "topology": { "const": "ha" } } },
+      "then": { "properties": { "kubernetes": { "properties": { "failureDomains": { "minimum": 3 } } } } }
+    }
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9]{1,10}$" },
+        "class": { "enum": ["development", "test", "staging", "production"] }
+      }
+    },
+    "naming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suffix"],
+      "properties": { "suffix": { "type": "string", "pattern": "^$|^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$" } }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generatedDirectory", "backupDirectory", "logDirectory"],
+      "properties": {
+        "generatedDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" },
+        "backupDirectory": { "type": "string", "pattern": "^\\.backups(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" },
+        "logDirectory": { "type": "string", "pattern": "^\\.logs(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "pullPolicy", "pullSecretName"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" },
+        "tag": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$" },
+        "digest": { "type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+        "pullSecretName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 }
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "namespace", "storageClass", "failureDomains"],
+      "properties": {
+        "context": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "storageClass": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 },
+        "failureDomains": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "networking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traefikNamespace", "traefikService", "traefikPodLabels", "directIngressNamespaceLabels", "directIngressPodLabels", "trustedProxyCidrs", "metalLbNamespace", "metalLbAddress", "advertisementMode"],
+      "properties": {
+        "traefikNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "traefikService": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "traefikPodLabels": { "$ref": "#/$defs/kubernetesLabels", "type": "object", "minProperties": 1 },
+        "directIngressNamespaceLabels": { "$ref": "#/$defs/kubernetesLabels" },
+        "directIngressPodLabels": { "$ref": "#/$defs/kubernetesLabels" },
+        "trustedProxyCidrs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/cidr" } },
+        "metalLbNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "metalLbAddress": { "anyOf": [{ "$ref": "#/$defs/ipv4Address" }, { "$ref": "#/$defs/ipv6Address" }] },
+        "advertisementMode": { "enum": ["l2", "bgp"] }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "legacyManagedChart"],
+      "properties": {
+        "mode": { "enum": ["external", "managed"] },
+        "externalEndpoint": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?|\\[[A-Fa-f0-9:]+\\]):[0-9]{1,5}$" },
+        "externalHaConfirmed": { "type": "boolean" },
+        "externalEgressCidrs": { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
+        "tls": { "type": "boolean" },
+        "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
+        "credentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "adminCredentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "instancePrefix": { "type": "string", "pattern": "^[A-Za-z0-9:_-]+$" },
+        "managedChart": { "type": "string", "pattern": "^oci://[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" },
+        "managedChartVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" },
+        "legacyManagedChart": { "type": "string", "pattern": "^oci://[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName", "certificateName"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "host": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" },
+        "allowedOrigins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^https?://[^@/?#]+/?$" } },
+        "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
+        "certificateName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster", "serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"],
+      "properties": {
+        "cluster": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "minLength": 1, "maxLength": 63 },
+        "serviceMonitor": { "type": "boolean" },
+        "monitoringNamespaceLabels": { "$ref": "#/$defs/kubernetesLabels" },
+        "monitoringPodLabels": { "$ref": "#/$defs/kubernetesLabels" },
+        "otlpEndpoint": { "type": "string" },
+        "otlpHeadersSecret": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
+        "otlpHeadersKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "otlpEgressCidrs": { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
+        "otlpEgressNamespaceLabels": { "$ref": "#/$defs/kubernetesLabels" },
+        "otlpEgressPodLabels": { "$ref": "#/$defs/kubernetesLabels" },
+        "otlpEgressPorts": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gatewayCpu", "gatewayMemory", "redisStorage"],
+      "properties": {
+        "gatewayCpu": { "type": "string", "pattern": "^[1-9][0-9]*m$" },
+        "gatewayMemory": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" },
+        "redisStorage": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi|Ti)$" }
+      }
+    },
+    "topology": { "enum": ["ha", "non-ha"] }
+  }
+}

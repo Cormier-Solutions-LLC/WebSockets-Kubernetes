@@ -17,6 +17,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("allowPrivilegeEscalation: false", deployment, StringComparison.Ordinal);
         Assert.Contains("capabilities: { drop: [\"ALL\"] }", deployment, StringComparison.Ordinal);
         Assert.Contains("automountServiceAccountToken:", deployment, StringComparison.Ordinal);
+        Assert.Contains("imagePullSecrets:", deployment, StringComparison.Ordinal);
+        Assert.Contains(".Values.image.pullSecretName", deployment, StringComparison.Ordinal);
         Assert.Contains("startupProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("readinessProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("livenessProbe:", deployment, StringComparison.Ordinal);
@@ -29,14 +31,29 @@ public sealed class DeploymentContractTests
         Assert.Contains("ASPNETCORE_HTTP_PORTS", deployment, StringComparison.Ordinal);
         var strategy = schema.RootElement.GetProperty("properties").GetProperty("deploymentStrategy");
         var forbidden = strategy.GetProperty("not").GetProperty("properties");
-        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("replicaCount").GetProperty("minimum").GetInt32());
-        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("minReplicas").GetProperty("minimum").GetInt32());
-        Assert.Equal(2, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("maxReplicas").GetProperty("minimum").GetInt32());
+        Assert.Equal(1, schema.RootElement.GetProperty("properties").GetProperty("replicaCount").GetProperty("minimum").GetInt32());
+        Assert.Equal(1, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("minReplicas").GetProperty("minimum").GetInt32());
+        Assert.Equal(1, schema.RootElement.GetProperty("properties").GetProperty("autoscaling").GetProperty("properties").GetProperty("maxReplicas").GetProperty("minimum").GetInt32());
         Assert.Contains("autoscaling.maxReplicas must be greater than or equal to autoscaling.minReplicas", Read("helm/realtime-gateway/templates/hpa.yaml"), StringComparison.Ordinal);
-        Assert.Equal(0, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
-        Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxSurge").GetProperty("minimum").GetInt32());
+        Assert.Equal(1, strategy.GetProperty("properties").GetProperty("maxUnavailable").GetProperty("maximum").GetInt32());
+        Assert.Equal(0, strategy.GetProperty("properties").GetProperty("maxSurge").GetProperty("minimum").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxUnavailable").GetProperty("const").GetInt32());
         Assert.Equal(0, forbidden.GetProperty("maxSurge").GetProperty("const").GetInt32());
+
+        var topologyRules = schema.RootElement.GetProperty("allOf").EnumerateArray()
+            .Where(rule => rule.TryGetProperty("if", out var condition)
+                && condition.GetProperty("properties").TryGetProperty("topology", out _))
+            .ToDictionary(
+                rule => rule.GetProperty("if").GetProperty("properties").GetProperty("topology").GetProperty("const").GetString()!,
+                rule => rule.GetProperty("then").GetProperty("properties"));
+        Assert.Equal(3, topologyRules["ha"].GetProperty("replicaCount").GetProperty("minimum").GetInt32());
+        Assert.Equal(0, topologyRules["ha"].GetProperty("deploymentStrategy").GetProperty("properties").GetProperty("maxUnavailable").GetProperty("const").GetInt32());
+        Assert.Equal(1, topologyRules["non-ha"].GetProperty("replicaCount").GetProperty("const").GetInt32());
+        var nonHaAutoscaling = topologyRules["non-ha"].GetProperty("autoscaling").GetProperty("properties");
+        Assert.False(nonHaAutoscaling.GetProperty("enabled").GetProperty("const").GetBoolean());
+        Assert.Equal(1, nonHaAutoscaling.GetProperty("minReplicas").GetProperty("const").GetInt32());
+        Assert.Equal(1, nonHaAutoscaling.GetProperty("maxReplicas").GetProperty("const").GetInt32());
+        Assert.Contains("Gateway__Topology: {{ .Values.topology", Read("helm/realtime-gateway/templates/configmap.yaml"), StringComparison.Ordinal);
     }
 
     [Fact]

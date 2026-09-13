@@ -1,11 +1,15 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# Availability is an explicit deployment choice; it is never inferred from replica count.
+topology: ha
+
 image:
   repository: ghcr.io/cormier-solutions-llc/cormier-realtime-gateway
   tag: "0.1.0"
   digest: ""
   pullPolicy: IfNotPresent
+  pullSecretName: ""
 
 replicaCount: 3
 revisionHistoryLimit: 3
@@ -79,6 +83,7 @@ observability:
     labelValue: "1"
   prometheusRule:
     enabled: true
+    ingressEnabled: false
     additionalLabels: {}
     routingLabels:
       team: platform
@@ -182,6 +187,7 @@ autoscaling:
 
 topologySpreadConstraints:
   enabled: true
+  zoneWhenUnsatisfiable: DoNotSchedule
 
 networkPolicy:
   enabled: true

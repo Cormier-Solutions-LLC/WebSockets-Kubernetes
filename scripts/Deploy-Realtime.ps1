@@ -75,9 +75,9 @@ if ($ManagedRedis -and $redisRelease.Length -gt 53) {
 if (-not $RedisSecretName) { $RedisSecretName = "$target-redis" }
 if (-not $RedisInstancePrefix) {
     $RedisInstancePrefix = if ($null -ne $naming -and $Application -eq [string]$naming.kubernetesApplication) {
-        # Preserve environment isolation while remaining inside the managed ACL's
-        # cormier:realtime:* key and channel boundary.
-        "$([string]$naming.redisInstancePrefix):$Environment"
+        # The shared naming manifest already contains the complete environment-
+        # and suffix-qualified Redis key/channel prefix.
+        [string]$naming.redisInstancePrefix
     }
     else {
         "${Environment}:$Application"

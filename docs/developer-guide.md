@@ -16,24 +16,25 @@ The compatibility baseline is .NET Standard 2.0. CI restores, executes, and smok
 
 ## Supported development platforms
 
-The repository supports Windows, Linux, and macOS development with PowerShell 7, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, and Node.js 22 or newer for browser SDK work. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.
+The repository supports Windows, Linux, and macOS development with PowerShell 7, plus Bash 5 or later on Linux and macOS, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, and Node.js 22 or newer. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.
 
 ## Bootstrap
 
-Run from any directory:
+Copy `bootstrap/config.example.json` to a secure operator-controlled location, replace every example target, select `ha` or `non-ha`, then run from any directory:
 
 ```powershell
-pwsh /path/to/repository/scripts/Bootstrap-Realtime.ps1
+pwsh /path/to/repository/scripts/Realtime-Bootstrap.ps1 -Action plan -Config /path/to/realtime-dev.json -Profile non-ha
+pwsh /path/to/repository/scripts/Realtime-Bootstrap.ps1 -Action bootstrap -Config /path/to/realtime-dev.json -Profile non-ha
 ```
 
-Useful controls:
+The equivalent Bash commands use `scripts/realtime-bootstrap.sh plan|bootstrap --config ... --profile non-ha`. Useful controls:
 
-- `-WhatIf` or `-DryRun` reports intended bootstrap operations.
-- `-SkipRestore` skips NuGet restore.
-- `-SkipBuild` skips the release build.
-- `-RequireContainer` makes Docker CLI and daemon validation mandatory.
+- `-DryRun`/`--dry-run` reports the normalized plan without external operations.
+- `-TimeoutSeconds`/`--timeout-seconds` bounds external operations.
+- `-ConfirmTopologyChange`/`--confirm-topology-change` is required after previewing a topology conversion.
+- `-Force`/`--force` is required for guarded nonproduction teardown.
 
-The script validates prerequisites before build work, produces a redacted log under `.logs`, reports `CREATED`, `UNCHANGED`, or `SKIPPED` directory state, and archives completed logs older than seven days only after validating the ZIP.
+Both wrappers call the same implementation, validate the same versioned configuration, produce deterministic redacted plans/values and JSON logs, and have identical actions and exit semantics. See [the bootstrap guide](bootstrap.md) for the complete install, update, validation, backup, rollback, recovery, topology, and teardown contract. The legacy PowerShell-only entry points remain available during migration.
 
 ## Local workflow
 

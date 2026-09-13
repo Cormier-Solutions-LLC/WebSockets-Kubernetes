@@ -17,20 +17,22 @@ An independently deployable .NET 10 Native AOT foundation for the Cormier realti
 - `examples/browser` — plain HTML/direct-script consumer example.
 - `examples/aspnet-core` — minimal package consumer using standard ASP.NET Core sessions.
 - `examples/dotnet-client` — runtime-neutral .NET client connection and authentication example.
-- `scripts` — PowerShell 7 bootstrap and lifecycle automation.
+- `scripts` — equivalent Bash 5+ and PowerShell 7+ bootstrap/lifecycle entry points over one versioned contract.
 - `docs` — architecture and developer guidance.
 - `refs` — source Jira exports and governing scripting standard.
 
 ## Quick start
 
-Prerequisites are PowerShell 7, the .NET 10 SDK, Git, Node.js 22 or newer for the browser SDK, and optionally Docker for OCI verification.
+Prerequisites are Bash 5+ or PowerShell 7+, the .NET 10 SDK, Git, Node.js 22 or newer, and optionally Docker for OCI verification. Copy the example bootstrap configuration outside source control, replace its example targets, and preview the explicit topology before applying it:
 
 ```powershell
-pwsh ./scripts/Bootstrap-Realtime.ps1
+pwsh ./scripts/Realtime-Bootstrap.ps1 -Action plan -Config ./bootstrap/config.example.json -Profile non-ha
 dotnet run --project ./src/Cormier.Realtime.Gateway
 ```
 
-Use an optional DNS-label suffix of at most 27 characters for a separately named distribution or deployment. Together with deployment environment names of at most 10 characters, this keeps gateway and managed-Redis Helm releases within Helm's 53-character limit. The bootstrap writes the resulting, non-secret naming contract to ignored `.bootstrap/naming.json` and MSBuild properties to `.bootstrap/naming.props`:
+The equivalent Bash entry point is `bash ./scripts/realtime-bootstrap.sh plan --config ./bootstrap/config.example.json --profile non-ha`. See the [cross-platform bootstrap guide](docs/bootstrap.md) for install, update, validation, topology conversion, rollback, recovery, and guarded teardown.
+
+Use the configuration's optional DNS-label suffix of at most 27 characters for a separately named distribution or deployment. Together with deployment environment names of at most 10 characters, this keeps gateway and managed-Redis Helm releases within Helm's 53-character limit. The legacy PowerShell bootstrap remains available during the v1 migration and writes its non-secret naming contract to ignored `.bootstrap/naming.json` and MSBuild properties to `.bootstrap/naming.props`:
 
 ```powershell
 pwsh ./scripts/Bootstrap-Realtime.ps1 -NameSuffix customer-a -ImageRegistry ghcr.io/cormier-solutions-llc

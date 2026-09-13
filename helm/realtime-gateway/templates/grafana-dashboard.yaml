@@ -3,7 +3,7 @@
 {{- $dashboardIdentity := printf "%s/%s" .Release.Namespace (include "realtime-gateway.fullname" .) }}
 {{- $dashboardUid := printf "realtime-%s" (sha256sum $dashboardIdentity | trunc 31) }}
 {{- $dashboardTitle := printf "Realtime Gateway (%s) Production Diagnostics" $dashboardIdentity }}
-{{- $certificateName := default (include "realtime-gateway.fullname" .) .Values.observability.platformMetrics.certificateName }}
+{{- $certificateName := .Values.observability.platformMetrics.certificateName }}
 {{- $redisNamespace := default .Release.Namespace .Values.observability.platformMetrics.redisNamespace }}
 {{- $defaultRedisInstance := ternary (printf "%s:%v" .Values.redis.managedReleaseName .Values.redis.port) .Values.redis.externalEndpoint (eq .Values.redis.mode "managed") }}
 {{- $redisInstance := default $defaultRedisInstance .Values.observability.platformMetrics.redisInstance }}

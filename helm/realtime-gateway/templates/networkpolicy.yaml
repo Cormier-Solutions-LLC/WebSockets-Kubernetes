@@ -42,6 +42,9 @@ spec:
               app.kubernetes.io/instance: {{ .Values.redis.managedReleaseName }}
       ports:
         - { protocol: TCP, port: {{ .Values.redis.port }} }
+        {{- if eq .Values.topology "ha" }}
+        - { protocol: TCP, port: {{ .Values.redis.sentinelPort }} }
+        {{- end }}
     {{- else if .Values.networkPolicy.allowExternalRedisEgress }}
     - to:
         {{- range .Values.networkPolicy.externalRedisCidrs }}

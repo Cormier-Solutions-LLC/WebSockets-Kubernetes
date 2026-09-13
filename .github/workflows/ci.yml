@@ -822,6 +822,9 @@ jobs:
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
+      - name: Remove stale Laravel smoke container
+        working-directory: sdk/typescript
+        run: node ./test/reference-adapters/stop-php-laravel-container.mjs
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:

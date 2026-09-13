@@ -122,10 +122,11 @@ export function validateConfiguration(input) {
   requireString(paths.logDirectory, "$.paths.logDirectory", errors, /^\.logs(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
 
   const image = requireRecord(config.image, "$.image", errors);
-  requireKeys(image, "$.image", ["repository", "tag", "pullPolicy"], errors, ["digest"]);
+  requireKeys(image, "$.image", ["repository", "tag", "pullPolicy", "pullSecretName"], errors, ["digest"]);
   requireString(image.repository, "$.image.repository", errors, registryRepository);
   requireString(image.tag, "$.image.tag", errors, imageTag);
   if (image.digest !== undefined) requireString(image.digest, "$.image.digest", errors, /^sha256:[a-f0-9]{64}$/, true);
+  requireString(image.pullSecretName, "$.image.pullSecretName", errors, dnsSubdomain, true);
   if (!["Always", "IfNotPresent", "Never"].includes(image.pullPolicy)) errors.push(problem("$.image.pullPolicy", "must be Always, IfNotPresent, or Never"));
 
   const kubernetes = requireRecord(config.kubernetes, "$.kubernetes", errors);
@@ -136,7 +137,7 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "legacyManagedChart"], errors);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
@@ -152,6 +153,7 @@ export function validateConfiguration(input) {
   requireString(redis.instancePrefix, "$.redis.instancePrefix", errors, redisPrefix);
   requireString(redis.managedChart, "$.redis.managedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
   requireString(redis.managedChartVersion, "$.redis.managedChartVersion", errors, /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/);
+  requireString(redis.legacyManagedChart, "$.redis.legacyManagedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
 
   const ingress = requireRecord(config.ingress, "$.ingress", errors);
   requireKeys(ingress, "$.ingress", ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName", "certificateName"], errors);

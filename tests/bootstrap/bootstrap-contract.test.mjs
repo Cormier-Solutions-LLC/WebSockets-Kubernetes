@@ -56,6 +56,7 @@ test("both explicit topology profiles validate and render their availability con
 test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from configuration", () => {
   const config = configuration();
   config.image.digest = `sha256:${"a".repeat(64)}`;
+  config.image.pullSecretName = "registry.credentials";
   config.redis.mode = "external";
   config.redis.externalEndpoint = "redis.example.test:6380";
   config.redis.externalEgressCidrs = ["192.0.2.50/32"];
@@ -65,6 +66,7 @@ test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from conf
   config.observability.otlpEgressCidrs = ["192.0.2.50/32"];
   const values = renderValues(config, profiles["non-ha"]);
   assert.equal(values.image.digest, config.image.digest);
+  assert.equal(values.image.pullSecretName, "registry.credentials");
   assert.equal(values.redis.tls, true);
   assert.equal(values.redis.port, 6380);
   assert.deepEqual(values.networkPolicy.externalRedisCidrs, config.redis.externalEgressCidrs);
@@ -86,6 +88,8 @@ test("the immutable image digest is optional but validated when supplied", () =>
   withoutDigest.image.digest = "";
   withoutDigest.image.tag = "bad tag@sha";
   assert(validateConfiguration(withoutDigest).some(item => item.path === "$.image.tag"));
+  withoutDigest.image.pullSecretName = "registry/credentials";
+  assert(validateConfiguration(withoutDigest).some(item => item.path === "$.image.pullSecretName"));
 });
 
 test("Helm backup values containing inline credentials are detected by path", () => {
@@ -198,6 +202,10 @@ test("MetalLB monitoring accepts IPv4 and IPv6 addresses and rejects malformed v
   config.networking.metalLbAddress = ":::";
   assert(validateConfiguration(config).some(item => item.path === "$.networking.metalLbAddress"));
   assert.deepEqual(helmSchema.properties.observability.properties.platformMetrics.properties.metalLbAddress.anyOf, [{ format: "ipv4" }, { format: "ipv6" }]);
+  assert.equal(bootstrapSchema.$defs.ipv6Address.format, "ipv6");
+  const cidrPattern = new RegExp(bootstrapSchema.$defs.cidr.pattern);
+  assert(cidrPattern.test("2001:db8::/32"));
+  assert.equal(cidrPattern.test(":::/128"), false);
 });
 
 test("rollback plans use the exact captured gateway and managed Redis values", () => {
@@ -243,6 +251,9 @@ test("ingress mode selects explicit traffic sources and optional certificate mon
   assert.deepEqual(ingress.networkPolicy.ingressNamespaceSelector.matchLabels, { "kubernetes.io/metadata.name": config.networking.traefikNamespace });
   assert.deepEqual(ingress.networkPolicy.ingressPodSelector.matchLabels, config.networking.traefikPodLabels);
   assert.equal(ingress.observability.platformMetrics.certificateName, "realtime-certificate");
+  assert(bootstrapSchema.allOf.some(rule => rule.if?.properties?.ingress?.properties?.enabled?.const === true
+    && rule.then?.properties?.ingress?.properties?.host?.minLength === 1
+    && rule.then?.properties?.ingress?.properties?.tlsSecretName?.minLength === 1));
 });
 
 test("Secret references accept Kubernetes DNS subdomain names", () => {
@@ -317,6 +328,25 @@ test("installed Helm topology remains authoritative when local state is absent",
   }
 });
 
+test("an orphaned managed Redis release still requires topology-conversion confirmation", async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-orphan-redis-"));
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-orphan-redis-tools-"));
+  await fakeClusterTools(fakeBin);
+  const config = configuration("ha");
+  config.naming.suffix = "orphan-redis";
+  const configPath = resolve(directory, "config.json");
+  await writeFile(configPath, stableJson(config));
+  const release = "dev-realtime-orphan-redis";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  try {
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_ORPHAN_REDIS: "1", BOOTSTRAP_FAKE_REDIS_ARCHITECTURE: "standalone" } }), error => error.code === 3 && /confirm-topology-change/.test(error.stdout));
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("an existing target lock produces the safety-stop exit code", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-lock-"));
   const config = configuration();
@@ -352,8 +382,8 @@ if [[ -n "\${BOOTSTRAP_FAKE_DELAY:-}" ]]; then sleep "$BOOTSTRAP_FAKE_DELAY"; fi
 if [[ "\${BOOTSTRAP_FAKE_FAIL:-}" == 'redis' && "$*" == *"$BOOTSTRAP_FAKE_REDIS_RELEASE"* && "\${1:-}" == 'upgrade' ]]; then printf '%s\\n' 'injected Redis failure' >&2; exit 9; fi
 case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
-  list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0","revision":"3"},{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
-  get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" && "\${BOOTSTRAP_FAKE_LEGACY_REDIS:-}" == '1' ]]; then printf '{"fullnameOverride":"%s","architecture":"standalone","auth":{"existingSecret":"%s","existingSecretPasswordKey":"redis-password","acl":{"userSecret":"%s","users":[{"username":"realtime","keys":"~%s:*","channels":"&%s:*"}]}}}\\n' "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}"; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" ]]; then printf '{"architecture":"standalone","commonAnnotations":{"cormier.solutions/managed-chart":"%s"}}\\n' "\${BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART:-oci://registry-1.docker.io/bitnamicharts/redis}"; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
+  list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; elif [[ "\${BOOTSTRAP_FAKE_ORPHAN_REDIS:-}" == '1' ]]; then printf '[{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0","revision":"3"},{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
+  get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" && "\${BOOTSTRAP_FAKE_LEGACY_REDIS:-}" == '1' ]]; then printf '{"fullnameOverride":"%s","architecture":"%s","auth":{"existingSecret":"%s","existingSecretPasswordKey":"redis-password","acl":{"userSecret":"%s","users":[{"username":"realtime","keys":"~%s:*","channels":"&%s:*"}]}}}\\n' "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_ARCHITECTURE:-standalone}" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}"; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" ]]; then printf '{"architecture":"%s","commonAnnotations":{"cormier.solutions/managed-chart":"%s"}}\\n' "\${BOOTSTRAP_FAKE_REDIS_ARCHITECTURE:-standalone}" "\${BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART:-oci://registry-1.docker.io/bitnamicharts/redis}"; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
   lint|template|upgrade|uninstall|rollback) printf '%s\\n' 'ok' ;;
   *) printf 'unsupported fake helm command: %s\\n' "\${1:-}" >&2; exit 64 ;;
 esac
@@ -526,6 +556,7 @@ test("update adopts only a verified legacy managed Redis release", { timeout: 30
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-legacy-redis-config-"));
   const config = configuration();
   config.naming.suffix = "legacy-adopt";
+  config.redis.managedChart = "oci://mirror.example.test/charts/redis";
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-legacy-adopt";
@@ -536,9 +567,37 @@ test("update adopts only a verified legacy managed Redis release", { timeout: 30
     const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: environment });
     const backup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
     assert(backup);
-    assert.equal(JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8")).managedRedis.chart, config.redis.managedChart);
+    assert.equal(JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8")).managedRedis.chart, config.redis.legacyManagedChart);
     assert.match(updated.stdout, /Adopting verified legacy managed Redis release metadata/);
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_REDIS_PREFIX: "wrong:prefix" } }), error => error.code === 1 && /does not match the verified legacy deployment contract/.test(error.stdout));
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(targetBackups, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("standalone backup captures installed managed Redis while desired configuration is external", { timeout: 30_000 }, async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-drift-backup-tools-"));
+  await fakeClusterTools(fakeBin);
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-drift-backup-config-"));
+  const config = configuration();
+  config.naming.suffix = "drift-backup";
+  config.redis.mode = "external";
+  config.redis.externalEndpoint = "redis.example.test:6379";
+  config.redis.externalEgressCidrs = ["192.0.2.50/32"];
+  const configPath = resolve(directory, "config.json");
+  await writeFile(configPath, stableJson(config));
+  const release = "dev-realtime-drift-backup";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  try {
+    const result = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis` } });
+    const backup = result.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
+    const captured = JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8"));
+    assert.equal(captured.managedRedis.chart, "oci://registry-1.docker.io/bitnamicharts/redis");
+    assert.equal(captured.managedRedis.chartVersion, "23.1.1");
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
@@ -610,6 +669,26 @@ test("rollback classifies conversion from installed topology to backup topology"
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+  }
+});
+
+test("rollback rejects a cross-target backup with the safety-stop exit code", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-cross-target-config-"));
+  const config = configuration();
+  config.naming.suffix = "cross-target";
+  const configPath = resolve(directory, "config.json");
+  await writeFile(configPath, stableJson(config));
+  const release = "dev-realtime-cross-target";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/mismatch`);
+  await mkdir(backup, { recursive: true });
+  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "another-context", namespace: "dev-realtime", release } }));
+  try {
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot }), error => error.code === 3 && /Backup target does not match/.test(error.stdout));
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

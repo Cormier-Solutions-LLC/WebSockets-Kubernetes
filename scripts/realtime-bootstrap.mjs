@@ -126,6 +126,10 @@ async function assertTarget(plan, config, options, mutation) {
     const allowed = await command("kubectl", ["auth", "can-i", "create", "deployments.apps", "--namespace", plan.target.namespace], "Validate mutation permission", { ...options, capture: true });
     if (allowed !== "yes") throw new Error(`Missing deployment mutation permission in '${plan.target.namespace}'.`);
   }
+  if (config.image.pullSecretName) {
+    const pullSecret = await command("kubectl", ["get", "secret", config.image.pullSecretName, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate image pull Secret reference", { ...options, capture: true });
+    if (!pullSecret) throw new Error(`Image pull Secret '${config.image.pullSecretName}' does not exist in '${plan.target.namespace}'.`);
+  }
   const secret = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate credential Secret reference", { ...options, capture: true });
   if (!secret) throw new Error(`Credential Secret '${config.redis.credentialsSecret}' does not exist in '${plan.target.namespace}'.`);
   const keyListing = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--output", "go-template={{range $key, $_ := .data}}{{$key}}{{\"\\n\"}}{{end}}"], "Validate credential Secret keys", { ...options, capture: true });
@@ -153,7 +157,7 @@ async function assertBackupTarget(plan, options) {
   if (!Array.isArray(JSON.parse(releasesDocument))) throw new Error("Helm release inventory was not a JSON array.");
 }
 
-async function saveState(plan, options) {
+async function saveState(plan, config, options) {
   const stamp = new Date().toISOString().replaceAll(":", "-");
   const directory = resolve(options.backupRoot, plan.target.release, stamp);
   assertPathInside(options.backupRoot, directory, "backup");
@@ -172,7 +176,11 @@ async function saveState(plan, options) {
         const secretPaths = inlineSecretPaths(values);
         if (secretPaths.length > 0) throw new Error(`Refusing to persist inline credential values returned by Helm at: ${secretPaths.join(", ")}. Replace them with Secret references before retrying.`);
         if (release === plan.target.redisRelease) {
-          capturedPlan.managedRedis.chart = managedRedisChartForBackup(plan, releases, release, values, options);
+          const chartVersion = capturedRedisChartVersion(releases, release);
+          const chart = managedRedisChartForBackup(plan, config, release, values, chartVersion, options);
+          capturedPlan.managedRedis ??= {};
+          capturedPlan.managedRedis.chart = chart;
+          capturedPlan.managedRedis.chartVersion = chartVersion;
         }
         await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
       }
@@ -198,7 +206,14 @@ async function installedReleaseState(planTarget, options) {
   const releasesDocument = await command("helm", targetReleaseListArguments(planTarget), "Inspect installed releases for topology", { ...options, capture: true });
   const releases = JSON.parse(releasesDocument);
   if (!Array.isArray(releases)) throw new Error("Helm release inventory was not a JSON array.");
-  if (!releases.some(release => release?.name === planTarget.release)) return releases.some(release => release?.name === planTarget.redisRelease) ? { topology: undefined, redisMode: "managed" } : undefined;
+  if (!releases.some(release => release?.name === planTarget.release)) {
+    if (!releases.some(release => release?.name === planTarget.redisRelease)) return undefined;
+    const redisValuesDocument = await command("helm", ["get", "values", planTarget.redisRelease, "--namespace", planTarget.namespace, "--all", "--output", "json"], "Read installed managed Redis topology", { ...options, capture: true });
+    const redisValues = JSON.parse(redisValuesDocument);
+    const topology = redisValues.architecture === "standalone" ? "non-ha" : redisValues.architecture === "replication" ? "ha" : undefined;
+    if (!topology) throw new Error(`Release '${planTarget.redisRelease}' does not expose a supported managed Redis architecture.`);
+    return { topology, redisMode: "managed" };
+  }
   const valuesDocument = await command("helm", ["get", "values", planTarget.release, "--namespace", planTarget.namespace, "--all", "--output", "json"], "Read installed gateway topology", { ...options, capture: true });
   const values = JSON.parse(valuesDocument);
   return { topology: topologyFromValues(values, planTarget.release), redisMode: values.redis?.mode ?? (releases.some(release => release?.name === planTarget.redisRelease) ? "managed" : "external") };
@@ -322,27 +337,26 @@ function capturedRedisChartVersion(releaseInventory, release) {
   return match[1];
 }
 
-function managedRedisChartForBackup(plan, releaseInventory, release, values, options) {
+function managedRedisChartForBackup(plan, config, release, values, installedVersion, options) {
   const annotatedChart = values.commonAnnotations?.["cormier.solutions/managed-chart"];
   if (typeof annotatedChart === "string" && annotatedChart.startsWith("oci://")) return annotatedChart;
 
-  const installedVersion = capturedRedisChartVersion(releaseInventory, release);
-  const expected = plan.managedRedis?.values;
+  const expectedRedis = plan.values?.redis;
   const actualUser = values.auth?.acl?.users?.[0];
-  const expectedUser = expected?.auth?.acl?.users?.[0];
-  const legacyMatches = installedVersion === plan.managedRedis?.chartVersion
+  const expectedPrefix = expectedRedis?.instancePrefix;
+  const legacyMatches = installedVersion === config.redis.managedChartVersion
     && values.fullnameOverride === release
-    && values.auth?.existingSecret === expected?.auth?.existingSecret
-    && values.auth?.existingSecretPasswordKey === expected?.auth?.existingSecretPasswordKey
-    && values.auth?.acl?.userSecret === expected?.auth?.acl?.userSecret
-    && actualUser?.username === expectedUser?.username
-    && actualUser?.keys === expectedUser?.keys
-    && actualUser?.channels === expectedUser?.channels;
-  if (!legacyMatches || typeof plan.managedRedis?.chart !== "string" || !plan.managedRedis.chart.startsWith("oci://")) {
+    && values.auth?.existingSecret === expectedRedis?.credentialsSecret?.name
+    && values.auth?.existingSecretPasswordKey === expectedRedis?.managedAdminPasswordKey
+    && values.auth?.acl?.userSecret === expectedRedis?.credentialsSecret?.name
+    && actualUser?.username === expectedRedis?.username
+    && actualUser?.keys === `~${expectedPrefix}:*`
+    && actualUser?.channels === `&${expectedPrefix}:*`;
+  if (!legacyMatches || typeof config.redis.legacyManagedChart !== "string" || !config.redis.legacyManagedChart.startsWith("oci://")) {
     throw new Error(`Installed managed Redis release '${release}' does not record its chart repository and does not match the verified legacy deployment contract.`);
   }
-  emit("info", options.action, "Adopting verified legacy managed Redis release metadata.", { release, chart: plan.managedRedis.chart });
-  return plan.managedRedis.chart;
+  emit("info", options.action, "Adopting verified legacy managed Redis release metadata.", { release, chart: config.redis.legacyManagedChart });
+  return config.redis.legacyManagedChart;
 }
 
 function capturedReleaseRevision(releaseInventory, release) {
@@ -382,6 +396,7 @@ async function rollback(plan, options) {
 function configurationForPlan(config, plan) {
   const captured = structuredClone(config);
   const values = plan.values;
+  captured.image.pullSecretName = values.image?.pullSecretName ?? "";
   captured.redis.mode = values.redis?.mode ?? captured.redis.mode;
   captured.redis.tls = values.redis?.tls ?? captured.redis.tls;
   captured.redis.credentialsSecret = values.redis?.credentialsSecret?.name ?? captured.redis.credentialsSecret;
@@ -500,7 +515,7 @@ async function main() {
     if (options.action === "teardown") await assertTeardownTarget(plan, options);
     else if (options.action === "backup") await assertBackupTarget(plan, options);
     else await assertTarget(plan, options.action === "rollback" ? configurationForPlan(config, plan) : config, options, mutation);
-    if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, options);
+    if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, config, options);
     if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, options);
     else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath, "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor", "--api-versions", "monitoring.coreos.com/v1/PrometheusRule", "--api-versions", "monitoring.coreos.com/v1alpha1/AlertmanagerConfig"], "Render gateway manifests", options);
     else if (options.action === "rollback") await rollback(plan, options);
@@ -526,6 +541,6 @@ main().catch(async error => {
   emit("error", "failure", error.message);
   try { await flushLog(); } catch (logError) { process.stderr.write(`Unable to write lifecycle log: ${logError.message}\n`); }
   if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
-  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|target lock/.test(error.message)) process.exitCode = 3;
+  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|Backup target does not match|target lock/.test(error.message)) process.exitCode = 3;
   else process.exitCode = 1;
 });

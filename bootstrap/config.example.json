@@ -11,7 +11,8 @@
     "repository": "registry.example.com/cormier/realtime-gateway",
     "tag": "0.1.0",
     "digest": "",
-    "pullPolicy": "IfNotPresent"
+    "pullPolicy": "IfNotPresent",
+    "pullSecretName": ""
   },
   "kubernetes": {
     "context": "kind-example",
@@ -41,7 +42,8 @@
     "adminCredentialKey": "redis-password",
     "instancePrefix": "cormier:realtime:dev",
     "managedChart": "oci://registry-1.docker.io/bitnamicharts/redis",
-    "managedChartVersion": "23.1.1"
+    "managedChartVersion": "23.1.1",
+    "legacyManagedChart": "oci://registry-1.docker.io/bitnamicharts/redis"
   },
   "ingress": {
     "enabled": false,

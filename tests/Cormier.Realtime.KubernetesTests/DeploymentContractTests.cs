@@ -17,6 +17,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("allowPrivilegeEscalation: false", deployment, StringComparison.Ordinal);
         Assert.Contains("capabilities: { drop: [\"ALL\"] }", deployment, StringComparison.Ordinal);
         Assert.Contains("automountServiceAccountToken:", deployment, StringComparison.Ordinal);
+        Assert.Contains("imagePullSecrets:", deployment, StringComparison.Ordinal);
+        Assert.Contains(".Values.image.pullSecretName", deployment, StringComparison.Ordinal);
         Assert.Contains("startupProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("readinessProbe:", deployment, StringComparison.Ordinal);
         Assert.Contains("livenessProbe:", deployment, StringComparison.Ordinal);

@@ -2,15 +2,16 @@
 
 | Diagnostic area | Source | Availability |
 | --- | --- | --- |
-| Connections, handshakes, authn/authz, closes, heartbeat | Gateway `/metrics` | Always available when scraped |
-| Message outcomes, handler latency, queue depth/drops, slow consumers | Gateway `/metrics` | Always available when scraped |
-| Redis publish/subscribe/stream operation outcomes | Gateway `/metrics` | Always available when exercised |
-| Redis resource, client, replication, persistence, command latency | Redis exporter | Requires the managed Redis metrics sidecar or an equivalent external exporter |
-| Stream pending, consumer lag, and failover duration | Redis exporter/recording rules | Exporter-dependent; validate metric names before enabling panels or alerts |
+| Connections, handshakes, authn/authz, closes, heartbeat | Gateway `/metrics` contract in [`metrics-catalog.json`](metrics-catalog.json) | Available when `metrics.enabled=true` and the endpoint is scrapeable (`metrics.path`, auth policy/network settings, and TLS/NetworkPolicy as configured) |
+| Message outcomes, handler latency, queue depth/drops, slow consumers | Gateway `/metrics` contract in [`metrics-catalog.json`](metrics-catalog.json) | Available when scraped; alerting queries are rendered from `helm/realtime-gateway/templates/prometheusrule.yaml` when `observability.prometheusRule.enabled=true` |
+| Redis publish/subscribe/stream operation outcomes | Gateway `/metrics` contract in [`metrics-catalog.json`](metrics-catalog.json) | Available when Redis-backed code paths are exercised; alerting queries are rendered from `helm/realtime-gateway/templates/prometheusrule.yaml` |
+| Redis resource, client, replication, persistence, command latency | Redis exporter metrics used by `helm/realtime-gateway/dashboards/realtime-gateway.json` (`redis_*`) | Requires a Redis exporter (or equivalent metric source) that publishes `redis_*` series with labels matching configured `observability.platformMetrics.redisNamespace` and `redisInstance` |
+| Stream pending, consumer lag, ack/claim rates | Redis exporter metrics used by `helm/realtime-gateway/dashboards/realtime-gateway.json` (`redis_stream_*`) | Exporter-dependent; verify stream metric names before enabling stream panels or alerts |
 | Pod CPU, memory, throttling, restarts, readiness, rollout | kubelet/cAdvisor and kube-state-metrics | Requires the platform monitoring stack |
-| Traefik upgrades, open connections, 4xx/5xx, latency | Traefik Prometheus metrics | Requires Traefik metrics and ServiceMonitor integration |
+| Traefik request errors and open connections | Traefik Prometheus metrics used by `helm/realtime-gateway/dashboards/realtime-gateway.json` and ingress alerts in `helm/realtime-gateway/templates/prometheusrule.yaml` | Requires Traefik metrics exposure and either Prometheus Operator `ServiceMonitor` integration or equivalent scrape configuration |
 | MetalLB L2 request/response activity or BGP session health, allocation, stale configuration | MetalLB Prometheus metrics | Requires MetalLB metrics integration; configure `observability.platformMetrics.metalLbAdvertisementMode` and `metalLbNamespace` for the deployed topology |
-| Certificate readiness and expiry | cert-manager metrics | Requires cert-manager metrics integration; set `observability.platformMetrics.certificateName` when it differs from the rendered gateway fullname |
-| Logs and traces | Configured dashboard links | Collector/vendor-neutral; URLs are Helm values |
+| Certificate readiness and expiry | cert-manager metrics used by ingress alerts in `helm/realtime-gateway/templates/prometheusrule.yaml` | Requires `observability.prometheusRule.ingressEnabled=true`, cert-manager metrics integration, and a non-empty `observability.platformMetrics.certificateName` |
+| Logs and traces links | Grafana dashboard link placeholders in `helm/realtime-gateway/templates/grafana-dashboard.yaml` | URLs are configuration only (`observability.links.*`); links do not create data sources |
+| Trace export pipeline | OTLP exporter settings (`Metrics__OtlpEnabled`, `OTEL_*`) and collector examples in `observability/otel-collector.example.yaml` | Requires explicit OTLP endpoint/credentials configuration; validate collector ingestion/recovery with `scripts/verify-observability.sh` |
 
 Unavailable series render as no data rather than zero. Operators must not interpret a blank platform panel as healthy. During installation, use the dashboard links and Prometheus target page to verify each exporter, then disable unsupported panels or add site-specific recording rules without introducing tenant-level labels.

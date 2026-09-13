@@ -487,8 +487,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("secrets.REGISTRY_PASSWORD", promote, StringComparison.Ordinal);
         Assert.DoesNotContain("secrets[", promote, StringComparison.Ordinal);
         Assert.Contains("release-manifest.json", promote, StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\":2", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", promote, StringComparison.Ordinal);
+        Assert.Contains("legacyCredentialProvider", promote, StringComparison.Ordinal);
+        Assert.Contains("$manifest.schemaVersion -eq 1", promote, StringComparison.Ordinal);
         Assert.Contains("sourceCommit", promote, StringComparison.Ordinal);
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);
         Assert.Contains("image.digest", promote, StringComparison.Ordinal);

@@ -62,7 +62,7 @@ jobs:
           digest=$(docker buildx imagetools inspect "$target_ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
           test -n "$digest"
           archive_sha=$(sha256sum artifacts/cormier-realtime-gateway.tar.gz | cut -d' ' -f1)
-          printf '{"schemaVersion":1,"sourceCommit":"%s","image":"%s","credentialProvider":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$REGISTRY_CREDENTIAL_PROVIDER" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
+          printf '{"schemaVersion":2,"sourceCommit":"%s","image":"%s","credentialProvider":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$REGISTRY_CREDENTIAL_PROVIDER" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:

@@ -147,6 +147,7 @@ spec:
           annotations:
             summary: Realtime Redis operation p99 exceeds the configured threshold
             runbook_url: {{ printf "%s/redis" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        {{- if .Values.observability.prometheusRule.ingressEnabled }}
         - alert: RealtimeGatewayCertificateExpiring
           expr: min(certmanager_certificate_expiration_timestamp_seconds{namespace={{ .Release.Namespace | quote }},name={{ $certificateName | quote }}} - time()) < 604800
           for: 1h
@@ -187,6 +188,7 @@ spec:
           annotations:
             summary: MetalLB is not responding for the configured advertisement mode
             runbook_url: {{ printf "%s/edge" (trimSuffix "/" .Values.observability.links.runbookBaseUrl) | quote }}
+        {{- end }}
         - alert: RealtimeGatewayRolloutFailed
           expr: max(kube_deployment_status_condition{namespace={{ .Release.Namespace | quote }},deployment={{ include "realtime-gateway.fullname" . | quote }},condition="Progressing",status="false"}) > 0
           for: 10m

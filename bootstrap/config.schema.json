@@ -24,6 +24,19 @@
     {
       "if": { "properties": { "observability": { "properties": { "serviceMonitor": { "const": true } } } } },
       "then": { "properties": { "observability": { "properties": { "monitoringNamespaceLabels": { "minProperties": 1 }, "monitoringPodLabels": { "minProperties": 1 } } } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "topology": { "const": "ha" },
+          "redis": { "properties": { "mode": { "const": "external" } } }
+        }
+      },
+      "then": {
+        "properties": {
+          "redis": { "properties": { "externalHaConfirmed": { "const": true } } }
+        }
+      }
     }
   ],
   "properties": {

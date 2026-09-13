@@ -62,11 +62,22 @@ async function command(file, args, description, options) {
   let output = "";
   await new Promise((accept, reject) => {
     const child = spawn(file, args, { cwd: repositoryRoot, env: process.env, shell: process.platform === "win32" && /\.cmd$/i.test(file) });
-    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`${description} exceeded ${options.timeoutSeconds} seconds.`)); }, options.timeoutSeconds * 1000);
+    let timedOut = false;
+    let escalation;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      escalation = setTimeout(() => child.kill("SIGKILL"), 5000);
+    }, options.timeoutSeconds * 1000);
     child.stdout.on("data", data => { output += data; if (!options.capture) process.stdout.write(data); });
-    child.stderr.on("data", data => { output += data; if (!options.capture) process.stderr.write(data); });
-    child.on("error", error => { clearTimeout(timer); reject(error); });
-    child.on("exit", code => { clearTimeout(timer); code === 0 ? accept() : reject(new Error(`${description} failed with exit code ${code}.`)); });
+    child.stderr.on("data", data => { if (!options.capture) process.stderr.write(data); });
+    child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); reject(error); });
+    child.on("exit", code => {
+      clearTimeout(timer);
+      clearTimeout(escalation);
+      if (timedOut) reject(new Error(`${description} exceeded ${options.timeoutSeconds} seconds and the child process was terminated.`));
+      else code === 0 ? accept() : reject(new Error(`${description} failed with exit code ${code}.`));
+    });
   });
   return output.trim();
 }
@@ -123,6 +134,14 @@ async function assertTeardownTarget(plan, options) {
   const allowed = await command("kubectl", ["auth", "can-i", "delete", "deployments.apps", "--namespace", plan.target.namespace], "Validate teardown permission", { ...options, capture: true });
   if (allowed !== "yes") throw new Error(`Missing deployment deletion permission in '${plan.target.namespace}'.`);
   const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory teardown releases", { ...options, capture: true });
+  if (!Array.isArray(JSON.parse(releasesDocument))) throw new Error("Helm release inventory was not a JSON array.");
+}
+
+async function assertBackupTarget(plan, options) {
+  const context = await currentContext(options);
+  if (context !== plan.target.context) throw new Error(`Target mismatch: expected Kubernetes context '${plan.target.context}', found '${context}'.`);
+  await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
+  const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory backup releases", { ...options, capture: true });
   if (!Array.isArray(JSON.parse(releasesDocument))) throw new Error("Helm release inventory was not a JSON array.");
 }
 
@@ -290,7 +309,7 @@ async function main() {
   if (options.nameSuffix !== undefined) {
     config = structuredClone(config);
     config.naming.suffix = options.nameSuffix;
-    config.redis.instancePrefix = `cormier:realtime:${options.nameSuffix}`;
+    config.redis.instancePrefix = `${config.redis.instancePrefix}:${options.nameSuffix}`;
   }
   await writeNamingManifest(config);
   options.generatedRoot = resolve(repositoryRoot, config.paths.generatedDirectory);
@@ -307,7 +326,9 @@ async function main() {
   await mkdir(targetRoot, { recursive: true });
   const mutation = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
   const lockRequired = mutation || options.action === "backup";
-  const lockPath = resolve(targetRoot, "operation.lock");
+  const lockPath = resolve(repositoryRoot, ".bootstrap", "locks", `${config.environment.name}-${names}`);
+  assertPathInside(resolve(repositoryRoot, ".bootstrap", "locks"), lockPath, "target lock");
+  await mkdir(dirname(lockPath), { recursive: true });
   if (lockRequired) await acquireLock(lockPath);
   try {
     const statePath = resolve(targetRoot, "state.json");
@@ -366,6 +387,7 @@ async function main() {
     }
     let backup;
     if (options.action === "teardown") await assertTeardownTarget(plan, options);
+    else if (options.action === "backup") await assertBackupTarget(plan, options);
     else await assertTarget(plan, config, options, mutation);
     if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, options);
     if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, options);

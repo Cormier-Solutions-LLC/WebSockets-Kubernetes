@@ -169,6 +169,7 @@ export function validateConfiguration(input) {
     try {
       const endpoint = new URL(observability.otlpEndpoint);
       if (endpoint.username || endpoint.password) errors.push(problem("$.observability.otlpEndpoint", "must not contain URL userinfo; configure authentication through the headers Secret"));
+      if (endpoint.search || endpoint.hash) errors.push(problem("$.observability.otlpEndpoint", "must not contain a query string or fragment; configure authentication through the headers Secret"));
     } catch { errors.push(problem("$.observability.otlpEndpoint", "must be a valid HTTP(S) URL")); }
   }
   requireString(observability.otlpHeadersSecret, "$.observability.otlpHeadersSecret", errors, dnsLabel, true);
@@ -244,7 +245,7 @@ export function inlineSecretPaths(value, path = "$") {
   const paths = [];
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
-    if (secretValueKey.test(key) && !isSecretReferenceField(key, path) && child !== "" && child !== null && child !== undefined) paths.push(childPath);
+    if (secretValueKey.test(key) && !isSecretReferenceField(key, path) && typeof child === "string" && child.length > 0) paths.push(childPath);
     if (isRecord(child)) paths.push(...inlineSecretPaths(child, childPath));
     if (Array.isArray(child)) child.forEach((item, index) => { if (isRecord(item)) paths.push(...inlineSecretPaths(item, `${childPath}[${index}]`)); });
   }
@@ -296,6 +297,7 @@ export function renderValues(config, profile) {
         traefikNamespace: config.networking.traefikNamespace,
       },
       serviceMonitor: { enabled: config.observability.serviceMonitor },
+      prometheusRule: { ingressEnabled: config.ingress.enabled },
       otlp: {
         enabled: Boolean(config.observability.otlpEndpoint),
         endpoint: config.observability.otlpEndpoint,

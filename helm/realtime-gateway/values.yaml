@@ -82,6 +82,7 @@ observability:
     labelValue: "1"
   prometheusRule:
     enabled: true
+    ingressEnabled: true
     additionalLabels: {}
     routingLabels:
       team: platform

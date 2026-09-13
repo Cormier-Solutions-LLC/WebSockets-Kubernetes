@@ -13,6 +13,7 @@ import {
 const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const example = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.example.json"), "utf8"));
+const bootstrapSchema = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.schema.json"), "utf8"));
 const profiles = {
   "non-ha": JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/profiles/non-ha.json"), "utf8")),
   ha: JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/profiles/ha.json"), "utf8")),
@@ -38,6 +39,7 @@ test("both explicit topology profiles validate and render their availability con
     topologySpreadConstraints: { enabled: false, zoneWhenUnsatisfiable: "ScheduleAnyway" },
   });
   assert.deepEqual(renderValues(nonHa, profiles["non-ha"]).autoscaling, { enabled: false, minReplicas: 1, maxReplicas: 1 });
+  assert.equal(renderValues(nonHa, profiles["non-ha"]).observability.prometheusRule.ingressEnabled, false);
   const haValues = renderValues(ha, profiles.ha);
   assert.equal(haValues.replicaCount, 3);
   assert.equal(haValues.autoscaling.minReplicas, 3);
@@ -83,6 +85,7 @@ test("the immutable image digest is optional but validated when supplied", () =>
 
 test("Helm backup values containing inline credentials are detected by path", () => {
   assert.deepEqual(inlineSecretPaths({ auth: { password: "exposed", apiKey: "exposed", existingSecret: "safe", passwordKey: "safe" }, tls: { privateKey: "exposed" } }), ["$.auth.password", "$.auth.apiKey", "$.tls.privateKey"]);
+  assert.deepEqual(inlineSecretPaths({ serviceAccount: { automountServiceAccountToken: false } }), []);
 });
 
 test("HA rejects insufficient failure domains", () => {
@@ -134,6 +137,7 @@ test("workspace bootstrap is non-mutating to cluster state and teardown is backe
 });
 
 test("HA external Redis requires an explicit availability confirmation", () => {
+  assert(bootstrapSchema.allOf.some(rule => rule.if?.properties?.topology?.const === "ha" && rule.then?.properties?.redis?.properties?.externalHaConfirmed?.const === true));
   const config = configuration("ha");
   config.redis.mode = "external";
   config.redis.externalEndpoint = "redis.example.test:6379";
@@ -164,6 +168,8 @@ test("OTLP URL credentials and path traversal segments fail closed", () => {
   assert(errors.some(item => item.path === "$.observability.otlpEndpoint" && item.message.includes("userinfo")));
   assert(errors.some(item => item.path === "$.paths.backupDirectory"));
   assert(errors.some(item => item.path === "$.ingress.allowedOrigins[0]"));
+  config.observability.otlpEndpoint = "https://collector.example.test/v1/traces?api_key=secret";
+  assert(validateConfiguration(config).some(item => item.path === "$.observability.otlpEndpoint" && item.message.includes("query string")));
 });
 
 test("ServiceMonitor selectors and external Redis egress boundaries are explicit", () => {
@@ -237,14 +243,17 @@ test("an existing target lock produces the safety-stop exit code", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-lock-"));
   const config = configuration();
   config.naming.suffix = "lock-test";
+  config.paths.generatedDirectory = ".bootstrap/alternate-lock-output";
   const path = resolve(directory, "config.json");
   await writeFile(path, stableJson(config));
-  const targetRoot = resolve(repositoryRoot, ".bootstrap/lifecycle/dev-realtime-lock-test");
-  await mkdir(resolve(targetRoot, "operation.lock"), { recursive: true });
+  const targetRoot = resolve(repositoryRoot, ".bootstrap/alternate-lock-output/dev-realtime-lock-test");
+  const lockPath = resolve(repositoryRoot, ".bootstrap/locks/dev-realtime-lock-test");
+  await mkdir(lockPath, { recursive: true });
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "install", "--config", path], { cwd: repositoryRoot }), error => error.code === 3 && /target lock/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
+    await rm(lockPath, { recursive: true, force: true });
   }
 });
 
@@ -273,6 +282,7 @@ esac
 set -euo pipefail
 joined="$*"
 if [[ -n "\${BOOTSTRAP_FAKE_LOG:-}" ]]; then printf 'kubectl %s\\n' "$*" >> "$BOOTSTRAP_FAKE_LOG"; fi
+if [[ "\${BOOTSTRAP_FAKE_WARN:-}" == '1' ]]; then printf '%s\\n' 'benign kubeconfig warning' >&2; fi
 if [[ "$joined" == 'config current-context' ]]; then printf '%s\\n' 'kind-example'
 elif [[ "$joined" == *'cluster-info'* && "\${BOOTSTRAP_FAKE_FAIL:-}" == 'cluster' ]]; then printf '%s\\n' 'injected Kubernetes network failure' >&2; exit 9
 elif [[ "$joined" == *'get nodes --output json'* ]]; then
@@ -365,7 +375,7 @@ test("both shells execute the complete lifecycle for both profiles with identica
         const rollbackExtra = shell === "bash" ? ["--backup", backupEvent.backup] : ["-Backup", backupEvent.backup];
         await invoke("rollback", rollbackExtra);
         await assert.rejects(invoke("update", [], { BOOTSTRAP_FAKE_FAIL: "rollout" }), error => error.code === 1 && /injected rollout failure/.test(error.stderr));
-        assert.equal(await fileExists(resolve(targetRoot, "operation.lock")), false);
+        assert.equal(await fileExists(resolve(repositoryRoot, `.bootstrap/locks/${release}`)), false);
         await invoke("teardown", shell === "bash" ? ["--force"] : ["-Force"]);
       } finally {
         await rm(targetRoot, { recursive: true, force: true });
@@ -528,6 +538,7 @@ test("teardown skips desired-state prerequisites while retaining target and dele
   await mkdir(targetRoot, { recursive: true });
   await writeFile(resolve(targetRoot, "state.json"), stableJson({ contractVersion: 1, topology: "non-ha" }));
   try {
+    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_FAIL: "credential", BOOTSTRAP_FAKE_LOG: operationLog } });
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "teardown", "--config", configPath, "--force"], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_FAIL: "credential", BOOTSTRAP_FAKE_LOG: operationLog } });
     const log = await readFile(operationLog, "utf8");
     assert.match(log, /kubectl auth can-i delete deployments\.apps/);
@@ -553,7 +564,7 @@ test("external Redis skips unused storage and HA excludes untolerated nodes", { 
   external.redis.externalEgressCidrs = ["192.0.2.50/32"];
   const externalPath = resolve(directory, "external.json");
   await writeFile(externalPath, stableJson(external));
-  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: "dev-realtime-external-storage", BOOTSTRAP_FAKE_REDIS_RELEASE: "dev-realtime-external-storage-redis", BOOTSTRAP_FAKE_LOG: operationLog };
+  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: "dev-realtime-external-storage", BOOTSTRAP_FAKE_REDIS_RELEASE: "dev-realtime-external-storage-redis", BOOTSTRAP_FAKE_LOG: operationLog, BOOTSTRAP_FAKE_WARN: "1" };
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "validate", "--config", externalPath], { cwd: repositoryRoot, env: environment });
     const externalLog = await readFile(operationLog, "utf8");
@@ -584,7 +595,7 @@ test("stale lifecycle locks are recovered with bounded owner metadata", { timeou
   const release = "dev-realtime-stale-lock";
   const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
   const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
-  const lockPath = resolve(targetRoot, "operation.lock");
+  const lockPath = resolve(repositoryRoot, `.bootstrap/locks/${release}`);
   await mkdir(lockPath, { recursive: true });
   await writeFile(resolve(lockPath, "owner.json"), stableJson({ createdAt: new Date().toISOString(), hostname: hostname(), pid: 999999 }));
   try {
@@ -608,7 +619,7 @@ test("name suffix override updates the plan and shared naming manifest", async (
     assert.equal(normalizedPlan(result.stdout).target.application, "realtime-contract-name");
     const naming = JSON.parse(await readFile(namingPath, "utf8"));
     assert.equal(naming.application, "realtime-contract-name");
-    assert.equal(naming.redisInstancePrefix, "cormier:realtime:contract-name");
+    assert.equal(naming.redisInstancePrefix, "cormier:realtime:dev:contract-name");
   } finally {
     if (priorNaming === undefined) await rm(namingPath, { force: true });
     else await writeFile(namingPath, priorNaming);
@@ -639,7 +650,7 @@ test("cluster, permission, credential, Redis, and rollout failures stop safely a
           BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`,
         },
       }), error => error.code === 1);
-      assert.equal(await fileExists(resolve(targetRoot, "operation.lock")), false);
+      assert.equal(await fileExists(resolve(repositoryRoot, `.bootstrap/locks/${release}`)), false);
       if (["redis", "rollout"].includes(failure)) assert.equal(await fileExists(targetBackups), true);
     } finally {
       await rm(targetRoot, { recursive: true, force: true });

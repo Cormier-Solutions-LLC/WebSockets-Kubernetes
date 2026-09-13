@@ -68,14 +68,14 @@
     "redis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "credentialsSecret", "passwordKey", "adminPasswordKey", "username", "instancePrefix"],
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"],
       "properties": {
         "mode": { "enum": ["external", "managed"] },
         "externalEndpoint": { "type": "string" },
         "externalHaConfirmed": { "type": "boolean" },
         "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
-        "passwordKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
-        "adminPasswordKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "credentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "adminCredentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "username": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
         "instancePrefix": { "type": "string", "pattern": "^[A-Za-z0-9:_-]+$" }
       }

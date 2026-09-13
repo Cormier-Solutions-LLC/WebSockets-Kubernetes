@@ -99,7 +99,7 @@ async function assertTarget(plan, config, options, mutation) {
   if (!secret) throw new Error(`Credential Secret '${config.redis.credentialsSecret}' does not exist in '${plan.target.namespace}'.`);
   const keyListing = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--output", "go-template={{range $key, $_ := .data}}{{$key}}{{\"\\n\"}}{{end}}"], "Validate credential Secret keys", { ...options, capture: true });
   const configuredKeys = new Set(keyListing.split(/\r?\n/).filter(Boolean));
-  for (const key of config.redis.mode === "managed" ? [config.redis.passwordKey, config.redis.adminPasswordKey] : [config.redis.passwordKey]) {
+  for (const key of config.redis.mode === "managed" ? [config.redis.credentialKey, config.redis.adminCredentialKey] : [config.redis.credentialKey]) {
     if (!configuredKeys.has(key)) throw new Error(`Credential Secret '${config.redis.credentialsSecret}' is missing configured key '${key}'.`);
   }
 }

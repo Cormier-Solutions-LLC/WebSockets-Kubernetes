@@ -30,8 +30,8 @@
     "externalEndpoint": "",
     "externalHaConfirmed": false,
     "credentialsSecret": "dev-realtime-redis",
-    "passwordKey": "realtime",
-    "adminPasswordKey": "redis-password",
+    "credentialKey": "realtime",
+    "adminCredentialKey": "redis-password",
     "username": "realtime",
     "instancePrefix": "cormier:realtime:dev"
   },

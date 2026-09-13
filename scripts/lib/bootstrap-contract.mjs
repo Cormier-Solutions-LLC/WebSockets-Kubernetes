@@ -83,17 +83,17 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "credentialsSecret", "passwordKey", "adminPasswordKey", "username", "instancePrefix"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"], errors);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
   if (redis.mode === "external" && !/^[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$/.test(redis.externalEndpoint)) errors.push(problem("$.redis.externalEndpoint", "must be a host and port supplied by configuration"));
   requireString(redis.credentialsSecret, "$.redis.credentialsSecret", errors, dnsLabel);
-  requireString(redis.passwordKey, "$.redis.passwordKey", errors, secretKey);
-  requireString(redis.adminPasswordKey, "$.redis.adminPasswordKey", errors, secretKey);
+  requireString(redis.credentialKey, "$.redis.credentialKey", errors, secretKey);
+  requireString(redis.adminCredentialKey, "$.redis.adminCredentialKey", errors, secretKey);
   requireString(redis.username, "$.redis.username", errors, /^[A-Za-z0-9_-]+$/);
   requireString(redis.instancePrefix, "$.redis.instancePrefix", errors, redisPrefix);
-  if (redis.mode === "managed" && redis.passwordKey !== redis.username) errors.push(problem("$.redis.passwordKey", "must match redis.username for the managed Redis ACL mapping"));
+  if (redis.mode === "managed" && redis.credentialKey !== redis.username) errors.push(problem("$.redis.credentialKey", "must match redis.username for the managed Redis ACL mapping"));
 
   const ingress = requireRecord(config.ingress, "$.ingress", errors);
   requireKeys(ingress, "$.ingress", ["enabled", "host", "entryPoint", "tlsSecretName"], errors);
@@ -207,8 +207,8 @@ export function renderValues(config, profile) {
       mode: config.redis.mode,
       externalEndpoint: config.redis.externalEndpoint,
       managedReleaseName: names.redisRelease,
-      credentialsSecret: { name: config.redis.credentialsSecret, passwordKey: config.redis.passwordKey },
-      managedAdminPasswordKey: config.redis.adminPasswordKey,
+      credentialsSecret: { name: config.redis.credentialsSecret, passwordKey: config.redis.credentialKey },
+      managedAdminPasswordKey: config.redis.adminCredentialKey,
       username: config.redis.username,
       instancePrefix: config.redis.instancePrefix,
     },

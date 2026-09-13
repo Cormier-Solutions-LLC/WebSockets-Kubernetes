@@ -59,8 +59,9 @@ jobs:
           grep --quiet 'OTEL_EXPORTER_OTLP_HEADERS' /tmp/diagnostics.yaml
           grep --quiet 'secretKeyRef' /tmp/diagnostics.yaml
           jq --exit-status '.contractVersion and (.metrics | length > 20) and ([.metrics[].labels[]] | all(. != "tenant_id" and . != "user_id" and . != "session_id"))' observability/metrics-catalog.json
-          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > "$RUNNER_TEMP/prometheus-rules.yaml"
-          docker run --rm -v "$RUNNER_TEMP:/work" --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /work/prometheus-rules.yaml
+          mkdir -p artifacts/helm
+          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > artifacts/helm/prometheus-rules.yaml
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules artifacts/helm/prometheus-rules.yaml
       - name: Render pinned managed Redis topology
         run: |
           docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml

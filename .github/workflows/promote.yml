@@ -29,6 +29,10 @@ on:
         description: Prior source commit; required for rollback
         required: false
         type: string
+      legacyCredentialProvider:
+        description: Credential provider for a legacy schema-1 release manifest
+        required: false
+        type: string
       releaseName:
         description: Configured Helm release name
         required: true
@@ -88,13 +92,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_COMMIT: ${{ steps.release.outputs.commit }}
+          LEGACY_CREDENTIAL_PROVIDER: ${{ inputs.legacyCredentialProvider }}
           RELEASE_NAME: ${{ inputs.releaseName }}
           NAMESPACE: ${{ inputs.namespace }}
         run: |
           $manifest = Get-Content -LiteralPath artifacts/release/release-manifest.json -Raw | ConvertFrom-Json
-          if ($manifest.schemaVersion -ne 1 -or $manifest.sourceCommit -ne $env:EXPECTED_COMMIT) { throw 'Release evidence does not match the requested tested commit.' }
+          if ($manifest.sourceCommit -ne $env:EXPECTED_COMMIT) { throw 'Release evidence does not match the requested tested commit.' }
+          $credentialProvider = if ($manifest.schemaVersion -eq 2) {
+            $manifest.credentialProvider
+          } elseif ($manifest.schemaVersion -eq 1) {
+            $env:LEGACY_CREDENTIAL_PROVIDER
+          } else {
+            throw 'Release evidence has an unsupported schema version.'
+          }
           if ($manifest.digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Release evidence has an invalid immutable digest.' }
           if ($manifest.image -notmatch '^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$') { throw 'Release evidence has an invalid image repository.' }
+          if ($credentialProvider -notmatch '^(github|harbor|dockerhub|generic)$') { throw 'Release evidence has an invalid credential provider; schema-1 evidence requires the legacyCredentialProvider input.' }
           if ($manifest.archiveSha256 -notmatch '^[a-f0-9]{64}$' -or $manifest.ciRunId -lt 1) { throw 'Release evidence is incomplete.' }
           $ciRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($manifest.ciRunId)" | ConvertFrom-Json
           if ($ciRun.path -ne '.github/workflows/ci.yml' -or $ciRun.event -ne 'push' -or $ciRun.head_branch -ne 'main' -or $ciRun.conclusion -ne 'success' -or $ciRun.head_sha -ne $env:EXPECTED_COMMIT) {
@@ -105,11 +118,19 @@ jobs:
           "digest=$($manifest.digest)" >> $env:GITHUB_OUTPUT
           "repository=$($manifest.image)" >> $env:GITHUB_OUTPUT
           "registry=$($manifest.image.Split('/')[0])" >> $env:GITHUB_OUTPUT
+          "credential_provider=$credentialProvider" >> $env:GITHUB_OUTPUT
+      - name: Validate credential provider registry
+        env:
+          SELECTED_REGISTRY: ${{ steps.artifact.outputs.registry }}
+          EXPECTED_REGISTRY: ${{ steps.artifact.outputs.credential_provider == 'github' && vars.GHCR_PUBLISH_REGISTRY || steps.artifact.outputs.credential_provider == 'harbor' && vars.HARBOR_PUBLISH_REGISTRY || steps.artifact.outputs.credential_provider == 'dockerhub' && vars.DOCKERHUB_PUBLISH_REGISTRY || steps.artifact.outputs.credential_provider == 'generic' && vars.GENERIC_PUBLISH_REGISTRY || '' }}
+        run: |
+          test -n "$EXPECTED_REGISTRY"
+          test "$SELECTED_REGISTRY" = "$EXPECTED_REGISTRY"
       - uses: docker/login-action@v3
         with:
           registry: ${{ steps.artifact.outputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
-          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+          username: ${{ steps.artifact.outputs.credential_provider == 'github' && github.actor || steps.artifact.outputs.credential_provider == 'harbor' && secrets.HARBOR_PUBLISH_USERNAME || steps.artifact.outputs.credential_provider == 'dockerhub' && secrets.DOCKERHUB_USERNAME || steps.artifact.outputs.credential_provider == 'generic' && secrets.REGISTRY_USERNAME || '' }}
+          password: ${{ steps.artifact.outputs.credential_provider == 'github' && github.token || steps.artifact.outputs.credential_provider == 'harbor' && secrets.HARBOR_PUBLISH_TOKEN || steps.artifact.outputs.credential_provider == 'dockerhub' && secrets.DOCKERHUB_TOKEN || steps.artifact.outputs.credential_provider == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
       - name: Verify published manifest exists
         run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
       - name: Render the exact promotion bundle

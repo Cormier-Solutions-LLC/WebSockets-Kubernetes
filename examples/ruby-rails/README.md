@@ -7,7 +7,7 @@ This non-production adapter demonstrates a compact Rails front end for Cormier.R
 - Ruby 4.0.6 and Bundler 4.0.20
 - Rails 8.1.3.1, Puma 8.0.2, Redis 6.0.0, and JSON 2.21.2 from `Gemfile.lock`
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway sharing the configured prefixes and trusted `PUBLIC_ORIGIN`
-- Generated `sdk/typescript/dist` assets
+- Canonical browser assets (`sdk/typescript/dist` plus shared UI assets from `examples/shared-web/wwwroot` for local runs and `examples/shared-web/dist/optimized` in the container image)
 
 Supply every `.env.example` value externally and adjust all network values for the target environment; the application does not load the fixture. From this directory run `bundle _4.0.20_ install` and this repeatable gate:
 
@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has 12 stack-specific Ruby/test files and 521 nonblank lines. Vendored gems, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has 12 stack-specific Ruby/test files and 499 nonblank lines. Vendored gems, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Support
 

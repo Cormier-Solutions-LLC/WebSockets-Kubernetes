@@ -23,6 +23,8 @@
     "traefikNamespace": "traefik",
     "traefikService": "traefik",
     "traefikPodLabels": { "app.kubernetes.io/name": "traefik" },
+    "directIngressNamespaceLabels": { "kubernetes.io/metadata.name": "dev-realtime" },
+    "directIngressPodLabels": {},
     "trustedProxyCidrs": ["192.0.2.0/24"],
     "metalLbNamespace": "metallb-system",
     "metalLbAddress": "192.0.2.10",
@@ -38,14 +40,17 @@
     "credentialKey": "realtime",
     "adminCredentialKey": "redis-password",
     "username": "realtime",
-    "instancePrefix": "cormier:realtime:dev"
+    "instancePrefix": "cormier:realtime:dev",
+    "managedChart": "oci://registry-1.docker.io/bitnamicharts/redis",
+    "managedChartVersion": "23.1.1"
   },
   "ingress": {
     "enabled": false,
     "host": "realtime.example.test",
     "allowedOrigins": ["https://realtime.example.test"],
     "entryPoint": "websecure",
-    "tlsSecretName": "dev-realtime-tls"
+    "tlsSecretName": "dev-realtime-tls",
+    "certificateName": ""
   },
   "observability": {
     "cluster": "kind-example",

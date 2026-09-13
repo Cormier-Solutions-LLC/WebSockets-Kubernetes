@@ -59,10 +59,13 @@ async function archiveOldLogs(logRoot) {
 }
 
 async function command(file, args, description, options) {
-  emit("info", options.action, description, { executable: file, arguments: args });
+  const arguments_ = [...args];
+  if (options.kubeContext && /(?:^|[\\/])kubectl(?:\.exe)?$/i.test(file) && !(args[0] === "config" && args[1] === "current-context")) arguments_.push("--context", options.kubeContext);
+  if (options.kubeContext && /(?:^|[\\/])helm(?:\.exe)?$/i.test(file) && ["list", "get", "upgrade", "uninstall", "rollback"].includes(args[0])) arguments_.push("--kube-context", options.kubeContext);
+  emit("info", options.action, description, { executable: file, arguments: arguments_ });
   let output = "";
   await new Promise((accept, reject) => {
-    const child = spawn(file, args, { cwd: repositoryRoot, env: process.env, shell: process.platform === "win32" && /\.cmd$/i.test(file) });
+    const child = spawn(file, arguments_, { cwd: repositoryRoot, env: process.env, shell: process.platform === "win32" && /\.cmd$/i.test(file) });
     let timedOut = false;
     let escalation;
     const timer = setTimeout(() => {
@@ -216,6 +219,7 @@ async function readRollbackSnapshot(planTarget, options) {
     redisMode: values.redis?.mode ?? (redisPresent ? "managed" : "external"),
     gatewayValues: values,
     managedRedisValues: redisPresent ? await readJson(redisValuesPath) : undefined,
+    managedRedisChart: redisPresent ? savedPlan.managedRedis?.chart : undefined,
     managedRedisChartVersion: redisPresent ? capturedRedisChartVersion(releases, planTarget.redisRelease) : undefined,
   };
 }
@@ -310,6 +314,12 @@ function capturedRedisChartVersion(releaseInventory, release) {
   return match[1];
 }
 
+function capturedReleaseRevision(releaseInventory, release) {
+  const revision = Number(releaseInventory.find(item => item?.name === release)?.revision);
+  if (!Number.isInteger(revision) || revision < 1) throw new Error(`Backup inventory for '${release}' does not contain a valid Helm revision.`);
+  return revision;
+}
+
 async function rollback(plan, options) {
   const backup = options.backup ? resolve(options.backup) : undefined;
   if (!backup) throw new Error("rollback requires --backup pointing to a captured backup directory.");
@@ -322,9 +332,14 @@ async function rollback(plan, options) {
   for (const release of [plan.target.redisRelease, plan.target.release]) {
     const valuesPath = resolve(backup, `${release}.values.json`);
     if (!installedAtBackup.has(release)) {
-      await command("helm", ["uninstall", release, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], `Remove ${release} absent from backup`, options);
+      await command("helm", ["uninstall", release, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], `Remove ${release} absent from backup`, options);
     } else if (await fileExists(valuesPath)) {
-      const chart = release === plan.target.release ? "helm/realtime-gateway" : "oci://registry-1.docker.io/bitnamicharts/redis";
+      if (release === plan.target.release) {
+        await command("helm", ["rollback", release, String(capturedReleaseRevision(releaseInventory, release)), "--namespace", plan.target.namespace, "--wait", `--timeout=${options.timeoutSeconds}s`], `Restore ${release} revision`, options);
+        continue;
+      }
+      const chart = savedPlan.managedRedis?.chart;
+      if (typeof chart !== "string" || !chart) throw new Error("Backup plan does not contain the managed Redis chart repository.");
       const arguments_ = ["upgrade", "--install", release, chart];
       if (release !== plan.target.release) arguments_.push("--version", capturedRedisChartVersion(releaseInventory, release));
       arguments_.push("--namespace", plan.target.namespace, "--values", valuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
@@ -338,6 +353,7 @@ async function main() {
   options.action = options.action;
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error(`Configuration is invalid: Node.js 22 or later is required; detected ${process.version}.`);
   let { config, profile } = await loadContract(repositoryRoot, options.config, options.profile);
+  options.kubeContext = config.kubernetes.context;
   if (options.nameSuffix !== undefined) {
     config = structuredClone(config);
     config.naming.suffix = options.nameSuffix;
@@ -357,7 +373,7 @@ async function main() {
   assertPathInside(options.generatedRoot, targetRoot, "generated output");
   await mkdir(targetRoot, { recursive: true });
   const mutation = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
-  const lockRequired = mutation || options.action === "backup";
+  const lockRequired = true;
   const lockPath = resolve(repositoryRoot, ".bootstrap", "locks", `${config.environment.name}-${names}`);
   assertPathInside(resolve(repositoryRoot, ".bootstrap", "locks"), lockPath, "target lock");
   await mkdir(dirname(lockPath), { recursive: true });
@@ -380,7 +396,7 @@ async function main() {
     if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent && installedState?.redisMode && installedState.redisMode !== rollbackSnapshot.redisMode) throw new Error(`Redis mode rollback conversion from '${installedState.redisMode}' to '${rollbackSnapshot.redisMode}' requires an explicit migration outside this bootstrap action.`);
     const previousTopology = installedState?.topology ?? (clusterAware ? undefined : priorState?.topology);
     let plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
-    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChartVersion);
+    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChart, rollbackSnapshot.managedRedisChartVersion);
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
     await atomicWrite(options.valuesPath, stableJson(plan.values));
@@ -427,8 +443,8 @@ async function main() {
     else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath], "Render gateway manifests", options);
     else if (options.action === "rollback") await rollback(plan, options);
     else if (options.action === "teardown") {
-      await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
-      if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
+      await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
+      if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
     if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) await rm(statePath, { force: true });
     else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 1, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));

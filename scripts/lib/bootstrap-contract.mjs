@@ -20,7 +20,9 @@ const storageQuantity = /^[1-9][0-9]*(?:Mi|Gi|Ti)$/;
 const secretValueKey = /(?:password|token|secret|credential|private.?key|api.?key|authorization|cookie)s?$/i;
 
 function isSecretReferenceField(key, parentPath = "") {
-  return /Secret$/i.test(key) || /(?:password|token|credential|secret)Key$/i.test(key) || (key === "key" && /secret/i.test(parentPath.split(".").at(-1) ?? ""));
+  return /^(?:existingSecret|userSecret|credentialsSecret|otlpHeadersSecret|headersSecret|scrapeTokenSecret|operatorTokenSecret|webhookSecret|tlsSecretName|secretName)$/i.test(key)
+    || /(?:password|token|credential|secret)Key$/i.test(key)
+    || (key === "key" && /secret/i.test(parentPath.split(".").at(-1) ?? ""));
 }
 
 function isCidr(value) {
@@ -31,6 +33,18 @@ function isCidr(value) {
   const prefix = Number(value.slice(separator + 1));
   const family = isIP(address);
   return Number.isInteger(prefix) && ((family === 4 && prefix >= 0 && prefix <= 32) || (family === 6 && prefix >= 0 && prefix <= 128));
+}
+
+function parseRedisEndpoint(value) {
+  if (typeof value !== "string") return undefined;
+  const bracketed = /^\[([^\]]+)\]:([0-9]{1,5})$/.exec(value);
+  const plain = /^([^:]+):([0-9]{1,5})$/.exec(value);
+  const match = bracketed ?? plain;
+  if (!match) return undefined;
+  const host = match[1];
+  const port = Number(match[2]);
+  const validHost = bracketed ? isIP(host) === 6 : isIP(host) === 4 || dnsSubdomain.test(host);
+  return validHost && port >= 1 && port <= 65535 ? { host, port } : undefined;
 }
 
 function isLabelKey(value) {
@@ -122,17 +136,13 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix", "managedChart", "managedChartVersion"], errors);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
   if (typeof redis.tls !== "boolean") errors.push(problem("$.redis.tls", "must be boolean"));
   if (redis.mode === "managed" && redis.tls === true) errors.push(problem("$.redis.tls", "managed Redis TLS requires certificate configuration and is not supported by this contract; use false or an external TLS endpoint"));
-  if (redis.mode === "external" && !/^[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$/.test(redis.externalEndpoint)) errors.push(problem("$.redis.externalEndpoint", "must be a host and port supplied by configuration"));
-  if (redis.mode === "external") {
-    const port = Number(redis.externalEndpoint.split(":").at(-1));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push(problem("$.redis.externalEndpoint", "must use a TCP port from 1 through 65535"));
-  }
+  if (redis.mode === "external" && !parseRedisEndpoint(redis.externalEndpoint)) errors.push(problem("$.redis.externalEndpoint", "must contain a valid DNS name, IPv4 address, or bracketed IPv6 address and TCP port from 1 through 65535"));
   const externalEgressCidrs = Array.isArray(redis.externalEgressCidrs) ? redis.externalEgressCidrs : [];
   if (!Array.isArray(redis.externalEgressCidrs) || externalEgressCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.redis.externalEgressCidrs", "must contain valid IPv4 or IPv6 CIDRs"));
   if (redis.mode === "external" && externalEgressCidrs.length === 0) errors.push(problem("$.redis.externalEgressCidrs", "external Redis requires at least one explicit egress CIDR"));
@@ -141,10 +151,12 @@ export function validateConfiguration(input) {
   requireString(redis.adminCredentialKey, "$.redis.adminCredentialKey", errors, secretKey);
   requireString(redis.username, "$.redis.username", errors, /^[A-Za-z0-9_-]+$/);
   requireString(redis.instancePrefix, "$.redis.instancePrefix", errors, redisPrefix);
+  requireString(redis.managedChart, "$.redis.managedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
+  requireString(redis.managedChartVersion, "$.redis.managedChartVersion", errors, /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/);
   if (redis.mode === "managed" && redis.credentialKey !== redis.username) errors.push(problem("$.redis.credentialKey", "must match redis.username for the managed Redis ACL mapping"));
 
   const ingress = requireRecord(config.ingress, "$.ingress", errors);
-  requireKeys(ingress, "$.ingress", ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName"], errors);
+  requireKeys(ingress, "$.ingress", ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName", "certificateName"], errors);
   if (typeof ingress.enabled !== "boolean") errors.push(problem("$.ingress.enabled", "must be boolean"));
   requireString(ingress.host, "$.ingress.host", errors, /^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/, !ingress.enabled);
   if (!Array.isArray(ingress.allowedOrigins) || ingress.allowedOrigins.length === 0) errors.push(problem("$.ingress.allowedOrigins", "must contain at least one configured HTTP(S) origin"));
@@ -160,6 +172,7 @@ export function validateConfiguration(input) {
   });
   requireString(ingress.entryPoint, "$.ingress.entryPoint", errors, /^[A-Za-z0-9._-]+$/);
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsLabel, !ingress.enabled);
+  requireString(ingress.certificateName, "$.ingress.certificateName", errors, dnsLabel, true);
 
   const observability = requireRecord(config.observability, "$.observability", errors);
   requireKeys(observability, "$.observability", ["cluster", "serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);
@@ -201,12 +214,17 @@ export function validateConfiguration(input) {
   if (config.topology === "ha" && redis.mode === "external" && redis.externalHaConfirmed !== true) errors.push(problem("$.redis.externalHaConfirmed", "must confirm that the external service supplies persistence, quorum, failover, and recovery"));
 
   const networking = requireRecord(config.networking, "$.networking", errors);
-  requireKeys(networking, "$.networking", ["traefikNamespace", "traefikService", "traefikPodLabels", "trustedProxyCidrs", "metalLbNamespace", "metalLbAddress", "advertisementMode"], errors);
+  requireKeys(networking, "$.networking", ["traefikNamespace", "traefikService", "traefikPodLabels", "directIngressNamespaceLabels", "directIngressPodLabels", "trustedProxyCidrs", "metalLbNamespace", "metalLbAddress", "advertisementMode"], errors);
   requireString(networking.traefikNamespace, "$.networking.traefikNamespace", errors, dnsLabel);
   requireString(networking.traefikService, "$.networking.traefikService", errors, dnsLabel);
   const traefikPodLabels = requireRecord(networking.traefikPodLabels, "$.networking.traefikPodLabels", errors);
   if (Object.keys(traefikPodLabels).length === 0) errors.push(problem("$.networking.traefikPodLabels", "must contain at least one label"));
   validateLabels(traefikPodLabels, "$.networking.traefikPodLabels", errors);
+  const directIngressNamespaceLabels = requireRecord(networking.directIngressNamespaceLabels, "$.networking.directIngressNamespaceLabels", errors);
+  const directIngressPodLabels = requireRecord(networking.directIngressPodLabels, "$.networking.directIngressPodLabels", errors);
+  if (!ingress.enabled && Object.keys(directIngressNamespaceLabels).length === 0) errors.push(problem("$.networking.directIngressNamespaceLabels", "ingress-free mode requires an explicit client namespace selector"));
+  validateLabels(directIngressNamespaceLabels, "$.networking.directIngressNamespaceLabels", errors);
+  validateLabels(directIngressPodLabels, "$.networking.directIngressPodLabels", errors);
   const trustedProxyCidrs = Array.isArray(networking.trustedProxyCidrs) ? networking.trustedProxyCidrs : [];
   if (!Array.isArray(networking.trustedProxyCidrs) || trustedProxyCidrs.length === 0 || trustedProxyCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.networking.trustedProxyCidrs", "must contain at least one valid IPv4 or IPv6 CIDR"));
   requireString(networking.metalLbNamespace, "$.networking.metalLbNamespace", errors, dnsLabel);
@@ -240,11 +258,11 @@ function deploymentValuesSha256(gateway, managedRedis) {
   return createHash("sha256").update(stableJson({ gateway, managedRedis })).digest("hex");
 }
 
-export function useCapturedDeploymentValues(plan, gatewayValues, managedRedisValues, managedRedisChartVersion) {
+export function useCapturedDeploymentValues(plan, gatewayValues, managedRedisValues, managedRedisChart, managedRedisChartVersion) {
   const captured = structuredClone(plan);
   captured.values = stable(gatewayValues);
   captured.managedRedis = managedRedisValues === undefined ? null : stable({
-    chart: "oci://registry-1.docker.io/bitnamicharts/redis",
+    chart: managedRedisChart,
     chartVersion: managedRedisChartVersion,
     values: managedRedisValues,
   });
@@ -311,6 +329,7 @@ export function renderValues(config, profile) {
       cluster: config.observability.cluster,
       environment: config.environment.name,
       platformMetrics: {
+        certificateName: config.ingress.certificateName,
         metalLbAdvertisementMode: config.networking.advertisementMode,
         metalLbNamespace: config.networking.metalLbNamespace,
         metalLbAddress: config.networking.metalLbAddress,
@@ -335,7 +354,7 @@ export function renderValues(config, profile) {
       mode: config.redis.mode,
       tls: config.redis.tls,
       externalEndpoint: config.redis.externalEndpoint,
-      port: config.redis.mode === "external" ? Number(config.redis.externalEndpoint.split(":").at(-1)) : 6379,
+      port: config.redis.mode === "external" ? parseRedisEndpoint(config.redis.externalEndpoint).port : 6379,
       managedReleaseName: names.redisRelease,
       credentialsSecret: { name: config.redis.credentialsSecret, passwordKey: config.redis.credentialKey },
       managedAdminPasswordKey: config.redis.adminCredentialKey,
@@ -345,8 +364,8 @@ export function renderValues(config, profile) {
     networkPolicy: {
       allowExternalRedisEgress: config.redis.mode === "external",
       externalRedisCidrs: config.redis.externalEgressCidrs,
-      ingressNamespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": config.networking.traefikNamespace } },
-      ingressPodSelector: { matchLabels: config.networking.traefikPodLabels },
+      ingressNamespaceSelector: { matchLabels: config.ingress.enabled ? { "kubernetes.io/metadata.name": config.networking.traefikNamespace } : config.networking.directIngressNamespaceLabels },
+      ingressPodSelector: { matchLabels: config.ingress.enabled ? config.networking.traefikPodLabels : config.networking.directIngressPodLabels },
       monitoringNamespaceSelector: { matchLabels: config.observability.monitoringNamespaceLabels },
       monitoringPodSelector: { matchLabels: config.observability.monitoringPodLabels },
     },
@@ -366,8 +385,8 @@ function renderManagedRedis(config, profile) {
   }] : [];
   return stable({
     baseValuesPath: "cluster/redis/managed-values.yaml",
-    chart: "oci://registry-1.docker.io/bitnamicharts/redis",
-    chartVersion: "23.1.1",
+    chart: config.redis.managedChart,
+    chartVersion: config.redis.managedChartVersion,
     values: {
       architecture: profile.redis.managedArchitecture,
       auth: {

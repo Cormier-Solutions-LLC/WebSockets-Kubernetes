@@ -48,7 +48,8 @@ test("both explicit topology profiles validate and render their availability con
   assert.equal(haValues.topologySpreadConstraints.zoneWhenUnsatisfiable, "DoNotSchedule");
   assert.deepEqual(haValues.gateway.allowedOrigins, ha.ingress.allowedOrigins);
   assert.deepEqual(haValues.gateway.trustedNetworks, ha.networking.trustedProxyCidrs);
-  assert.deepEqual(haValues.networkPolicy.ingressPodSelector.matchLabels, ha.networking.traefikPodLabels);
+  assert.deepEqual(haValues.networkPolicy.ingressNamespaceSelector.matchLabels, ha.networking.directIngressNamespaceLabels);
+  assert.deepEqual(haValues.networkPolicy.ingressPodSelector.matchLabels, ha.networking.directIngressPodLabels);
 });
 
 test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from configuration", () => {
@@ -90,6 +91,7 @@ test("Helm backup values containing inline credentials are detected by path", ()
   assert.deepEqual(inlineSecretPaths({ auth: { password: "exposed", apiKey: "exposed", existingSecret: "safe", passwordKey: "safe" }, tls: { privateKey: "exposed" } }), ["$.auth.password", "$.auth.apiKey", "$.tls.privateKey"]);
   assert.deepEqual(inlineSecretPaths({ serviceAccount: { automountServiceAccountToken: false } }), []);
   assert.deepEqual(inlineSecretPaths({ auth: { passwords: ["first", "second"] } }), ["$.auth.passwords[0]", "$.auth.passwords[1]"]);
+  assert.deepEqual(inlineSecretPaths({ oauth: { clientSecret: "exposed" } }), ["$.oauth.clientSecret"]);
 });
 
 test("HA rejects insufficient failure domains", () => {
@@ -193,10 +195,11 @@ test("rollback plans use the exact captured gateway and managed Redis values", (
   const desired = buildPlan("rollback", configuration(), profiles["non-ha"]);
   const gateway = { image: { repository: "registry.example.test/cormier/realtime", tag: "captured" }, topology: "non-ha" };
   const redis = { architecture: "standalone", master: { persistence: { size: "32Gi" } } };
-  const captured = useCapturedDeploymentValues(desired, gateway, redis, "22.3.4");
+  const captured = useCapturedDeploymentValues(desired, gateway, redis, "oci://registry.example.test/charts/redis", "22.3.4");
   assert.deepEqual(captured.values, gateway);
   assert.deepEqual(captured.managedRedis.values, redis);
   assert.equal(captured.managedRedis.chartVersion, "22.3.4");
+  assert.equal(captured.managedRedis.chart, "oci://registry.example.test/charts/redis");
   assert.notEqual(captured.valuesSha256, desired.valuesSha256);
 });
 
@@ -212,6 +215,25 @@ test("ServiceMonitor selectors and external Redis egress boundaries are explicit
   config.redis.externalEgressCidrs = ["192.0.2.50/32"];
   config.redis.externalEndpoint = "redis.example.test:99999";
   assert(validateConfiguration(config).some(item => item.path === "$.redis.externalEndpoint" && item.message.includes("65535")));
+  config.redis.externalEndpoint = "....:6379";
+  assert(validateConfiguration(config).some(item => item.path === "$.redis.externalEndpoint"));
+  config.redis.externalEndpoint = "-bad:6379";
+  assert(validateConfiguration(config).some(item => item.path === "$.redis.externalEndpoint"));
+});
+
+test("ingress mode selects explicit traffic sources and optional certificate monitoring", () => {
+  const config = configuration();
+  const direct = renderValues(config, profiles["non-ha"]);
+  assert.deepEqual(direct.networkPolicy.ingressNamespaceSelector.matchLabels, config.networking.directIngressNamespaceLabels);
+  config.networking.directIngressNamespaceLabels = {};
+  assert(validateConfiguration(config).some(item => item.path === "$.networking.directIngressNamespaceLabels"));
+  config.ingress.enabled = true;
+  config.ingress.certificateName = "realtime-certificate";
+  assert.deepEqual(validateConfiguration(config), []);
+  const ingress = renderValues(config, profiles["non-ha"]);
+  assert.deepEqual(ingress.networkPolicy.ingressNamespaceSelector.matchLabels, { "kubernetes.io/metadata.name": config.networking.traefikNamespace });
+  assert.deepEqual(ingress.networkPolicy.ingressPodSelector.matchLabels, config.networking.traefikPodLabels);
+  assert.equal(ingress.observability.platformMetrics.certificateName, "realtime-certificate");
 });
 
 test("proxy trust, observability labels, and resource units fail closed", () => {
@@ -279,6 +301,7 @@ test("an existing target lock produces the safety-stop exit code", async () => {
   await mkdir(lockPath, { recursive: true });
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "install", "--config", path], { cwd: repositoryRoot }), error => error.code === 3 && /target lock/.test(error.stdout));
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "plan", "--config", path], { cwd: repositoryRoot }), error => error.code === 3 && /target lock/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(lockPath, { recursive: true, force: true });
@@ -301,9 +324,9 @@ if [[ -n "\${BOOTSTRAP_FAKE_DELAY:-}" ]]; then sleep "$BOOTSTRAP_FAKE_DELAY"; fi
 if [[ "\${BOOTSTRAP_FAKE_FAIL:-}" == 'redis' && "$*" == *"$BOOTSTRAP_FAKE_REDIS_RELEASE"* && "\${1:-}" == 'upgrade' ]]; then printf '%s\\n' 'injected Redis failure' >&2; exit 9; fi
 case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
-  list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0"},{"name":"%s","chart":"redis-%s"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
+  list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0","revision":"3"},{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
   get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
-  lint|template|upgrade|uninstall) printf '%s\\n' 'ok' ;;
+  lint|template|upgrade|uninstall|rollback) printf '%s\\n' 'ok' ;;
   *) printf 'unsupported fake helm command: %s\\n' "\${1:-}" >&2; exit 64 ;;
 esac
 `;
@@ -509,8 +532,8 @@ test("rollback classifies conversion from installed topology to backup topology"
   const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
   const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/fixture`);
   await mkdir(backup, { recursive: true });
-  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release } }));
-  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0" }, { name: `${release}-redis`, chart: "redis-23.1.1" }]));
+  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: config.redis.managedChart } }));
+  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-23.1.1", revision: "4" }]));
   await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "ha", replicaCount: 3, redis: { mode: "managed" } }));
   await writeFile(resolve(backup, `${release}-redis.values.json`), stableJson({ architecture: "replication" }));
   try {
@@ -535,14 +558,17 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   const operationLog = resolve(directory, "operations.log");
   await writeFile(configPath, stableJson(config));
   await mkdir(backup, { recursive: true });
-  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release } }));
-  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0" }, { name: `${release}-redis`, chart: "redis-22.3.4" }]));
+  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis" } }));
+  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-22.3.4", revision: "4" }]));
   await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "non-ha", redis: { mode: "managed" } }));
   await writeFile(resolve(backup, `${release}-redis.values.json`), stableJson({ architecture: "standalone" }));
   const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LOG: operationLog };
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
-    assert.match(await readFile(operationLog, "utf8"), new RegExp(`upgrade --install ${release}-redis .*--version 22\\.3\\.4`));
+    const operations = await readFile(operationLog, "utf8");
+    assert.match(operations, new RegExp(`upgrade --install ${release}-redis oci://mirror\\.example\\.test/charts/redis --version 22\\.3\\.4`));
+    assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
+    assert.match(operations, /kubectl .*--context kind-example/);
     const rollbackPlan = JSON.parse(await readFile(resolve(targetRoot, "plan.json"), "utf8"));
     const rollbackState = JSON.parse(await readFile(resolve(targetRoot, "state.json"), "utf8"));
     assert.deepEqual(rollbackPlan.values, { topology: "non-ha", redis: { mode: "managed" } });

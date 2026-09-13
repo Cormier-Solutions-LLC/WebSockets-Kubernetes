@@ -12,6 +12,8 @@ permissions:
 
 env:
   DOTNET_INSTALL_DIR: ${{ vars.CI_DOTNET_INSTALL_DIR || '/home/runner/.dotnet' }}
+  CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
+  CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
   CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
   CI_REDIS_BIND_ADDRESS: ${{ vars.CI_REDIS_BIND_ADDRESS || '0.0.0.0' }}
   CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}
@@ -57,8 +59,8 @@ jobs:
           grep --quiet 'OTEL_EXPORTER_OTLP_HEADERS' /tmp/diagnostics.yaml
           grep --quiet 'secretKeyRef' /tmp/diagnostics.yaml
           jq --exit-status '.contractVersion and (.metrics | length > 20) and ([.metrics[].labels[]] | all(. != "tenant_id" and . != "user_id" and . != "session_id"))' observability/metrics-catalog.json
-          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > /tmp/prometheus-rules.yaml
-          docker run --rm -v /tmp:/work --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /work/prometheus-rules.yaml
+          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > "$RUNNER_TEMP/prometheus-rules.yaml"
+          docker run --rm -v "$RUNNER_TEMP:/work" --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /work/prometheus-rules.yaml
       - name: Render pinned managed Redis topology
         run: |
           docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml
@@ -84,6 +86,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install pinned PowerShell
+        run: bash scripts/setup-ci-powershell.sh
       - name: Restore TypeScript SDK dependencies
         working-directory: sdk/typescript
         run: npm ci
@@ -830,6 +834,9 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install pinned PowerShell
+        if: matrix.shell == 'pwsh'
+        run: bash scripts/setup-ci-powershell.sh
       - name: Bootstrap through Bash
         if: matrix.shell == 'bash'
         run: bash ./scripts/full-circle.sh bootstrap --profile "${{ matrix.profile }}"

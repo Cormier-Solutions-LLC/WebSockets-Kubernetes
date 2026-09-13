@@ -459,6 +459,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
         Assert.Contains("vars.CONTAINER_REGISTRY", publish, StringComparison.Ordinal);
         Assert.Contains("vars.REGISTRY_CREDENTIAL_PROVIDER", publish, StringComparison.Ordinal);
+        Assert.Contains("vars.GHCR_PUBLISH_REGISTRY", publish, StringComparison.Ordinal);
+        Assert.Contains("test \"$CONTAINER_REGISTRY\" = \"$CREDENTIAL_REGISTRY\"", publish, StringComparison.Ordinal);
         Assert.Contains("github.token", publish, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_PUBLISH_USERNAME", publish, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_PUBLISH_TOKEN", publish, StringComparison.Ordinal);
@@ -476,6 +478,9 @@ public sealed class DeploymentContractTests
         Assert.Contains(".github/workflows/publish.yml", promote, StringComparison.Ordinal);
         Assert.Contains("download-artifact", promote, StringComparison.Ordinal);
         Assert.Contains("steps.artifact.outputs.credential_provider", promote, StringComparison.Ordinal);
+        Assert.Contains("Validate credential provider registry", promote, StringComparison.Ordinal);
+        Assert.Contains("vars.GHCR_PUBLISH_REGISTRY", promote, StringComparison.Ordinal);
+        Assert.Contains("test \"$SELECTED_REGISTRY\" = \"$EXPECTED_REGISTRY\"", promote, StringComparison.Ordinal);
         Assert.Contains("github.token", promote, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_PUBLISH_USERNAME", promote, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_PUBLISH_TOKEN", promote, StringComparison.Ordinal);

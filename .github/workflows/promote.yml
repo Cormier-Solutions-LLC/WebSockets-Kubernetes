@@ -119,6 +119,13 @@ jobs:
           "repository=$($manifest.image)" >> $env:GITHUB_OUTPUT
           "registry=$($manifest.image.Split('/')[0])" >> $env:GITHUB_OUTPUT
           "credential_provider=$credentialProvider" >> $env:GITHUB_OUTPUT
+      - name: Validate credential provider registry
+        env:
+          SELECTED_REGISTRY: ${{ steps.artifact.outputs.registry }}
+          EXPECTED_REGISTRY: ${{ steps.artifact.outputs.credential_provider == 'github' && vars.GHCR_PUBLISH_REGISTRY || steps.artifact.outputs.credential_provider == 'harbor' && vars.HARBOR_PUBLISH_REGISTRY || steps.artifact.outputs.credential_provider == 'dockerhub' && vars.DOCKERHUB_PUBLISH_REGISTRY || steps.artifact.outputs.credential_provider == 'generic' && vars.GENERIC_PUBLISH_REGISTRY || '' }}
+        run: |
+          test -n "$EXPECTED_REGISTRY"
+          test "$SELECTED_REGISTRY" = "$EXPECTED_REGISTRY"
       - uses: docker/login-action@v3
         with:
           registry: ${{ steps.artifact.outputs.registry }}

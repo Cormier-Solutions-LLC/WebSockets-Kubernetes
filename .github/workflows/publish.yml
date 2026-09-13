@@ -32,12 +32,15 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
       - name: Validate configured image coordinates
         env:
+          CREDENTIAL_REGISTRY: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && vars.GHCR_PUBLISH_REGISTRY || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && vars.HARBOR_PUBLISH_REGISTRY || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && vars.DOCKERHUB_PUBLISH_REGISTRY || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && vars.GENERIC_PUBLISH_REGISTRY || '' }}
           REGISTRY_USERNAME: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && github.actor || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_PUBLISH_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
           REGISTRY_PASSWORD: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && github.token || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_PUBLISH_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
         run: |
           test -n "$CONTAINER_REGISTRY"
           test -n "$IMAGE_REPOSITORY"
           printf '%s' "$REGISTRY_CREDENTIAL_PROVIDER" | grep --quiet --extended-regexp '^(github|harbor|dockerhub|generic)$'
+          test -n "$CREDENTIAL_REGISTRY"
+          test "$CONTAINER_REGISTRY" = "$CREDENTIAL_REGISTRY"
           test -n "$REGISTRY_USERNAME"
           test -n "$REGISTRY_PASSWORD"
           printf '%s' "$CONTAINER_REGISTRY" | grep --quiet --extended-regexp '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$'

@@ -1,6 +1,6 @@
 # Local development baseline
 
-Measured 2026-08-30 with the Native AOT Linux gateway, Redis 7.4 Alpine in Docker, and the concurrent .NET load runner on the same Windows development workstation. This validates the harness and establishes a regression reference; it is not a production capacity claim.
+Captured 2026-08-30 with the repository load harness (`scripts/Invoke-RealtimeLoad.ps1` -> `tools/Cormier.Realtime.LoadRunner`, `schemaVersion: 2`). This validates local harness behavior and provides a regression reference; it is not a production-capacity claim.
 
 | Scenario | Connections | Messages | Payload | Duration | Operations/s | Connection p50/p95/p99 | Acknowledged publish p50/p95/p99 | Errors |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
@@ -8,4 +8,19 @@ Measured 2026-08-30 with the Native AOT Linux gateway, Redis 7.4 Alpine in Docke
 | connection | 5/5 | 0 publishes; held 3.187 s | 64 B | 3.187 s | 0 | 76.924/117.008/117.008 ms | n/a | 0 |
 | fanout | 3/3 | 15 sent/15 acknowledged/45 events delivered | 128 B | 0.298 s | 50.308 | 61.714/84.562/84.562 ms | 5.836/6.352/6.352 ms | 0 |
 
-All requested connections established, the connection profile stayed open for its configured duration, every publish acknowledgement was correlated, and fanout drained all 45 expected deliveries before closing. Post-run gateway metrics reported zero active connections and no retained outbound queue series. Production thresholds and HPA decisions require the six source-controlled scenarios against a production-equivalent nonproduction cluster, including the six-hour soak and saved platform dashboard evidence.
+Interpretation from the retained results:
+
+- `requestedConnections == establishedConnections` in each scenario.
+- `messagesSent == messagesReceived` for burst/fanout acknowledgements.
+- Fanout delivery expectation (`messagesSent * establishedConnections`) was fully drained (45/45).
+- `errorCount == 0` in every scenario.
+
+Reproduction notes (all environment values are caller supplied and must stay configurable):
+
+```powershell
+./scripts/Invoke-RealtimeLoad.ps1 -Endpoint $webSocketEndpoint -Origin $allowedOrigin -SessionId $testSession -Scenario burst -Connections 25 -MessagesPerConnection 100 -PayloadBytes 512 -DurationSeconds 60 -OutputPath artifacts/load/local-burst.json
+./scripts/Invoke-RealtimeLoad.ps1 -Endpoint $webSocketEndpoint -Origin $allowedOrigin -SessionId $testSession -Scenario connection -Connections 5 -MessagesPerConnection 0 -PayloadBytes 64 -DurationSeconds 3 -OutputPath artifacts/load/local-connection.json
+./scripts/Invoke-RealtimeLoad.ps1 -Endpoint $webSocketEndpoint -Origin $allowedOrigin -SessionId $testSession -Scenario fanout -Connections 3 -MessagesPerConnection 5 -PayloadBytes 128 -DurationSeconds 60 -OutputPath artifacts/load/local-fanout.json
+```
+
+Production thresholds and HPA decisions still require the six source-controlled scenarios in [`load/profiles/production-readiness.json`](../profiles/production-readiness.json) (`connection`, `fanout`, `burst`, `large-message`, `slow-client`, `soak`) against a production-equivalent nonproduction cluster, plus saved platform dashboard evidence as described in [`load/README.md`](../README.md).

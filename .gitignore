@@ -94,6 +94,7 @@ CodeCoverage/
 
 # MSTest test Results
 [Tt]est[Rr]esult*/
+/testResults.xml
 [Bb]uild[Ll]og.*
 
 # NUnit

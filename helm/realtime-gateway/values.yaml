@@ -1,6 +1,9 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# Availability is an explicit deployment choice; it is never inferred from replica count.
+topology: ha
+
 image:
   repository: ghcr.io/cormier-solutions-llc/cormier-realtime-gateway
   tag: "0.1.0"

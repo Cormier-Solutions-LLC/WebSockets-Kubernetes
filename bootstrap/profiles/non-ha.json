@@ -1,0 +1,17 @@
+{
+  "gateway": {
+    "replicas": 1,
+    "autoscaling": { "enabled": false, "minReplicas": 1, "maxReplicas": 1 },
+    "podDisruptionBudget": { "enabled": false, "minAvailable": 0 },
+    "topologySpread": false,
+    "maxUnavailable": 1,
+    "maxSurge": 0
+  },
+  "redis": { "managedArchitecture": "standalone", "replicas": 0, "sentinel": false },
+  "minimumFailureDomains": 1,
+  "guarantees": {
+    "availability": "Single gateway and Redis instance; pod, node, storage, ingress, and maintenance outages interrupt service.",
+    "upgrades": "Downtime is expected during rollout.",
+    "durability": "Persistence reduces data loss risk but provides no replica failover. Pub/Sub events are not durable."
+  }
+}

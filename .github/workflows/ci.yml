@@ -23,6 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Parse PowerShell lifecycle scripts
         run: |
           docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview mcr.microsoft.com/powershell@sha256:042240d57ec9e47e511033b92625a8d95875ee5860af3015992c248b58a8be81 -NoLogo -NoProfile -Command '
@@ -34,6 +37,36 @@ jobs:
             }
             if ($failed) { exit 1 }
           '
+      - name: Analyze PowerShell entry point
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          $findings = Invoke-ScriptAnalyzer -Path ./scripts/Realtime-Bootstrap.ps1 -Severity Error,Warning
+          if ($findings) { $findings | Format-Table -AutoSize; exit 1 }
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
+      - name: Validate Bash syntax and static analysis
+        run: |
+          bash -n scripts/realtime-bootstrap.sh
+          shellcheck scripts/realtime-bootstrap.sh
+      - name: Test bootstrap contract and cross-shell parity
+        env:
+          BOOTSTRAP_SKIP_LIFECYCLE: '1'
+        run: node --test tests/bootstrap/*.test.mjs
+      - name: Render both explicit bootstrap topology profiles
+        run: |
+          node scripts/realtime-bootstrap.mjs plan --config bootstrap/config.example.json --profile non-ha
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-non-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/non-ha.yaml
+          jq '.topology = "ha" | .kubernetes.failureDomains = 3' bootstrap/config.example.json > /tmp/bootstrap-ha.json
+          node scripts/realtime-bootstrap.mjs plan --config /tmp/bootstrap-ha.json --profile ha
+          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-ha helm/realtime-gateway --namespace ci-realtime --values .bootstrap/lifecycle/dev-realtime/values.json > /tmp/ha.yaml
+          grep --quiet 'replicas: 1' /tmp/non-ha.yaml
+          if grep --quiet 'kind: PodDisruptionBudget' /tmp/non-ha.yaml; then exit 1; fi
+          grep --quiet 'Gateway__Topology: "non-ha"' /tmp/non-ha.yaml
+          grep --quiet 'replicas: 3' /tmp/ha.yaml
+          grep --quiet 'kind: PodDisruptionBudget' /tmp/ha.yaml
+          grep --quiet 'topologySpreadConstraints:' /tmp/ha.yaml
+          grep --quiet 'Gateway__Topology: "ha"' /tmp/ha.yaml
       - name: Helm lint, schema, and render validation
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json
@@ -64,6 +97,41 @@ jobs:
           grep --quiet 'kind: StatefulSet' /tmp/redis.yaml
           grep --quiet 'kind: PodDisruptionBudget' /tmp/redis.yaml
           grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
+
+  bootstrap-powershell-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test shared contract on Windows
+        env:
+          BOOTSTRAP_SKIP_LIFECYCLE: '1'
+        run: node --test tests/bootstrap/*.test.mjs
+      - name: Test PowerShell entry point on Windows
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
+
+  bootstrap-lifecycle-parity:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [bash, pwsh]
+        profile: [non-ha, ha]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Exercise lifecycle with failure injection
+        env:
+          BOOTSTRAP_TEST_SHELLS: ${{ matrix.shell }}
+          BOOTSTRAP_TEST_PROFILES: ${{ matrix.profile }}
+        run: node --test --test-name-pattern="complete lifecycle" tests/bootstrap/bootstrap-contract.test.mjs
 
   build-test-aot:
     runs-on: ubuntu-latest

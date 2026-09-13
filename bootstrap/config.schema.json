@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/cormier/realtime/bootstrap/v1",
+  "title": "Cormier.Realtime bootstrap configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "naming", "paths", "image", "kubernetes", "networking", "redis", "ingress", "observability", "resources", "topology"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9]{1,10}$" },
+        "class": { "enum": ["development", "test", "staging", "production"] }
+      }
+    },
+    "naming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suffix"],
+      "properties": { "suffix": { "type": "string", "pattern": "^$|^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$" } }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generatedDirectory", "backupDirectory", "logDirectory"],
+      "properties": {
+        "generatedDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/[A-Za-z0-9._-]+)*$" },
+        "backupDirectory": { "type": "string", "pattern": "^\\.backups(?:/[A-Za-z0-9._-]+)*$" },
+        "logDirectory": { "type": "string", "pattern": "^\\.logs(?:/[A-Za-z0-9._-]+)*$" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "namespace", "storageClass", "failureDomains"],
+      "properties": {
+        "context": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "storageClass": { "type": "string", "minLength": 1 },
+        "failureDomains": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "networking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traefikNamespace", "traefikService", "metalLbNamespace", "metalLbAddress", "advertisementMode"],
+      "properties": {
+        "traefikNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "traefikService": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "metalLbNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "metalLbAddress": { "type": "string", "pattern": "^[A-Fa-f0-9:.]+$" },
+        "advertisementMode": { "enum": ["l2", "bgp"] }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "credentialsSecret", "passwordKey", "adminPasswordKey", "username", "instancePrefix"],
+      "properties": {
+        "mode": { "enum": ["external", "managed"] },
+        "externalEndpoint": { "type": "string" },
+        "externalHaConfirmed": { "type": "boolean" },
+        "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "passwordKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "adminPasswordKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "username": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+        "instancePrefix": { "type": "string", "pattern": "^[A-Za-z0-9:_-]+$" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "host", "entryPoint", "tlsSecretName"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "host": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" },
+        "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "tlsSecretName": { "type": "string" }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceMonitor", "otlpEndpoint"],
+      "properties": {
+        "serviceMonitor": { "type": "boolean" },
+        "otlpEndpoint": { "type": "string" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gatewayCpu", "gatewayMemory", "redisStorage"],
+      "properties": {
+        "gatewayCpu": { "type": "string", "pattern": "^[1-9][0-9]*m$" },
+        "gatewayMemory": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" },
+        "redisStorage": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi|Ti)$" }
+      }
+    },
+    "topology": { "enum": ["ha", "non-ha"] }
+  }
+}

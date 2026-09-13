@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "environment": { "name": "dev", "class": "development" },
+  "naming": { "suffix": "" },
+  "paths": {
+    "generatedDirectory": ".bootstrap/lifecycle",
+    "backupDirectory": ".backups/bootstrap",
+    "logDirectory": ".logs"
+  },
+  "image": {
+    "repository": "registry.example.com/cormier/realtime-gateway",
+    "tag": "0.1.0",
+    "pullPolicy": "IfNotPresent"
+  },
+  "kubernetes": {
+    "context": "kind-example",
+    "namespace": "dev-realtime",
+    "storageClass": "example-storage",
+    "failureDomains": 3
+  },
+  "networking": {
+    "traefikNamespace": "traefik",
+    "traefikService": "traefik",
+    "metalLbNamespace": "metallb-system",
+    "metalLbAddress": "192.0.2.10",
+    "advertisementMode": "l2"
+  },
+  "redis": {
+    "mode": "managed",
+    "externalEndpoint": "",
+    "externalHaConfirmed": false,
+    "credentialsSecret": "dev-realtime-redis",
+    "passwordKey": "realtime",
+    "adminPasswordKey": "redis-password",
+    "username": "realtime",
+    "instancePrefix": "cormier:realtime:dev"
+  },
+  "ingress": {
+    "enabled": false,
+    "host": "realtime.example.test",
+    "entryPoint": "websecure",
+    "tlsSecretName": "dev-realtime-tls"
+  },
+  "observability": { "serviceMonitor": true, "otlpEndpoint": "" },
+  "resources": { "gatewayCpu": "250m", "gatewayMemory": "256Mi", "redisStorage": "8Gi" },
+  "topology": "non-ha"
+}

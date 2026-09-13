@@ -17,7 +17,7 @@ data:
   Gateway__ServiceName: {{ include "realtime-gateway.fullname" . | quote }}
   Gateway__ShutdownDrainSeconds: {{ .Values.gateway.shutdownDrainSeconds | quote }}
   Gateway__DetailedHealthChecks: {{ .Values.gateway.detailedHealthChecks | quote }}
-  Gateway__Topology: {{ ternary "ha" "non-ha" (gt (int .Values.replicaCount) 1) | quote }}
+  Gateway__Topology: {{ .Values.topology | quote }}
   Diagnostics__Enabled: {{ .Values.diagnostics.enabled | quote }}
   Diagnostics__ProductionEnabled: {{ .Values.diagnostics.productionEnabled | quote }}
   Diagnostics__BasePath: {{ .Values.diagnostics.basePath | quote }}

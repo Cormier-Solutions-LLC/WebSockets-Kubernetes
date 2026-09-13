@@ -23,6 +23,7 @@
     "traefikNamespace": "traefik",
     "traefikService": "traefik",
     "traefikPodLabels": { "app.kubernetes.io/name": "traefik" },
+    "trustedProxyCidrs": ["192.0.2.0/24"],
     "metalLbNamespace": "metallb-system",
     "metalLbAddress": "192.0.2.10",
     "advertisementMode": "l2"

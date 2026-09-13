@@ -79,7 +79,7 @@ async function assertTarget(plan, config, options, mutation) {
   if (context !== plan.target.context) throw new Error(`Target mismatch: expected Kubernetes context '${plan.target.context}', found '${context}'.`);
   await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
   await command("helm", ["lint", "helm/realtime-gateway", "--strict", "--values", options.valuesPath], "Lint rendered gateway configuration", options);
-  await command("kubectl", ["get", "storageclass", config.kubernetes.storageClass, "--request-timeout=15s"], "Validate storage class", options);
+  if (config.redis.mode === "managed") await command("kubectl", ["get", "storageclass", config.kubernetes.storageClass, "--request-timeout=15s"], "Validate storage class", options);
   await command("kubectl", ["get", "namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress namespace", options);
   await command("kubectl", ["get", "service", config.networking.traefikService, "--namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress service", options);
   await command("kubectl", ["get", "namespace", config.networking.metalLbNamespace, "--request-timeout=15s"], "Validate MetalLB namespace", options);
@@ -93,7 +93,9 @@ async function assertTarget(plan, config, options, mutation) {
   }
   if (config.topology === "ha") {
     const nodeDocument = await command("kubectl", ["get", "nodes", "--output", "json"], "Validate schedulable failure-domain capacity", { ...options, capture: true });
-    const nodes = JSON.parse(nodeDocument).items.filter(node => !node.spec?.unschedulable && node.status?.conditions?.some(condition => condition.type === "Ready" && condition.status === "True"));
+    const nodes = JSON.parse(nodeDocument).items.filter(node => !node.spec?.unschedulable
+      && !node.spec?.taints?.some(taint => ["NoSchedule", "NoExecute"].includes(taint.effect))
+      && node.status?.conditions?.some(condition => condition.type === "Ready" && condition.status === "True"));
     if (nodes.length < plan.topology.minimumFailureDomains) throw new Error(`HA requires at least ${plan.topology.minimumFailureDomains} ready schedulable nodes.`);
     const zones = new Set(nodes.map(node => node.metadata?.labels?.["topology.kubernetes.io/zone"]).filter(Boolean));
     if (zones.size < plan.topology.minimumFailureDomains) throw new Error(`HA requires ready nodes in at least ${plan.topology.minimumFailureDomains} labeled topology zones.`);
@@ -331,7 +333,7 @@ async function main() {
     else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath], "Render gateway manifests", options);
     else if (options.action === "rollback") await rollback(plan, options);
     else if (options.action === "teardown") {
-      await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
+      await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
       if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
     if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false) await rm(statePath, { force: true });

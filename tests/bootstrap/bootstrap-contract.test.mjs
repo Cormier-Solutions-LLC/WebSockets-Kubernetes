@@ -45,6 +45,7 @@ test("both explicit topology profiles validate and render their availability con
   assert.equal(haValues.topologySpreadConstraints.enabled, true);
   assert.equal(haValues.topologySpreadConstraints.zoneWhenUnsatisfiable, "DoNotSchedule");
   assert.deepEqual(haValues.gateway.allowedOrigins, ha.ingress.allowedOrigins);
+  assert.deepEqual(haValues.gateway.trustedNetworks, ha.networking.trustedProxyCidrs);
   assert.deepEqual(haValues.networkPolicy.ingressPodSelector.matchLabels, ha.networking.traefikPodLabels);
 });
 
@@ -171,6 +172,22 @@ test("ServiceMonitor selectors and external Redis egress boundaries are explicit
   assert(validateConfiguration(config).some(item => item.path === "$.redis.externalEndpoint" && item.message.includes("65535")));
 });
 
+test("proxy trust, observability labels, and resource units fail closed", () => {
+  const config = configuration();
+  config.networking.trustedProxyCidrs = [];
+  config.observability.cluster = "Cluster_A";
+  config.resources.gatewayMemory = "1m";
+  config.resources.redisStorage = "1m";
+  const paths = validateConfiguration(config).map(item => item.path);
+  assert(paths.includes("$.networking.trustedProxyCidrs"));
+  assert(paths.includes("$.observability.cluster"));
+  assert(paths.includes("$.resources.gatewayMemory"));
+  assert(paths.includes("$.resources.redisStorage"));
+  config.networking.trustedProxyCidrs = ["2001:db8::/32"];
+  config.observability.cluster = "a".repeat(64);
+  assert(validateConfiguration(config).some(item => item.path === "$.observability.cluster"));
+});
+
 test("requested shell profile must match the versioned configuration", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-test-"));
   const path = resolve(directory, "config.json");
@@ -247,7 +264,11 @@ if [[ -n "\${BOOTSTRAP_FAKE_LOG:-}" ]]; then printf 'kubectl %s\\n' "$*" >> "$BO
 if [[ "$joined" == 'config current-context' ]]; then printf '%s\\n' 'kind-example'
 elif [[ "$joined" == *'cluster-info'* && "\${BOOTSTRAP_FAKE_FAIL:-}" == 'cluster' ]]; then printf '%s\\n' 'injected Kubernetes network failure' >&2; exit 9
 elif [[ "$joined" == *'get nodes --output json'* ]]; then
-  printf '%s\\n' '{"items":[{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-a"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-b"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-c"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}'
+  if [[ "\${BOOTSTRAP_FAKE_TAINTED_NODES:-}" == '1' ]]; then
+    printf '%s\\n' '{"items":[{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-a"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-b"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-c"}},"spec":{"taints":[{"key":"dedicated","effect":"NoSchedule"}]},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}'
+  else
+    printf '%s\\n' '{"items":[{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-a"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-b"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"labels":{"topology.kubernetes.io/zone":"zone-c"}},"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}'
+  fi
 elif [[ "$joined" == *'get secret'* && "\${BOOTSTRAP_FAKE_FAIL:-}" == 'credential' ]]; then exit 0
 elif [[ "$joined" == *'go-template='* ]]; then printf '%s\\n' 'realtime' 'redis-password'
 elif [[ "$joined" == *'auth can-i'* && "\${BOOTSTRAP_FAKE_FAIL:-}" == 'permission' ]]; then printf '%s\\n' 'no'
@@ -493,9 +514,40 @@ test("teardown skips desired-state prerequisites while retaining target and dele
     const log = await readFile(operationLog, "utf8");
     assert.match(log, /kubectl auth can-i delete deployments\.apps/);
     assert.doesNotMatch(log, /kubectl get (?:secret|storageclass|nodes)/);
+    assert.match(log, new RegExp(`uninstall ${release} .*--ignore-not-found`));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
+  }
+});
+
+test("external Redis skips unused storage and HA excludes untolerated nodes", { timeout: 30_000 }, async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-capacity-tools-"));
+  await fakeClusterTools(fakeBin);
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-capacity-config-"));
+  const operationLog = resolve(directory, "operations.log");
+  const external = configuration();
+  external.naming.suffix = "external-storage";
+  external.redis.mode = "external";
+  external.redis.externalEndpoint = "redis.example.test:6379";
+  external.redis.externalEgressCidrs = ["192.0.2.50/32"];
+  const externalPath = resolve(directory, "external.json");
+  await writeFile(externalPath, stableJson(external));
+  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: "dev-realtime-external-storage", BOOTSTRAP_FAKE_REDIS_RELEASE: "dev-realtime-external-storage-redis", BOOTSTRAP_FAKE_LOG: operationLog };
+  try {
+    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "validate", "--config", externalPath], { cwd: repositoryRoot, env: environment });
+    assert.doesNotMatch(await readFile(operationLog, "utf8"), /kubectl get storageclass/);
+
+    const ha = configuration("ha");
+    ha.naming.suffix = "tainted-capacity";
+    const haPath = resolve(directory, "ha.json");
+    await writeFile(haPath, stableJson(ha));
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "validate", "--config", haPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_TAINTED_NODES: "1" } }), error => error.code === 1 && /ready schedulable nodes/.test(error.stdout));
+  } finally {
+    await rm(resolve(repositoryRoot, ".bootstrap/lifecycle/dev-realtime-external-storage"), { recursive: true, force: true });
+    await rm(resolve(repositoryRoot, ".bootstrap/lifecycle/dev-realtime-tainted-capacity"), { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

@@ -12,7 +12,8 @@ const dnsLabel = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const registryRepository = /^[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/;
 const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
-const resourceQuantity = /^[1-9][0-9]*(?:m|Mi|Gi|Ti)$/;
+const memoryQuantity = /^[1-9][0-9]*(?:Mi|Gi)$/;
+const storageQuantity = /^[1-9][0-9]*(?:Mi|Gi|Ti)$/;
 const secretValueKey = /(?:password|token|secret|credential|private.?key|api.?key|authorization|cookie)s?$/i;
 
 function isSecretReferenceField(key, parentPath = "") {
@@ -132,7 +133,7 @@ export function validateConfiguration(input) {
 
   const observability = requireRecord(config.observability, "$.observability", errors);
   requireKeys(observability, "$.observability", ["cluster", "serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);
-  requireString(observability.cluster, "$.observability.cluster", errors, /^[A-Za-z0-9._-]+$/);
+  requireString(observability.cluster, "$.observability.cluster", errors, /^(?=.{1,63}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?$/);
   if (typeof observability.serviceMonitor !== "boolean") errors.push(problem("$.observability.serviceMonitor", "must be boolean"));
   requireString(observability.otlpEndpoint, "$.observability.otlpEndpoint", errors, /^https?:\/\//, true);
   if (typeof observability.otlpEndpoint === "string" && observability.otlpEndpoint) {
@@ -162,8 +163,8 @@ export function validateConfiguration(input) {
   const resources = requireRecord(config.resources, "$.resources", errors);
   requireKeys(resources, "$.resources", ["gatewayCpu", "gatewayMemory", "redisStorage"], errors);
   requireString(resources.gatewayCpu, "$.resources.gatewayCpu", errors, /^[1-9][0-9]*m$/);
-  requireString(resources.gatewayMemory, "$.resources.gatewayMemory", errors, resourceQuantity);
-  requireString(resources.redisStorage, "$.resources.redisStorage", errors, resourceQuantity);
+  requireString(resources.gatewayMemory, "$.resources.gatewayMemory", errors, memoryQuantity);
+  requireString(resources.redisStorage, "$.resources.redisStorage", errors, storageQuantity);
 
   if (!["ha", "non-ha"].includes(config.topology)) errors.push(problem("$.topology", "must explicitly be ha or non-ha"));
   if (config.topology === "ha" && kubernetes.failureDomains < 3) errors.push(problem("$.kubernetes.failureDomains", "HA requires at least three failure domains"));
@@ -171,12 +172,14 @@ export function validateConfiguration(input) {
   if (config.topology === "ha" && redis.mode === "external" && redis.externalHaConfirmed !== true) errors.push(problem("$.redis.externalHaConfirmed", "must confirm that the external service supplies persistence, quorum, failover, and recovery"));
 
   const networking = requireRecord(config.networking, "$.networking", errors);
-  requireKeys(networking, "$.networking", ["traefikNamespace", "traefikService", "traefikPodLabels", "metalLbNamespace", "metalLbAddress", "advertisementMode"], errors);
+  requireKeys(networking, "$.networking", ["traefikNamespace", "traefikService", "traefikPodLabels", "trustedProxyCidrs", "metalLbNamespace", "metalLbAddress", "advertisementMode"], errors);
   requireString(networking.traefikNamespace, "$.networking.traefikNamespace", errors, dnsLabel);
   requireString(networking.traefikService, "$.networking.traefikService", errors, dnsLabel);
   const traefikPodLabels = requireRecord(networking.traefikPodLabels, "$.networking.traefikPodLabels", errors);
   if (Object.keys(traefikPodLabels).length === 0) errors.push(problem("$.networking.traefikPodLabels", "must contain at least one label"));
   for (const [key, value] of Object.entries(traefikPodLabels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`$.networking.traefikPodLabels.${key}`, "must be a non-empty label"));
+  const trustedProxyCidrs = Array.isArray(networking.trustedProxyCidrs) ? networking.trustedProxyCidrs : [];
+  if (!Array.isArray(networking.trustedProxyCidrs) || trustedProxyCidrs.length === 0 || trustedProxyCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.networking.trustedProxyCidrs", "must contain at least one valid IPv4 or IPv6 CIDR"));
   requireString(networking.metalLbNamespace, "$.networking.metalLbNamespace", errors, dnsLabel);
   requireString(networking.metalLbAddress, "$.networking.metalLbAddress", errors, /^[A-Fa-f0-9:.]+$/);
   if (!["l2", "bgp"].includes(networking.advertisementMode)) errors.push(problem("$.networking.advertisementMode", "must be l2 or bgp"));
@@ -253,7 +256,7 @@ export function renderValues(config, profile) {
     autoscaling: profile.gateway.autoscaling,
     deploymentStrategy: { maxSurge: profile.gateway.maxSurge, maxUnavailable: profile.gateway.maxUnavailable },
     fullnameOverride: names.release,
-    gateway: { allowedOrigins: config.ingress.allowedOrigins, shutdownDrainSeconds: 25 },
+    gateway: { allowedOrigins: config.ingress.allowedOrigins, trustedNetworks: config.networking.trustedProxyCidrs, shutdownDrainSeconds: 25 },
     image: config.image,
     ingressRoute: { enabled: config.ingress.enabled, entryPoint: config.ingress.entryPoint, host: config.ingress.host, path: "/realtime/ws", tlsSecretName: config.ingress.tlsSecretName },
     observability: {

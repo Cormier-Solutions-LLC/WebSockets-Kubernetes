@@ -450,6 +450,10 @@ jobs:
           node-version: 24.20.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode

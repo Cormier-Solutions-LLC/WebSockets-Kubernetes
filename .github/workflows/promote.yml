@@ -108,8 +108,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ${{ steps.artifact.outputs.registry }}
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          username: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
+          password: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
       - name: Verify published manifest exists
         run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
       - name: Render the exact promotion bundle

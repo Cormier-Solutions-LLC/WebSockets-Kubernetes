@@ -458,8 +458,14 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
         Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
         Assert.Contains("vars.CONTAINER_REGISTRY", publish, StringComparison.Ordinal);
+        Assert.Contains("vars.REGISTRY_CREDENTIAL_PROVIDER", publish, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_USERNAME", publish, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_TOKEN", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets.DOCKERHUB_USERNAME", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets.DOCKERHUB_TOKEN", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets.REGISTRY_USERNAME", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets.REGISTRY_PASSWORD", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("secrets[", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("username: ${{ github.actor }}", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("'ghcr.io'", publish, StringComparison.Ordinal);
         Assert.Contains("rollbackPublishRunId", promote, StringComparison.Ordinal);
@@ -468,6 +474,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("download-artifact", promote, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_USERNAME", promote, StringComparison.Ordinal);
         Assert.Contains("secrets.HARBOR_TOKEN", promote, StringComparison.Ordinal);
+        Assert.Contains("secrets.DOCKERHUB_USERNAME", promote, StringComparison.Ordinal);
+        Assert.Contains("secrets.DOCKERHUB_TOKEN", promote, StringComparison.Ordinal);
+        Assert.Contains("secrets.REGISTRY_USERNAME", promote, StringComparison.Ordinal);
+        Assert.Contains("secrets.REGISTRY_PASSWORD", promote, StringComparison.Ordinal);
+        Assert.DoesNotContain("secrets[", promote, StringComparison.Ordinal);
         Assert.Contains("release-manifest.json", promote, StringComparison.Ordinal);
         Assert.Contains("sourceCommit", promote, StringComparison.Ordinal);
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);

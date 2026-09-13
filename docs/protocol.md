@@ -23,6 +23,8 @@ Every client command is one complete UTF-8 text frame:
 
 Supported client types are `ping`, `subscribe`, `unsubscribe`, and `publish`. Routes are either `topics/{topic}` or `users/{current-user}/topics/{topic}`. Topic characters are limited to letters, digits, `.`, `_`, and `-`. Authorization is evaluated for every command against the server-derived identity. A client cannot select a tenant or another user.
 
+`correlationId` is required, is scoped to one connection, and must not exceed 128 characters; reuse on that connection is rejected as a duplicate. `route` is required and must not exceed 256 characters. Client timestamps may be at most five minutes old or one minute in the future when received. A `publish` command requires a non-null payload.
+
 Server frames use the same version, correlation, timestamp, route, and optional payload fields. `type` is `ack`, `event`, `error`, `ping`, or `service.restart`. Error frames add:
 
 ```json
@@ -38,7 +40,7 @@ Stable error codes are `invalid_envelope`, `unsupported_version`, `unsupported_t
 
 ## Limits, heartbeat, and close behavior
 
-The default frame limit is 16 KiB and message limit is 64 KiB. Fragmentation is deliberately rejected, so the effective assembled-message limit is also the frame limit. Binary messages close with `1003`; fragmented or invalid payloads close with `1007`; oversized messages close with `1009`. Clients must send `ping` traffic inside the 45-second idle window. The server emits a heartbeat every 15 seconds and closes idle clients with private code `4009`.
+The default frame limit is 16 KiB and configured message limit is 64 KiB. Fragmentation is deliberately rejected, so the effective inbound limit is one frame and therefore 16 KiB with the defaults. Binary messages close with `1003`, fragmented text closes with `1007`, and oversized messages close with `1009`. Malformed JSON and invalid envelopes receive structured errors without closing an otherwise valid connection. Clients must send `ping` traffic inside the 45-second idle window. The server emits a heartbeat every 15 seconds and closes idle clients with private code `4009`.
 
 Each connection has a bounded 128-message outbound queue. A full queue drops the new event and increments the queue-drop metric; three consecutive saturation strikes close the slow consumer with `4008`. When the authenticated session or ticket identity expires, the gateway rejects further commands and closes with `4003`; the client must reauthenticate. A pod drain emits `service.restart`, including initial delay 500 ms, maximum delay 30 seconds, jitter ratio 0.2, and reauthentication required, then closes with `1012`.
 
@@ -54,6 +56,6 @@ Redis Streams are optional and apply only when `eventClass` exactly matches `Rea
 
 Version `1.0` is matched exactly. Additive optional payload fields may be introduced within 1.x, but required envelope changes, type semantic changes, and field removals require a new protocol version and subprotocol. Unsupported versions and message types receive structured errors. Clients must ignore unknown optional server fields.
 
-Metrics and traces include operation, outcome, correlation, close code, and aggregate counters. They must never include cookies, tickets, payloads, tenant IDs, or user IDs. Structured logs follow the same restriction.
+Metrics use bounded operation, outcome, direction, reason, endpoint, message-type, and close-code dimensions plus aggregate counters and histograms; correlation IDs are not metric labels. Traces and structured logs may carry bounded operational context but must never include cookies, tickets, message payloads, tenant IDs, or user IDs.
 
 Language-neutral fixtures in `protocol/fixtures/v1/envelopes.json` are consumed by both the .NET contract suite and `@cormier/realtime`. A fixture or protocol constant change that is not understood by either implementation fails CI. Later .NET consumer SDKs must consume the same fixtures; full cross-SDK live conformance is exercised by the packaged-consumer application after those SDKs are available.

@@ -49,6 +49,10 @@
     {
       "if": { "properties": { "ingress": { "properties": { "enabled": { "const": false } } } } },
       "then": { "properties": { "networking": { "properties": { "directIngressNamespaceLabels": { "minProperties": 1 } } } } }
+    },
+    {
+      "if": { "properties": { "topology": { "const": "ha" } } },
+      "then": { "properties": { "kubernetes": { "properties": { "failureDomains": { "minimum": 3 } } } } }
     }
   ],
   "properties": {

@@ -388,6 +388,7 @@ function renderManagedRedis(config, profile) {
     chart: config.redis.managedChart,
     chartVersion: config.redis.managedChartVersion,
     values: {
+      commonAnnotations: { "cormier.solutions/managed-chart": config.redis.managedChart },
       architecture: profile.redis.managedArchitecture,
       auth: {
         sentinel: profile.redis.sentinel,

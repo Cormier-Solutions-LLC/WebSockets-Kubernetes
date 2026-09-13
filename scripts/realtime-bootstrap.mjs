@@ -76,7 +76,7 @@ async function command(file, args, description, options) {
     child.stdout.on("data", data => { output += data; if (!options.capture) process.stdout.write(data); });
     child.stderr.on("data", data => { if (!options.capture) process.stderr.write(data); });
     child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); reject(error); });
-    child.on("exit", code => {
+    child.on("close", code => {
       clearTimeout(timer);
       clearTimeout(escalation);
       if (timedOut) reject(new Error(`${description} exceeded ${options.timeoutSeconds} seconds and the child process was terminated.`));
@@ -94,13 +94,13 @@ async function assertTarget(plan, config, options, mutation) {
   const context = await currentContext(options);
   if (context !== plan.target.context) throw new Error(`Target mismatch: expected Kubernetes context '${plan.target.context}', found '${context}'.`);
   await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
-  await command("helm", ["lint", "helm/realtime-gateway", "--strict", "--values", options.valuesPath], "Lint rendered gateway configuration", options);
+  if (options.action !== "rollback") await command("helm", ["lint", "helm/realtime-gateway", "--strict", "--values", options.valuesPath], "Lint rendered gateway configuration", options);
   if (config.redis.mode === "managed") await command("kubectl", ["get", "storageclass", config.kubernetes.storageClass, "--request-timeout=15s"], "Validate storage class", options);
   if (config.ingress.enabled) {
     await command("kubectl", ["get", "namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress namespace", options);
     await command("kubectl", ["get", "service", config.networking.traefikService, "--namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress service", options);
   }
-  await command("kubectl", ["get", "namespace", config.networking.metalLbNamespace, "--request-timeout=15s"], "Validate MetalLB namespace", options);
+  if (config.ingress.enabled) await command("kubectl", ["get", "namespace", config.networking.metalLbNamespace, "--request-timeout=15s"], "Validate MetalLB namespace", options);
   if (config.ingress.enabled) await command("kubectl", ["get", "secret", config.ingress.tlsSecretName, "--namespace", plan.target.namespace, "--request-timeout=15s"], "Validate ingress TLS Secret reference", options);
   if (config.observability.serviceMonitor) await command("kubectl", ["get", "customresourcedefinition", "servicemonitors.monitoring.coreos.com", "--request-timeout=15s"], "Validate ServiceMonitor support", options);
   if (config.observability.otlpHeadersSecret) {
@@ -155,6 +155,7 @@ async function saveState(plan, options) {
   assertPathInside(options.backupRoot, directory, "backup");
   await mkdir(directory, { recursive: true });
   try {
+    const capturedPlan = structuredClone(plan);
     const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory installed releases", { ...options, capture: true });
     const releases = JSON.parse(releasesDocument);
     if (!Array.isArray(releases)) throw new Error("Helm release inventory was not a JSON array.");
@@ -166,10 +167,15 @@ async function saveState(plan, options) {
         const values = JSON.parse(valuesDocument);
         const secretPaths = inlineSecretPaths(values);
         if (secretPaths.length > 0) throw new Error(`Refusing to persist inline credential values returned by Helm at: ${secretPaths.join(", ")}. Replace them with Secret references before retrying.`);
+        if (release === plan.target.redisRelease) {
+          const installedChart = values.commonAnnotations?.["cormier.solutions/managed-chart"];
+          if (typeof installedChart !== "string" || !installedChart.startsWith("oci://")) throw new Error(`Installed managed Redis release '${release}' does not record its chart repository; update it with this bootstrap contract before it can be backed up safely.`);
+          capturedPlan.managedRedis.chart = installedChart;
+        }
         await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
       }
     }
-    await atomicWrite(resolve(directory, "plan.json"), stableJson(plan));
+    await atomicWrite(resolve(directory, "plan.json"), stableJson(capturedPlan));
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
     throw error;
@@ -359,7 +365,6 @@ async function main() {
     config.naming.suffix = options.nameSuffix;
     config.redis.instancePrefix = `${config.redis.instancePrefix}:${options.nameSuffix}`;
   }
-  await writeNamingManifest(config);
   options.generatedRoot = resolve(repositoryRoot, config.paths.generatedDirectory);
   options.backupRoot = resolve(repositoryRoot, config.paths.backupDirectory);
   const logRoot = resolve(repositoryRoot, config.paths.logDirectory);
@@ -373,11 +378,20 @@ async function main() {
   assertPathInside(options.generatedRoot, targetRoot, "generated output");
   await mkdir(targetRoot, { recursive: true });
   const mutation = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
-  const lockRequired = true;
-  const lockPath = resolve(repositoryRoot, ".bootstrap", "locks", `${config.environment.name}-${names}`);
-  assertPathInside(resolve(repositoryRoot, ".bootstrap", "locks"), lockPath, "target lock");
-  await mkdir(dirname(lockPath), { recursive: true });
-  const lockToken = lockRequired ? await acquireLock(lockPath) : undefined;
+  const locksRoot = resolve(repositoryRoot, ".bootstrap", "locks");
+  const namingLockPath = resolve(locksRoot, "naming-manifest");
+  const lockPath = resolve(locksRoot, `${config.environment.name}-${names}`);
+  assertPathInside(locksRoot, lockPath, "target lock");
+  await mkdir(locksRoot, { recursive: true });
+  const namingLockToken = await acquireLock(namingLockPath);
+  let lockToken;
+  try {
+    lockToken = await acquireLock(lockPath);
+    await writeNamingManifest(config);
+  } catch (error) {
+    await releaseLock(namingLockPath, namingLockToken);
+    throw error;
+  }
   try {
     const statePath = resolve(targetRoot, "state.json");
     const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
@@ -455,7 +469,8 @@ async function main() {
     });
     await flushLog();
   } finally {
-    if (lockRequired) await releaseLock(lockPath, lockToken);
+    try { await releaseLock(lockPath, lockToken); }
+    finally { await releaseLock(namingLockPath, namingLockToken); }
   }
 }
 

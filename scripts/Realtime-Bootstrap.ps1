@@ -13,7 +13,6 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('prerequisites', 'plan', 'bootstrap', 'backup', 'install', 'update', 'validate', 'rollback', 'recover', 'teardown')]
     [string]$Action,
     [string]$Config,
     [Alias('Profile')]

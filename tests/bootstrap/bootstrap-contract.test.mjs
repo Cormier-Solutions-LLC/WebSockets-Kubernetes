@@ -95,6 +95,7 @@ test("Helm backup values containing inline credentials are detected by path", ()
 });
 
 test("HA rejects insufficient failure domains", () => {
+  assert(bootstrapSchema.allOf.some(rule => rule.if?.properties?.topology?.const === "ha" && rule.then?.properties?.kubernetes?.properties?.failureDomains?.minimum === 3));
   const config = configuration("ha");
   config.kubernetes.failureDomains = 2;
   assert.match(validateConfiguration(config).map(item => `${item.path}: ${item.message}`).join("\n"), /HA requires at least three failure domains/);
@@ -325,7 +326,7 @@ if [[ "\${BOOTSTRAP_FAKE_FAIL:-}" == 'redis' && "$*" == *"$BOOTSTRAP_FAKE_REDIS_
 case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
   list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0","revision":"3"},{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
-  get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
+  get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" ]]; then printf '{"architecture":"standalone","commonAnnotations":{"cormier.solutions/managed-chart":"%s"}}\\n' "\${BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART:-oci://registry-1.docker.io/bitnamicharts/redis}"; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
   lint|template|upgrade|uninstall|rollback) printf '%s\\n' 'ok' ;;
   *) printf 'unsupported fake helm command: %s\\n' "\${1:-}" >&2; exit 64 ;;
 esac
@@ -382,6 +383,10 @@ test("both entry points reject an invalid topology with a non-zero exit", async 
   await writeFile(path, stableJson(invalid));
   await assert.rejects(execute("bash", [resolve(repositoryRoot, "scripts/realtime-bootstrap.sh"), "plan", "--config", path], { cwd: repositoryRoot }));
   await assert.rejects(execute("pwsh", ["-NoProfile", "-File", resolve(repositoryRoot, "scripts/Realtime-Bootstrap.ps1"), "-Action", "plan", "-Config", path], { cwd: repositoryRoot }));
+});
+
+test("PowerShell delegates unsupported actions to the shared exit-code contract", async () => {
+  await assert.rejects(execute("pwsh", ["-NoProfile", "-File", resolve(repositoryRoot, "scripts/Realtime-Bootstrap.ps1"), "-Action", "unsupported-action"], { cwd: repositoryRoot }), error => error.code === 2 && /Action must be one of/.test(error.stdout));
 });
 
 test("both shells execute the complete lifecycle for both profiles with identical safety semantics", { timeout: 60_000 }, async t => {
@@ -463,7 +468,10 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     assert.equal(redisValues.auth.acl.users[0].username, "realtime");
     assert.equal(redisValues.master.pdb.create, false);
     assert.equal(redisValues.replica.pdb.create, false);
-    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: environment });
+    const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART: "oci://mirror.example.test/charts/redis" } });
+    const updateBackup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
+    const capturedPlan = JSON.parse(await readFile(resolve(updateBackup, "plan.json"), "utf8"));
+    assert.equal(capturedPlan.managedRedis.chart, "oci://mirror.example.test/charts/redis");
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     const log = await readFile(operationLog, "utf8");
     assert.match(log, /--values cluster\/redis\/managed-values.yaml/);
@@ -471,6 +479,7 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     assert.match(log, new RegExp(`kubectl rollout restart deployment/${release}`));
     assert.match(log, new RegExp(`uninstall ${release}-redis .*--ignore-not-found`));
     assert.match(log, new RegExp(`uninstall ${release} .*--ignore-not-found`));
+    assert.doesNotMatch(log, /get namespace metallb-system/);
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
@@ -560,7 +569,7 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   await mkdir(backup, { recursive: true });
   await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis" } }));
   await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-22.3.4", revision: "4" }]));
-  await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "non-ha", redis: { mode: "managed" } }));
+  await writeFile(resolve(backup, `${release}.values.json`), stableJson({ replicaCount: 1, redis: { mode: "managed" } }));
   await writeFile(resolve(backup, `${release}-redis.values.json`), stableJson({ architecture: "standalone" }));
   const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LOG: operationLog };
   try {
@@ -569,9 +578,10 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
     assert.match(operations, new RegExp(`upgrade --install ${release}-redis oci://mirror\\.example\\.test/charts/redis --version 22\\.3\\.4`));
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
     assert.match(operations, /kubectl .*--context kind-example/);
+    assert.doesNotMatch(operations, /^lint /m);
     const rollbackPlan = JSON.parse(await readFile(resolve(targetRoot, "plan.json"), "utf8"));
     const rollbackState = JSON.parse(await readFile(resolve(targetRoot, "state.json"), "utf8"));
-    assert.deepEqual(rollbackPlan.values, { topology: "non-ha", redis: { mode: "managed" } });
+    assert.deepEqual(rollbackPlan.values, { replicaCount: 1, redis: { mode: "managed" } });
     assert.deepEqual(rollbackPlan.managedRedis.values, { architecture: "standalone" });
     assert.equal(rollbackPlan.managedRedis.chartVersion, "22.3.4");
     assert.equal(rollbackState.valuesSha256, rollbackPlan.valuesSha256);
@@ -688,6 +698,7 @@ test("name suffix override updates the plan and shared naming manifest", async (
     const naming = JSON.parse(await readFile(namingPath, "utf8"));
     assert.equal(naming.application, "realtime-contract-name");
     assert.equal(naming.redisInstancePrefix, "cormier:realtime:dev:contract-name");
+    assert.equal(await fileExists(resolve(repositoryRoot, ".bootstrap/locks/naming-manifest")), false);
   } finally {
     if (priorNaming === undefined) await rm(namingPath, { force: true });
     else await writeFile(namingPath, priorNaming);

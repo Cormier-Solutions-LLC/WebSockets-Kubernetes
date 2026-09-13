@@ -771,6 +771,9 @@ jobs:
 
   php-laravel:
     runs-on: cormier-runners
+    concurrency:
+      group: php-laravel-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Authenticate to Harbor

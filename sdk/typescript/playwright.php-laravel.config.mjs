@@ -40,7 +40,7 @@ export default defineConfig({
       },
     },
     {
-      command: `docker run --rm --name cormier-php-laravel-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e LISTEN_HOST=0.0.0.0 -e PORT=15500 -e PUBLIC_ROOT=/app/public -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_SECRET=browser-fixture-secret-with-at-least-32-characters -e SESSION_LIFETIME_SECONDS=1200 -e INSTANCE_NAME=php-laravel-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:php-laravel-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
+      command: `node ./test/reference-adapters/stop-php-laravel-container.mjs && docker run --rm --name cormier-php-laravel-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e LISTEN_HOST=0.0.0.0 -e PORT=15500 -e PUBLIC_ROOT=/app/public -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_SECRET=browser-fixture-secret-with-at-least-32-characters -e SESSION_LIFETIME_SECONDS=1200 -e INSTANCE_NAME=php-laravel-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:php-laravel-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
       cwd: repositoryRoot,
       url: `${frontendOrigin}/health`,
       timeout: 120_000,

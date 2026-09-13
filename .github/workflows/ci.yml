@@ -771,6 +771,9 @@ jobs:
 
   php-laravel:
     runs-on: cormier-runners
+    concurrency:
+      group: php-laravel-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Authenticate to Harbor
@@ -819,6 +822,9 @@ jobs:
       - name: Install Chromium
         working-directory: sdk/typescript
         run: npx playwright install --with-deps chromium
+      - name: Remove stale Laravel smoke container
+        working-directory: sdk/typescript
+        run: node ./test/reference-adapters/stop-php-laravel-container.mjs
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:

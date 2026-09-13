@@ -5,7 +5,7 @@ This example supports updates only as an atomic repository change; independently
 1. Inventory `swift --version`, `swift package --version`, pinned dependencies in `Package.swift`/`Package.resolved`, Docker image digests in `Dockerfile`, `sdk/typescript/dist/version.json`, protocol fixtures, gateway package versions, and current deployment configuration. Preserve the prior image digest, source commit, lockfile, and external configuration/secret references.
 2. Review Swift, Vapor, Vapor Redis, Async HTTP Client, Caddy, Redis, SDK, protocol, gateway, and base-image changelogs/deprecations plus security advisories. Validate Linux container and macOS local-tooling support before changing pins.
 3. Keep mutable configuration and Redis data outside the source tree. If record compatibility can change, back up Redis through the deployment runbook. Never place credentials, cookies, session IDs, tickets, or private origins in commits, build context, or logs.
-4. Update versions and digests together in `Package.swift`, `Package.resolved`, and `Dockerfile`, then run from `/home/runner/work/WebSockets-Kubernetes/WebSockets-Kubernetes/examples/swift-vapor`:
+4. Update versions and digests together in `Package.swift`, `Package.resolved`, and `Dockerfile`, then run from `examples/swift-vapor`:
 
    ```text
    cp Package.resolved /tmp/Package.resolved
@@ -15,7 +15,7 @@ This example supports updates only as an atomic repository change; independently
    swift test --disable-sandbox
    ```
 
-   Rebuild canonical TypeScript assets from `/home/runner/work/WebSockets-Kubernetes/WebSockets-Kubernetes/sdk/typescript` using `npm ci --ignore-scripts && npm run build --silent`. Never copy shared assets or dependency sources into this directory.
+   Rebuild canonical TypeScript assets from `sdk/typescript` using `npm ci --ignore-scripts && npm run build --silent`. Never copy shared assets or dependency sources into this directory.
 5. Validate the candidate container and shared smoke scenarios:
 
    ```text

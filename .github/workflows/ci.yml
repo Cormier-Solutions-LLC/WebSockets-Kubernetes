@@ -772,7 +772,7 @@ jobs:
   php-laravel:
     runs-on: cormier-runners
     concurrency:
-      group: php-laravel-${{ github.repository }}
+      group: php-laravel-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

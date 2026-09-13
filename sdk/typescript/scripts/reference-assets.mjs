@@ -167,8 +167,8 @@ function mapJavaScriptValue(value, call, argument, ids, classes, selectorMethods
 
 function isLocationReference(node) {
   return (node?.type === "Identifier" && node.name === "location")
-    || (memberName(node) === "location" && node.object?.type === "Identifier"
-      && (node.object.name === "window" || node.object.name === "document"));
+    || (memberName(node) === "location" && (node.object?.type === "Identifier"
+      && (node.object.name === "window" || node.object.name === "document") || isDocumentReference(node.object)));
 }
 
 function mapFragmentValue(value, ids) {
@@ -426,6 +426,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
           ? node
           : functionScope?.body === parent ? functionScope : lexicalScope;
         recordBindingPattern(node.id, declarationScope, "function");
+        if (node.type === "FunctionDeclaration" && declarationScope !== functionScope) {
+          recordBindingPattern(node.id, functionScope, "var");
+        }
       }
       for (const parameter of node.params) {
         recordBindingPattern(parameter, node, "parameter");
@@ -589,7 +592,7 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
     const locationReference = property === "hash" || property === "href"
       ? valueParent.left.object
       : valueParent.left;
-    const root = locationReference.type === "Identifier" ? locationReference : locationReference.object;
+    const root = browserRootIdentifier(locationReference);
     return resolveBinding(root.name, root.start) !== undefined
       ? undefined
       : valueParent;
@@ -648,8 +651,14 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
 
   function isUnshadowedLocationReference(node) {
     if (!isLocationReference(node)) return false;
-    const root = node.type === "Identifier" ? node : node.object;
+    const root = browserRootIdentifier(node);
     return resolveBinding(root.name, root.start) === undefined;
+  }
+
+  function browserRootIdentifier(node) {
+    let root = node;
+    while (root?.type === "MemberExpression") root = root.object;
+    return root;
   }
 
   function isUnshadowedHistoryReference(node) {
@@ -807,7 +816,9 @@ function replaceJavaScriptSelectorReferences(javascript, ids, classes) {
       && isMappedCallArgument(selectorContext.call, selectorContext.argument)) {
       throw new Error("Non-string DOM selector arguments are unsupported when selector mangling is enabled.");
     }
-    if ((node.type === "Literal" || node.type === "TemplateLiteral") && styleContext !== undefined) {
+    if (node.type === "TemplateLiteral" && node.expressions.length > 0 && styleContext?.proven === true) {
+      throw new Error("Interpolated runtime style assignments are unsupported when selector mangling is enabled.");
+    } else if ((node.type === "Literal" || node.type === "TemplateLiteral") && styleContext !== undefined) {
       const source = staticStringValue(node);
       if (!styleContext.proven && source !== undefined && mapCssValue(source) !== source) {
         throw new Error("Assignment to ambiguous textContent receiver is unsupported when selector mangling is enabled.");

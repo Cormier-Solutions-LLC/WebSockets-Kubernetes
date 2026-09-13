@@ -776,3 +776,25 @@ test("selector mappings preserve unaffected ambiguous href assignments", () => {
   { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
   assert.equal(result.javascript, 'link.href = "/docs"');
 });
+
+test("selector mappings rewrite nested browser Location references", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'window.document.location.assign("#private"); window.document.location.href === "/page#private"' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'window.document.location.assign("#a"); window.document.location.href === "/page#a"');
+});
+
+test("selector mappings model Annex B block function bindings", () => {
+  const result = applySelectorMappings({ css: "#private {}", html: '<div id="private"></div>',
+    javascript: 'if (flag) { function document() {} } document.getElementById("private")' },
+  { enabled: true, ids: { private: "a" }, classes: {}, safelist: [] });
+  assert.equal(result.javascript,
+    'if (flag) { function document() {} } document.getElementById("private")');
+});
+
+test("selector mappings reject dynamic runtime style interpolations", () => {
+  assert.throws(() => applySelectorMappings({ css: ".internal {}", html: '<div class="internal"></div>',
+    javascript: 'const style = document.createElement("style"); style.textContent = `.${selector} { color: red }`' },
+  { enabled: true, ids: {}, classes: { internal: "b" }, safelist: [] }), /Interpolated runtime style/u);
+});

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import {
-  buildPlan, fileExists, inlineSecretPaths, loadContract, renderValues, stableJson, validateConfiguration,
+  buildPlan, fileExists, inlineSecretPaths, loadContract, renderValues, stableJson, useCapturedDeploymentValues, validateConfiguration,
 } from "../../scripts/lib/bootstrap-contract.mjs";
 
 const execute = promisify(execFile);
@@ -81,11 +81,15 @@ test("the immutable image digest is optional but validated when supplied", () =>
   assert.deepEqual(validateConfiguration(withoutDigest), []);
   withoutDigest.image.digest = "sha256:not-a-digest";
   assert(validateConfiguration(withoutDigest).some(item => item.path === "$.image.digest"));
+  withoutDigest.image.digest = "";
+  withoutDigest.image.tag = "bad tag@sha";
+  assert(validateConfiguration(withoutDigest).some(item => item.path === "$.image.tag"));
 });
 
 test("Helm backup values containing inline credentials are detected by path", () => {
   assert.deepEqual(inlineSecretPaths({ auth: { password: "exposed", apiKey: "exposed", existingSecret: "safe", passwordKey: "safe" }, tls: { privateKey: "exposed" } }), ["$.auth.password", "$.auth.apiKey", "$.tls.privateKey"]);
   assert.deepEqual(inlineSecretPaths({ serviceAccount: { automountServiceAccountToken: false } }), []);
+  assert.deepEqual(inlineSecretPaths({ auth: { passwords: ["first", "second"] } }), ["$.auth.passwords[0]", "$.auth.passwords[1]"]);
 });
 
 test("HA rejects insufficient failure domains", () => {
@@ -170,6 +174,30 @@ test("OTLP URL credentials and path traversal segments fail closed", () => {
   assert(errors.some(item => item.path === "$.ingress.allowedOrigins[0]"));
   config.observability.otlpEndpoint = "https://collector.example.test/v1/traces?api_key=secret";
   assert(validateConfiguration(config).some(item => item.path === "$.observability.otlpEndpoint" && item.message.includes("query string")));
+  config.observability.otlpEndpoint = "https://collector.example.test/v1/traces";
+  config.observability.otlpEgressCidrs = ["999.999.999.999/99"];
+  assert(validateConfiguration(config).some(item => item.path === "$.observability.otlpEgressCidrs"));
+});
+
+test("MetalLB monitoring accepts IPv4 and IPv6 addresses and rejects malformed values", () => {
+  const config = configuration();
+  config.networking.metalLbAddress = "2001:db8::10";
+  assert.deepEqual(validateConfiguration(config), []);
+  config.networking.metalLbAddress = "999.999.1.1";
+  assert(validateConfiguration(config).some(item => item.path === "$.networking.metalLbAddress"));
+  config.networking.metalLbAddress = "deadbeef";
+  assert(validateConfiguration(config).some(item => item.path === "$.networking.metalLbAddress"));
+});
+
+test("rollback plans use the exact captured gateway and managed Redis values", () => {
+  const desired = buildPlan("rollback", configuration(), profiles["non-ha"]);
+  const gateway = { image: { repository: "registry.example.test/cormier/realtime", tag: "captured" }, topology: "non-ha" };
+  const redis = { architecture: "standalone", master: { persistence: { size: "32Gi" } } };
+  const captured = useCapturedDeploymentValues(desired, gateway, redis, "22.3.4");
+  assert.deepEqual(captured.values, gateway);
+  assert.deepEqual(captured.managedRedis.values, redis);
+  assert.equal(captured.managedRedis.chartVersion, "22.3.4");
+  assert.notEqual(captured.valuesSha256, desired.valuesSha256);
 });
 
 test("ServiceMonitor selectors and external Redis egress boundaries are explicit", () => {
@@ -269,6 +297,7 @@ async function fakeClusterTools(directory) {
   const helm = `#!/usr/bin/env bash
 set -euo pipefail
 if [[ -n "\${BOOTSTRAP_FAKE_LOG:-}" ]]; then printf '%s\\n' "$*" >> "$BOOTSTRAP_FAKE_LOG"; fi
+if [[ -n "\${BOOTSTRAP_FAKE_DELAY:-}" ]]; then sleep "$BOOTSTRAP_FAKE_DELAY"; fi
 if [[ "\${BOOTSTRAP_FAKE_FAIL:-}" == 'redis' && "$*" == *"$BOOTSTRAP_FAKE_REDIS_RELEASE"* && "\${1:-}" == 'upgrade' ]]; then printf '%s\\n' 'injected Redis failure' >&2; exit 9; fi
 case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
@@ -514,6 +543,12 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     assert.match(await readFile(operationLog, "utf8"), new RegExp(`upgrade --install ${release}-redis .*--version 22\\.3\\.4`));
+    const rollbackPlan = JSON.parse(await readFile(resolve(targetRoot, "plan.json"), "utf8"));
+    const rollbackState = JSON.parse(await readFile(resolve(targetRoot, "state.json"), "utf8"));
+    assert.deepEqual(rollbackPlan.values, { topology: "non-ha", redis: { mode: "managed" } });
+    assert.deepEqual(rollbackPlan.managedRedis.values, { architecture: "standalone" });
+    assert.equal(rollbackPlan.managedRedis.chartVersion, "22.3.4");
+    assert.equal(rollbackState.valuesSha256, rollbackPlan.valuesSha256);
     await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "non-ha", redis: { mode: "external" } }));
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment }), error => error.code === 3 && /Redis mode rollback conversion.*explicit migration/.test(error.stdout));
   } finally {
@@ -599,7 +634,14 @@ test("stale lifecycle locks are recovered with bounded owner metadata", { timeou
   await mkdir(lockPath, { recursive: true });
   await writeFile(resolve(lockPath, "owner.json"), stableJson({ createdAt: new Date().toISOString(), hostname: hostname(), pid: 999999 }));
   try {
-    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis` } });
+    const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis` };
+    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: environment });
+    assert.equal(await fileExists(lockPath), false);
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(resolve(lockPath, "owner.json"), stableJson({ createdAt: new Date().toISOString(), hostname: hostname(), pid: 999999 }));
+    const contenders = await Promise.allSettled(Array.from({ length: 6 }, () => execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_DELAY: "0.2" } })));
+    assert.equal(contenders.filter(result => result.status === "fulfilled").length, 1);
+    assert(contenders.filter(result => result.status === "rejected").every(result => result.reason.code === 3 && /target lock/.test(result.reason.stdout)));
     assert.equal(await fileExists(lockPath), false);
   } finally {
     await rm(targetRoot, { recursive: true, force: true });

@@ -12,6 +12,7 @@ const dnsLabel = /^(?=.{1,63}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const dnsSubdomain = /^(?=.{1,253}$)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$/;
 const labelName = /^(?=.{1,63}$)[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$/;
 const registryRepository = /^[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/;
+const imageTag = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
 const memoryQuantity = /^[1-9][0-9]*(?:Mi|Gi)$/;
@@ -109,7 +110,7 @@ export function validateConfiguration(input) {
   const image = requireRecord(config.image, "$.image", errors);
   requireKeys(image, "$.image", ["repository", "tag", "pullPolicy"], errors, ["digest"]);
   requireString(image.repository, "$.image.repository", errors, registryRepository);
-  requireString(image.tag, "$.image.tag", errors);
+  requireString(image.tag, "$.image.tag", errors, imageTag);
   if (image.digest !== undefined) requireString(image.digest, "$.image.digest", errors, /^sha256:[a-f0-9]{64}$/, true);
   if (!["Always", "IfNotPresent", "Never"].includes(image.pullPolicy)) errors.push(problem("$.image.pullPolicy", "must be Always, IfNotPresent, or Never"));
 
@@ -180,7 +181,7 @@ export function validateConfiguration(input) {
   if (observability.serviceMonitor && (Object.keys(monitoringNamespaceLabels).length === 0 || Object.keys(monitoringPodLabels).length === 0)) errors.push(problem("$.observability", "ServiceMonitor requires explicit monitoring namespace and pod selectors"));
   for (const [path, labels] of [["$.observability.monitoringNamespaceLabels", monitoringNamespaceLabels], ["$.observability.monitoringPodLabels", monitoringPodLabels]]) validateLabels(labels, path, errors);
   const otlpEgressCidrs = Array.isArray(observability.otlpEgressCidrs) ? observability.otlpEgressCidrs : [];
-  if (!Array.isArray(observability.otlpEgressCidrs)) errors.push(problem("$.observability.otlpEgressCidrs", "must be an array"));
+  if (!Array.isArray(observability.otlpEgressCidrs) || otlpEgressCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.observability.otlpEgressCidrs", "must contain valid IPv4 or IPv6 CIDRs"));
   const otlpNamespaceLabels = requireRecord(observability.otlpEgressNamespaceLabels, "$.observability.otlpEgressNamespaceLabels", errors);
   const otlpPodLabels = requireRecord(observability.otlpEgressPodLabels, "$.observability.otlpEgressPodLabels", errors);
   if (!Array.isArray(observability.otlpEgressPorts) || observability.otlpEgressPorts.length === 0 || observability.otlpEgressPorts.some(port => !Number.isInteger(port) || port < 1 || port > 65535)) errors.push(problem("$.observability.otlpEgressPorts", "must contain valid TCP ports"));
@@ -209,7 +210,8 @@ export function validateConfiguration(input) {
   const trustedProxyCidrs = Array.isArray(networking.trustedProxyCidrs) ? networking.trustedProxyCidrs : [];
   if (!Array.isArray(networking.trustedProxyCidrs) || trustedProxyCidrs.length === 0 || trustedProxyCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.networking.trustedProxyCidrs", "must contain at least one valid IPv4 or IPv6 CIDR"));
   requireString(networking.metalLbNamespace, "$.networking.metalLbNamespace", errors, dnsLabel);
-  requireString(networking.metalLbAddress, "$.networking.metalLbAddress", errors, /^[A-Fa-f0-9:.]+$/);
+  requireString(networking.metalLbAddress, "$.networking.metalLbAddress", errors);
+  if (typeof networking.metalLbAddress === "string" && isIP(networking.metalLbAddress) === 0) errors.push(problem("$.networking.metalLbAddress", "must be a valid IPv4 or IPv6 address"));
   if (!["l2", "bgp"].includes(networking.advertisementMode)) errors.push(problem("$.networking.advertisementMode", "must be l2 or bgp"));
 
   function rejectInlineSecrets(value, path = "$") {
@@ -234,6 +236,22 @@ export function stableJson(value) {
   return `${JSON.stringify(stable(value), null, 2)}\n`;
 }
 
+function deploymentValuesSha256(gateway, managedRedis) {
+  return createHash("sha256").update(stableJson({ gateway, managedRedis })).digest("hex");
+}
+
+export function useCapturedDeploymentValues(plan, gatewayValues, managedRedisValues, managedRedisChartVersion) {
+  const captured = structuredClone(plan);
+  captured.values = stable(gatewayValues);
+  captured.managedRedis = managedRedisValues === undefined ? null : stable({
+    chart: "oci://registry-1.docker.io/bitnamicharts/redis",
+    chartVersion: managedRedisChartVersion,
+    values: managedRedisValues,
+  });
+  captured.valuesSha256 = deploymentValuesSha256(captured.values, captured.managedRedis);
+  return stable(captured);
+}
+
 export function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!isRecord(value)) return value;
@@ -245,7 +263,9 @@ export function inlineSecretPaths(value, path = "$") {
   const paths = [];
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
-    if (secretValueKey.test(key) && !isSecretReferenceField(key, path) && typeof child === "string" && child.length > 0) paths.push(childPath);
+    const credentialField = secretValueKey.test(key) && !isSecretReferenceField(key, path);
+    if (credentialField && typeof child === "string" && child.length > 0) paths.push(childPath);
+    if (credentialField && Array.isArray(child)) child.forEach((item, index) => { if (typeof item === "string" && item.length > 0) paths.push(`${childPath}[${index}]`); });
     if (isRecord(child)) paths.push(...inlineSecretPaths(child, childPath));
     if (Array.isArray(child)) child.forEach((item, index) => { if (isRecord(item)) paths.push(...inlineSecretPaths(item, `${childPath}[${index}]`)); });
   }
@@ -426,7 +446,7 @@ export function buildPlan(action, config, profile, options = {}) {
     },
     managedRedis,
     values,
-    valuesSha256: createHash("sha256").update(stableJson(deploymentValues)).digest("hex"),
+    valuesSha256: deploymentValuesSha256(deploymentValues.gateway, deploymentValues.managedRedis),
   });
 }
 

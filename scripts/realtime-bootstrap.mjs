@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson,
+  actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -205,7 +206,18 @@ async function readRollbackSnapshot(planTarget, options) {
   const valuesPath = resolve(backup, `${planTarget.release}.values.json`);
   if (!await fileExists(valuesPath)) throw new Error(`Backup inventory includes '${planTarget.release}' but its values snapshot is missing.`);
   const values = await readJson(valuesPath);
-  return { gatewayPresent: true, releases, topology: topologyFromValues(values, planTarget.release), redisMode: values.redis?.mode ?? (installed.has(planTarget.redisRelease) ? "managed" : "external") };
+  const redisPresent = installed.has(planTarget.redisRelease);
+  const redisValuesPath = resolve(backup, `${planTarget.redisRelease}.values.json`);
+  if (redisPresent && !await fileExists(redisValuesPath)) throw new Error(`Backup inventory includes '${planTarget.redisRelease}' but its values snapshot is missing.`);
+  return {
+    gatewayPresent: true,
+    releases,
+    topology: topologyFromValues(values, planTarget.release),
+    redisMode: values.redis?.mode ?? (redisPresent ? "managed" : "external"),
+    gatewayValues: values,
+    managedRedisValues: redisPresent ? await readJson(redisValuesPath) : undefined,
+    managedRedisChartVersion: redisPresent ? capturedRedisChartVersion(releases, planTarget.redisRelease) : undefined,
+  };
 }
 
 async function writeNamingManifest(config) {
@@ -245,11 +257,11 @@ function processExists(pid) {
 
 async function acquireLock(lockPath) {
   const ownerPath = resolve(lockPath, "owner.json");
-  const owner = { createdAt: new Date().toISOString(), hostname: hostname(), pid: process.pid };
+  const owner = { createdAt: new Date().toISOString(), hostname: hostname(), pid: process.pid, token: randomUUID() };
   try {
     await mkdir(lockPath);
     await atomicWrite(ownerPath, stableJson(owner));
-    return;
+    return owner.token;
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
   }
@@ -265,10 +277,30 @@ async function acquireLock(lockPath) {
     stale = Date.now() - (await stat(lockPath)).mtimeMs > 2 * 60 * 60 * 1000;
   }
   if (!stale) throw new Error(`Another lifecycle operation holds the target lock '${lockPath}'.`);
-  await rm(lockPath, { recursive: true, force: true });
-  try { await mkdir(lockPath); }
-  catch (error) { if (error.code === "EEXIST") throw new Error(`Another lifecycle operation holds the target lock '${lockPath}'.`); throw error; }
-  await atomicWrite(ownerPath, stableJson(owner));
+  const stalePath = `${lockPath}.stale-${owner.token}`;
+  try { await rename(lockPath, stalePath); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  try {
+    await mkdir(lockPath);
+    await atomicWrite(ownerPath, stableJson(owner));
+  } catch (error) {
+    if (error.code === "EEXIST") throw new Error(`Another lifecycle operation holds the target lock '${lockPath}'.`);
+    throw error;
+  } finally {
+    await rm(stalePath, { recursive: true, force: true });
+  }
+  return owner.token;
+}
+
+async function releaseLock(lockPath, token) {
+  try {
+    const owner = await readJson(resolve(lockPath, "owner.json"));
+    if (owner.token === token) await rm(lockPath, { recursive: true, force: true });
+  } catch (error) {
+    if (!/Cannot read JSON/.test(error.message)) throw error;
+  }
 }
 
 function capturedRedisChartVersion(releaseInventory, release) {
@@ -329,7 +361,7 @@ async function main() {
   const lockPath = resolve(repositoryRoot, ".bootstrap", "locks", `${config.environment.name}-${names}`);
   assertPathInside(resolve(repositoryRoot, ".bootstrap", "locks"), lockPath, "target lock");
   await mkdir(dirname(lockPath), { recursive: true });
-  if (lockRequired) await acquireLock(lockPath);
+  const lockToken = lockRequired ? await acquireLock(lockPath) : undefined;
   try {
     const statePath = resolve(targetRoot, "state.json");
     const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
@@ -347,7 +379,8 @@ async function main() {
     if (["install", "update", "recover"].includes(options.action) && installedState?.redisMode && installedState.redisMode !== config.redis.mode) throw new Error(`Redis mode conversion from '${installedState.redisMode}' to '${config.redis.mode}' requires an explicit migration outside this bootstrap action.`);
     if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent && installedState?.redisMode && installedState.redisMode !== rollbackSnapshot.redisMode) throw new Error(`Redis mode rollback conversion from '${installedState.redisMode}' to '${rollbackSnapshot.redisMode}' requires an explicit migration outside this bootstrap action.`);
     const previousTopology = installedState?.topology ?? (clusterAware ? undefined : priorState?.topology);
-    const plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
+    let plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
+    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChartVersion);
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
     await atomicWrite(options.valuesPath, stableJson(plan.values));
@@ -406,7 +439,7 @@ async function main() {
     });
     await flushLog();
   } finally {
-    if (lockRequired) await rm(lockPath, { recursive: true, force: true });
+    if (lockRequired) await releaseLock(lockPath, lockToken);
   }
 }
 

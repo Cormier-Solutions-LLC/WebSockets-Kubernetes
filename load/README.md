@@ -1,6 +1,8 @@
 # Production-readiness load testing
 
-`scripts/Invoke-RealtimeLoad.ps1` invokes the concurrent .NET load runner for connection, fan-out, burst, permitted-large-message, slow-client, and soak scenarios. Endpoint, origin, session cookie, topic, concurrency, duration, and output are parameters; the repository contains no production address or credential. Each connection owns an asynchronous receive loop and workload task, connection and acknowledged-message latencies are reported separately, and the connection profile sends protocol heartbeats for its full requested duration.
+`scripts/Invoke-RealtimeLoad.ps1` runs `tools/Cormier.Realtime.LoadRunner/Cormier.Realtime.LoadRunner.csproj` with caller-supplied endpoint, origin, session ID, session-cookie name, subprotocol, topic, concurrency, duration, and output path. Supported scenarios are `connection`, `fanout`, `burst`, `large-message`, `slow-client`, and `soak` (matching `profiles/production-readiness.json`). The harness sets `CORMIER_LOAD_SESSION_ID` from `-SessionId`, so no production address, credential, or secret is stored in this repository.
+
+Each connection uses an asynchronous receive loop and workload task. The result JSON reports connection latency and acknowledged publish latency separately, and the `connection` scenario sends periodic `ping` commands for the full configured duration.
 
 Use an isolated test tenant/session and capture a Grafana snapshot covering the run. Start with the profile in `profiles/production-readiness.json`, then increase connections in 25% steps until one measured guardrail is crossed:
 
@@ -10,7 +12,9 @@ Use an isolated test tenant/session and capture a Grafana snapshot covering the 
 - Redis operation error rate above zero or Redis command p99 above 10 ms;
 - more than 0.1% abnormal connection closes.
 
-Record Kubernetes version, node/pod resources, replicas, image digest, Redis topology, profile, results JSON, and dashboard snapshot in the release evidence. Set HPA minimum replicas to the replicas required for ordinary peak load plus one failure-domain reserve; retain the 70% CPU and 75% memory targets and verify scale-up and scale-down with the same immutable image digest.
+Record Kubernetes version, node/pod resources, replicas, image digest, Redis topology, profile, results JSON, and dashboard snapshot in the release evidence. Keep these thresholds aligned with the operational scaling guidance in [`docs/runbooks/README.md`](../docs/runbooks/README.md).
+
+Retained baseline evidence for harness validation is tracked in [`results/local-baseline.md`](results/local-baseline.md); it is a local regression reference, not a production capacity claim.
 
 Example (all environment identities remain caller supplied):
 

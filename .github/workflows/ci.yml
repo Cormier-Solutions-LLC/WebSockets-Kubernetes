@@ -11,21 +11,46 @@ permissions:
   security-events: write
 
 env:
-  CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
+  DOTNET_INSTALL_DIR: ${{ vars.CI_DOTNET_INSTALL_DIR || '/home/runner/.dotnet' }}
+  CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
+  CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
+  CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
   CI_REDIS_BIND_ADDRESS: ${{ vars.CI_REDIS_BIND_ADDRESS || '0.0.0.0' }}
-  CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}
-  CI_PYTHON_IMAGE: ${{ vars.CI_PYTHON_IMAGE || 'python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc' }}
-  CI_RUBY_IMAGE: ${{ vars.CI_RUBY_IMAGE || 'ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc' }}
-  CI_SWIFT_IMAGE: ${{ vars.CI_SWIFT_IMAGE || 'swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c' }}
+  CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}
+  CI_PYTHON_IMAGE: ${{ vars.CI_PYTHON_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/python:3.14.7-alpine3.24@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc' }}
+  CI_RUBY_IMAGE: ${{ vars.CI_RUBY_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/ruby:4.0.6-alpine3.24@sha256:6ec7aeb4f3f0b67a21fb73a83fc20a4055696e64b933229f68ec805a3de38fcc' }}
+  CI_SWIFT_IMAGE: ${{ vars.CI_SWIFT_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c' }}
+  CI_POWERSHELL_IMAGE: ${{ vars.CI_POWERSHELL_IMAGE || 'harbor.cormierconsulting.io/mcr/powershell@sha256:042240d57ec9e47e511033b92625a8d95875ee5860af3015992c248b58a8be81' }}
+  CI_PROMETHEUS_IMAGE: ${{ vars.CI_PROMETHEUS_IMAGE || 'harbor.cormierconsulting.io/dockerhub/prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038' }}
+  CI_HELM_IMAGE: ${{ vars.CI_HELM_IMAGE || 'harbor.cormierconsulting.io/dockerhub/alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501' }}
+  CI_NODE_IMAGE: ${{ vars.CI_NODE_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf' }}
+  CI_MAVEN_IMAGE: ${{ vars.CI_MAVEN_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/maven:3.9.12-eclipse-temurin-25-alpine@sha256:91fbbf32cc5076b6142ed98405f3a1a21e102d876eafa5eaf359b5591e8e3fd8' }}
+  CI_JAVA_IMAGE: ${{ vars.CI_JAVA_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/eclipse-temurin:25-jre-alpine@sha256:3137541deb3cac6626b5d9a4a2187bc0d6a34312f858bd2c67dd01e732e6b682' }}
+  CI_GRADLE_IMAGE: ${{ vars.CI_GRADLE_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/gradle:9.7.1-jdk25-alpine@sha256:a0991f96020bb532564c947a4bbea93d67befd3cc81b3e356eb1a85556701b6e' }}
+  CI_RUST_IMAGE: ${{ vars.CI_RUST_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/rust:1.98.1-alpine@sha256:1716b3aa042d735f4566d14dc54e8037de9d69556e2d5dd58131d93a613d173d' }}
+  CI_ALPINE_IMAGE: ${{ vars.CI_ALPINE_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b' }}
+  CI_GO_IMAGE: ${{ vars.CI_GO_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125' }}
+  CI_GO_CADDY_IMAGE: ${{ vars.CI_GO_CADDY_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/golang:1.26.7-alpine3.24@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468' }}
+  CI_ELIXIR_IMAGE: ${{ vars.CI_ELIXIR_IMAGE || 'harbor.cormierconsulting.io/dockerhub/hexpm/elixir:1.20.4-erlang-29.0.6-alpine-3.24.1@sha256:fec752d2a79fc50dc0a29b4da3c62f0a4925bc318f5391e5e221d01f98be6f22' }}
+  CI_FRANKENPHP_BUILDER_IMAGE: ${{ vars.CI_FRANKENPHP_BUILDER_IMAGE || 'harbor.cormierconsulting.io/dockerhub/dunglas/frankenphp:1.12.7-builder-php8.5-alpine@sha256:862bce4c7efe77337d8f8170a262b639e1787141ffe70ae0edd9ec6ef96c6a99' }}
+  CI_FRANKENPHP_IMAGE: ${{ vars.CI_FRANKENPHP_IMAGE || 'harbor.cormierconsulting.io/dockerhub/dunglas/frankenphp:1.12.7-php8.5-alpine@sha256:214b541fe30aeed2717d54f74149b71b2bdb0089718f1fbb8b43bc170ab00939' }}
+  CI_UV_IMAGE: ${{ vars.CI_UV_IMAGE || 'harbor.cormierconsulting.io/ghcr/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6' }}
+  CI_SWIFT_RUNTIME_IMAGE: ${{ vars.CI_SWIFT_RUNTIME_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/swift:6.3.3-noble-slim@sha256:d20e340aeaf7109919b2a15c95569470070cca4d34dae40dfa58339a2aa734df' }}
 
 jobs:
   helm-and-automation:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Parse PowerShell lifecycle scripts
         run: |
-          docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview mcr.microsoft.com/powershell@sha256:042240d57ec9e47e511033b92625a8d95875ee5860af3015992c248b58a8be81 -NoLogo -NoProfile -Command '
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview "$CI_POWERSHELL_IMAGE" -NoLogo -NoProfile -Command '
             $failed = $false
             Get-ChildItem /work/scripts -Filter "*.ps1" | ForEach-Object {
               $errors = $null
@@ -37,11 +62,11 @@ jobs:
       - name: Helm lint, schema, and render validation
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 lint helm/realtime-gateway --strict
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime > /tmp/external.yaml
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime --values cluster/redis/managed-gateway-values.example.yaml > /tmp/managed.yaml
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime --api-versions monitoring.coreos.com/v1/ServiceMonitor --api-versions monitoring.coreos.com/v1/PrometheusRule --api-versions monitoring.coreos.com/v1alpha1/AlertmanagerConfig --set observability.alertmanagerConfig.enabled=true --set observability.alertmanagerConfig.webhookSecret.name=ci-alert-webhook --set autoscaling.connectionsMetric.enabled=true --set autoscaling.queueDepthMetric.enabled=true --set metrics.authorizationPolicy=ci-metrics --set metrics.scrapeTokenSecret.name=ci-metrics > /tmp/observability.yaml
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime helm/realtime-gateway --namespace ci-realtime --set diagnostics.enabled=true --set diagnostics.productionEnabled=true --set diagnostics.authorizationPolicy=ci-operator --set diagnostics.operatorTokenSecret.name=ci-diagnostics --set 'diagnostics.allowedNetworks[0]=192.0.2.0/24' --set observability.otlp.enabled=true --set observability.otlp.endpoint=https://otel.example --set 'observability.otlp.egressCidrs[0]=192.0.2.0/24' --set observability.otlp.headersSecret.name=ci-otel > /tmp/diagnostics.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" lint helm/realtime-gateway --strict
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime > /tmp/external.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --values cluster/redis/managed-gateway-values.example.yaml > /tmp/managed.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --api-versions monitoring.coreos.com/v1/ServiceMonitor --api-versions monitoring.coreos.com/v1/PrometheusRule --api-versions monitoring.coreos.com/v1alpha1/AlertmanagerConfig --set observability.alertmanagerConfig.enabled=true --set observability.alertmanagerConfig.webhookSecret.name=ci-alert-webhook --set autoscaling.connectionsMetric.enabled=true --set autoscaling.queueDepthMetric.enabled=true --set metrics.authorizationPolicy=ci-metrics --set metrics.scrapeTokenSecret.name=ci-metrics > /tmp/observability.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --set diagnostics.enabled=true --set diagnostics.productionEnabled=true --set diagnostics.authorizationPolicy=ci-operator --set diagnostics.operatorTokenSecret.name=ci-diagnostics --set 'diagnostics.allowedNetworks[0]=192.0.2.0/24' --set observability.otlp.enabled=true --set observability.otlp.endpoint=https://otel.example --set 'observability.otlp.egressCidrs[0]=192.0.2.0/24' --set observability.otlp.headersSecret.name=ci-otel > /tmp/diagnostics.yaml
           grep --quiet 'kind: Deployment' /tmp/external.yaml
           grep --quiet 'kind: NetworkPolicy' /tmp/managed.yaml
           grep --quiet 'kind: ServiceMonitor' /tmp/observability.yaml
@@ -56,19 +81,26 @@ jobs:
           grep --quiet 'OTEL_EXPORTER_OTLP_HEADERS' /tmp/diagnostics.yaml
           grep --quiet 'secretKeyRef' /tmp/diagnostics.yaml
           jq --exit-status '.contractVersion and (.metrics | length > 20) and ([.metrics[].labels[]] | all(. != "tenant_id" and . != "user_id" and . != "session_id"))' observability/metrics-catalog.json
-          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > /tmp/prometheus-rules.yaml
-          docker run --rm -v /tmp:/work --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /work/prometheus-rules.yaml
+          mkdir -p artifacts/helm
+          awk '/kind: PrometheusRule/{found=1} found && /^spec:/{in_spec=1;next} in_spec && /^---/{exit} in_spec {sub(/^  /,"");print}' /tmp/observability.yaml > artifacts/helm/prometheus-rules.yaml
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint promtool "$CI_PROMETHEUS_IMAGE" check rules artifacts/helm/prometheus-rules.yaml
       - name: Render pinned managed Redis topology
         run: |
-          docker run --rm -v "$PWD:/work" -w /work alpine/helm@sha256:af08f75a3130d666a50b9fc150f40987ef20b885cf67659aabf4b83a5f2c5501 template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --set fullnameOverride=ci-realtime-redis --set auth.existingSecret=ci-realtime-redis > /tmp/redis.yaml
           grep --quiet 'kind: StatefulSet' /tmp/redis.yaml
           grep --quiet 'kind: PodDisruptionBudget' /tmp/redis.yaml
           grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
 
   build-test-aot:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -83,6 +115,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install pinned PowerShell
+        run: bash scripts/setup-ci-powershell.sh
       - name: Restore TypeScript SDK dependencies
         working-directory: sdk/typescript
         run: npm ci
@@ -154,8 +188,8 @@ jobs:
           curl --fail --silent http://127.0.0.1:8080/health/startup >/dev/null
           curl --fail --silent http://127.0.0.1:8080/health/live >/dev/null
           curl --fail --silent http://127.0.0.1:8080/metrics | grep --quiet cormier_realtime_health_requests_total
-          curl --fail --silent http://127.0.0.1:8080/metrics | docker run --rm --interactive --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check metrics
-          curl --fail --silent --header 'Accept: application/openmetrics-text; version=1.0.0' http://127.0.0.1:8080/metrics | tee /tmp/openmetrics.txt | docker run --rm --interactive --entrypoint promtool prom/prometheus@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check metrics
+          curl --fail --silent http://127.0.0.1:8080/metrics | docker run --rm --interactive --entrypoint promtool "$CI_PROMETHEUS_IMAGE" check metrics
+          curl --fail --silent --header 'Accept: application/openmetrics-text; version=1.0.0' http://127.0.0.1:8080/metrics | tee /tmp/openmetrics.txt | docker run --rm --interactive --entrypoint promtool "$CI_PROMETHEUS_IMAGE" check metrics
           tail --lines 1 /tmp/openmetrics.txt | grep --quiet '^# EOF$'
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/diagnostics/v1/snapshot)" = "404"
       - name: Create OCI archive with .NET SDK
@@ -263,7 +297,7 @@ jobs:
 
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     permissions:
       contents: read
       pull-requests: write
@@ -274,9 +308,15 @@ jobs:
           fail-on-severity: high
 
   node-express:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -305,7 +345,9 @@ jobs:
         working-directory: examples/node-express
         run: npm run check
       - name: Build the Express reference container
-        run: docker build --file examples/node-express/Dockerfile --tag cormier-node-express:${{ github.sha }} .
+        run: >-
+          docker build --build-arg NODE_IMAGE="$CI_NODE_IMAGE"
+          --file examples/node-express/Dockerfile --tag cormier-node-express:${{ github.sha }} .
       - name: Scan the Express reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -327,9 +369,15 @@ jobs:
           path: artifacts/node-express
 
   java-spring-boot:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -359,7 +407,9 @@ jobs:
         working-directory: examples/java-spring-boot
         run: ./mvnw --batch-mode --no-transfer-progress verify
       - name: Build the Spring Boot reference container
-        run: docker build --file examples/java-spring-boot/Dockerfile --tag cormier-java-spring:${{ github.sha }} .
+        run: >-
+          docker build --build-arg MAVEN_IMAGE="$CI_MAVEN_IMAGE" --build-arg JAVA_IMAGE="$CI_JAVA_IMAGE"
+          --file examples/java-spring-boot/Dockerfile --tag cormier-java-spring:${{ github.sha }} .
       - name: Scan the Spring Boot reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -381,9 +431,15 @@ jobs:
           path: artifacts/java-spring-boot
 
   kotlin-ktor:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -412,7 +468,9 @@ jobs:
         working-directory: examples/kotlin-ktor
         run: ./gradlew --no-daemon test buildFatJar
       - name: Build the Ktor reference container
-        run: docker build --file examples/kotlin-ktor/Dockerfile --tag cormier-kotlin-ktor:${{ github.sha }} .
+        run: >-
+          docker build --build-arg GRADLE_IMAGE="$CI_GRADLE_IMAGE" --build-arg JAVA_IMAGE="$CI_JAVA_IMAGE"
+          --file examples/kotlin-ktor/Dockerfile --tag cormier-kotlin-ktor:${{ github.sha }} .
       - name: Scan the Ktor reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -434,9 +492,15 @@ jobs:
           path: artifacts/kotlin-ktor
 
   rust-axum:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -449,6 +513,12 @@ jobs:
           node-version: 24.20.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - name: Install Rust native build prerequisites
+        run: sudo apt-get update && sudo apt-get install --yes build-essential
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -463,7 +533,9 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
       - name: Build the Axum reference container
-        run: docker build --file examples/rust-axum/Dockerfile --tag cormier-rust-axum:${{ github.sha }} .
+        run: >-
+          docker build --build-arg RUST_IMAGE="$CI_RUST_IMAGE" --build-arg ALPINE_IMAGE="$CI_ALPINE_IMAGE"
+          --file examples/rust-axum/Dockerfile --tag cormier-rust-axum:${{ github.sha }} .
       - name: Scan the Axum reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -485,9 +557,15 @@ jobs:
           path: artifacts/rust-axum
 
   go-gin:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -518,7 +596,9 @@ jobs:
           go test -mod=readonly ./...
           go vet -mod=readonly ./...
       - name: Build the Gin reference container
-        run: docker build --file examples/go-gin/Dockerfile --tag cormier-go-gin:${{ github.sha }} .
+        run: >-
+          docker build --build-arg GO_IMAGE="$CI_GO_IMAGE" --build-arg ALPINE_IMAGE="$CI_ALPINE_IMAGE"
+          --file examples/go-gin/Dockerfile --tag cormier-go-gin:${{ github.sha }} .
       - name: Scan the Gin reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -540,9 +620,15 @@ jobs:
           path: artifacts/go-gin
 
   elixir-phoenix:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -575,7 +661,9 @@ jobs:
           mix test --no-start
           mix hex.audit
       - name: Build the Phoenix reference container
-        run: docker build --file examples/elixir-phoenix/Dockerfile --tag cormier-elixir-phoenix:${{ github.sha }} .
+        run: >-
+          docker build --build-arg ELIXIR_IMAGE="$CI_ELIXIR_IMAGE"
+          --file examples/elixir-phoenix/Dockerfile --tag cormier-elixir-phoenix:${{ github.sha }} .
       - name: Scan the Phoenix reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -597,9 +685,15 @@ jobs:
           path: artifacts/elixir-phoenix
 
   php-laravel:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -625,7 +719,11 @@ jobs:
           "$CI_COMPOSER_IMAGE"
           sh -lc 'composer install --no-interaction --no-progress --no-scripts && composer validate --no-check-publish && vendor/bin/pint --test && vendor/bin/phpunit && composer audit --locked --no-interaction'
       - name: Build the Laravel reference container
-        run: docker build --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
+        run: >-
+          docker build --build-arg COMPOSER_IMAGE="$CI_COMPOSER_IMAGE"
+          --build-arg FRANKENPHP_BUILDER_IMAGE="$CI_FRANKENPHP_BUILDER_IMAGE"
+          --build-arg FRANKENPHP_IMAGE="$CI_FRANKENPHP_IMAGE"
+          --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
       - name: Scan the Laravel reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -649,9 +747,15 @@ jobs:
           path: artifacts/php-laravel
 
   python-fastapi:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -677,7 +781,9 @@ jobs:
           "$CI_PYTHON_IMAGE"
           sh -lc 'pip install --no-cache-dir uv==0.12.13 >/dev/null && uv sync --frozen && uv lock --check && uv run ruff check . && uv run ruff format --check . && uv run pytest && uv run pip-audit --local'
       - name: Build the FastAPI reference container
-        run: docker build --file examples/python-fastapi/Dockerfile --tag cormier-python-fastapi:${{ github.sha }} .
+        run: >-
+          docker build --build-arg UV_IMAGE="$CI_UV_IMAGE" --build-arg PYTHON_IMAGE="$CI_PYTHON_IMAGE"
+          --file examples/python-fastapi/Dockerfile --tag cormier-python-fastapi:${{ github.sha }} .
       - name: Scan the FastAPI reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -701,9 +807,15 @@ jobs:
           path: artifacts/python-fastapi
 
   ruby-rails:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -729,7 +841,9 @@ jobs:
           "$CI_RUBY_IMAGE"
           sh -lc 'apk add --no-cache build-base git yaml-dev >/dev/null && gem install bundler -v 4.0.20 --no-document >/dev/null && bundle _4.0.20_ config set path /tmp/bundle && BUNDLE_FROZEN=true bundle _4.0.20_ install && bundle _4.0.20_ check && bundle _4.0.20_ exec rubocop && bundle _4.0.20_ exec ruby test/reference_config_test.rb && bundle _4.0.20_ exec brakeman --no-pager --quiet && bundle _4.0.20_ exec bundle-audit check --update'
       - name: Build the Rails reference container
-        run: docker build --file examples/ruby-rails/Dockerfile --tag cormier-ruby-rails:${{ github.sha }} .
+        run: >-
+          docker build --build-arg RUBY_IMAGE="$CI_RUBY_IMAGE" --build-arg GO_IMAGE="$CI_GO_CADDY_IMAGE"
+          --file examples/ruby-rails/Dockerfile --tag cormier-ruby-rails:${{ github.sha }} .
       - name: Scan the Rails reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -753,9 +867,15 @@ jobs:
           path: artifacts/ruby-rails
 
   swift-vapor:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -781,7 +901,11 @@ jobs:
           "$CI_SWIFT_IMAGE"
           sh -lc 'cp Package.resolved /tmp/Package.resolved && swift package resolve --disable-sandbox && diff -u /tmp/Package.resolved Package.resolved && swift format lint --recursive --strict Sources Tests Package.swift && swift test --disable-sandbox'
       - name: Build the Vapor reference container
-        run: docker build --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
+        run: >-
+          docker build --build-arg SWIFT_BUILD_IMAGE="$CI_SWIFT_IMAGE"
+          --build-arg GO_IMAGE="$CI_GO_CADDY_IMAGE"
+          --build-arg SWIFT_RUNTIME_IMAGE="$CI_SWIFT_RUNTIME_IMAGE"
+          --file examples/swift-vapor/Dockerfile --tag cormier-swift-vapor:${{ github.sha }} .
       - name: Scan the Vapor reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -805,7 +929,7 @@ jobs:
           path: artifacts/swift-vapor
 
   full-circle:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     strategy:
       fail-fast: false
       matrix:
@@ -813,6 +937,12 @@ jobs:
         profile: [non-ha, ha]
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Harbor
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: harbor.cormierconsulting.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -825,6 +955,9 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install pinned PowerShell
+        if: matrix.shell == 'pwsh'
+        run: bash scripts/setup-ci-powershell.sh
       - name: Bootstrap through Bash
         if: matrix.shell == 'bash'
         run: bash ./scripts/full-circle.sh bootstrap --profile "${{ matrix.profile }}"

@@ -15,6 +15,8 @@ The same build creates centralized readable and optimized assets for every refer
 
 `RealtimeClient` exposes `connect`, `disconnect`, `publish`, `subscribe`, `ping`, state/close/error/event listeners, and the desired-subscription snapshot. Commands resolve only after a correlated acknowledgement and reject with a structured `RealtimeError` when the gateway sends an error. Queue and pending-command limits are finite and configurable; oversized commands are rejected before transport.
 
+`DiagnosticsClient` is a separate operator client for the versioned diagnostics API. It exposes `snapshot`, `activeLogLevels`, paginated `audit`, `applyLogLevel`, `revertLogLevel`, `streamEvents`, and `tailLogs`. Configure its `baseUrl` and authorization headers explicitly; streaming requests use credentialed `fetch`, retry ordinary interruptions, and stop when the server emits a bounded `disconnect` event. Never embed an operator token in a public browser bundle or persist one in browser storage. Server-side authorization, Origin, network, redaction, rate, and duration controls remain authoritative.
+
 ## Authentication and browser security
 
 Session mode relies on the gateway's configured same-origin HttpOnly cookie. JavaScript neither reads nor copies the cookie. Ticket mode POSTs to the configurable ticket endpoint with same-origin credentials before every connection and reconnect. It validates the response and puts the short-lived ticket only in the WebSocket handshake query. Ticket values are not exposed to SDK callbacks, error messages, or logs.

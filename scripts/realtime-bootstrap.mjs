@@ -90,6 +90,10 @@ async function currentContext(options) {
   return command("kubectl", ["config", "current-context"], "Read current Kubernetes context", { ...options, capture: true });
 }
 
+function targetReleaseListArguments(target) {
+  return ["list", "--namespace", target.namespace, "--filter", `^(${target.release}|${target.redisRelease})$`, "--max", "2", "--output", "json"];
+}
+
 async function assertTarget(plan, config, options, mutation) {
   const context = await currentContext(options);
   if (context !== plan.target.context) throw new Error(`Target mismatch: expected Kubernetes context '${plan.target.context}', found '${context}'.`);
@@ -137,7 +141,7 @@ async function assertTeardownTarget(plan, options) {
   await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
   const allowed = await command("kubectl", ["auth", "can-i", "delete", "deployments.apps", "--namespace", plan.target.namespace], "Validate teardown permission", { ...options, capture: true });
   if (allowed !== "yes") throw new Error(`Missing deployment deletion permission in '${plan.target.namespace}'.`);
-  const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory teardown releases", { ...options, capture: true });
+  const releasesDocument = await command("helm", targetReleaseListArguments(plan.target), "Inventory teardown releases", { ...options, capture: true });
   if (!Array.isArray(JSON.parse(releasesDocument))) throw new Error("Helm release inventory was not a JSON array.");
 }
 
@@ -145,7 +149,7 @@ async function assertBackupTarget(plan, options) {
   const context = await currentContext(options);
   if (context !== plan.target.context) throw new Error(`Target mismatch: expected Kubernetes context '${plan.target.context}', found '${context}'.`);
   await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
-  const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory backup releases", { ...options, capture: true });
+  const releasesDocument = await command("helm", targetReleaseListArguments(plan.target), "Inventory backup releases", { ...options, capture: true });
   if (!Array.isArray(JSON.parse(releasesDocument))) throw new Error("Helm release inventory was not a JSON array.");
 }
 
@@ -156,7 +160,7 @@ async function saveState(plan, options) {
   await mkdir(directory, { recursive: true });
   try {
     const capturedPlan = structuredClone(plan);
-    const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory installed releases", { ...options, capture: true });
+    const releasesDocument = await command("helm", targetReleaseListArguments(plan.target), "Inventory installed releases", { ...options, capture: true });
     const releases = JSON.parse(releasesDocument);
     if (!Array.isArray(releases)) throw new Error("Helm release inventory was not a JSON array.");
     await atomicWrite(resolve(directory, "releases.json"), `${stableJson(releases)}`);
@@ -193,7 +197,7 @@ function topologyFromValues(values, release) {
 async function installedReleaseState(planTarget, options) {
   const context = await currentContext(options);
   if (context !== planTarget.context) throw new Error(`Target mismatch: expected Kubernetes context '${planTarget.context}', found '${context}'.`);
-  const releasesDocument = await command("helm", ["list", "--namespace", planTarget.namespace, "--output", "json"], "Inspect installed releases for topology", { ...options, capture: true });
+  const releasesDocument = await command("helm", targetReleaseListArguments(planTarget), "Inspect installed releases for topology", { ...options, capture: true });
   const releases = JSON.parse(releasesDocument);
   if (!Array.isArray(releases)) throw new Error("Helm release inventory was not a JSON array.");
   if (!releases.some(release => release?.name === planTarget.release)) return releases.some(release => release?.name === planTarget.redisRelease) ? { topology: undefined, redisMode: "managed" } : undefined;
@@ -246,12 +250,12 @@ async function writeNamingManifest(config) {
 }
 
 function gatewayUpgradeArguments(plan, options, action = "upgrade") {
-  return [action, "--install", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--create-namespace", "--values", options.valuesPath, "--atomic", "--wait", `--timeout=${plan.safety.boundedTimeoutSeconds}s`];
+  return [action, "--install", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--create-namespace", "--values", options.valuesPath, "--history-max", "0", "--atomic", "--wait", `--timeout=${plan.safety.boundedTimeoutSeconds}s`];
 }
 
 async function apply(plan, config, options) {
   if (config.redis.mode === "managed") {
-    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, plan.managedRedis.chart, "--version", plan.managedRedis.chartVersion, "--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
+    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, plan.managedRedis.chart, "--version", plan.managedRedis.chartVersion, "--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--history-max", "0", "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
     await command("helm", redisArgs, "Install or update managed Redis", options);
   }
   await command("helm", gatewayUpgradeArguments(plan, options), "Install or update realtime gateway", options);
@@ -354,6 +358,26 @@ async function rollback(plan, options) {
   }
 }
 
+function configurationForPlan(config, plan) {
+  const captured = structuredClone(config);
+  const values = plan.values;
+  captured.redis.mode = values.redis?.mode ?? captured.redis.mode;
+  captured.redis.tls = values.redis?.tls ?? captured.redis.tls;
+  captured.redis.credentialsSecret = values.redis?.credentialsSecret?.name ?? captured.redis.credentialsSecret;
+  captured.redis.credentialKey = values.redis?.credentialsSecret?.passwordKey ?? captured.redis.credentialKey;
+  captured.redis.adminCredentialKey = values.redis?.managedAdminPasswordKey ?? captured.redis.adminCredentialKey;
+  captured.ingress.enabled = values.ingressRoute?.enabled ?? captured.ingress.enabled;
+  captured.ingress.tlsSecretName = values.ingressRoute?.tlsSecretName ?? captured.ingress.tlsSecretName;
+  captured.observability.serviceMonitor = values.observability?.serviceMonitor?.enabled ?? captured.observability.serviceMonitor;
+  captured.observability.otlpEndpoint = values.observability?.otlp?.endpoint ?? captured.observability.otlpEndpoint;
+  captured.observability.otlpHeadersSecret = values.observability?.otlp?.headersSecret?.name ?? captured.observability.otlpHeadersSecret;
+  captured.observability.otlpHeadersKey = values.observability?.otlp?.headersSecret?.key ?? captured.observability.otlpHeadersKey;
+  captured.networking.traefikNamespace = values.networkPolicy?.ingressNamespaceSelector?.matchLabels?.["kubernetes.io/metadata.name"] ?? captured.networking.traefikNamespace;
+  captured.networking.metalLbNamespace = values.observability?.platformMetrics?.metalLbNamespace ?? captured.networking.metalLbNamespace;
+  if (plan.managedRedis?.values?.global?.storageClass) captured.kubernetes.storageClass = plan.managedRedis.values.global.storageClass;
+  return captured;
+}
+
 async function main() {
   const options = parse(process.argv.slice(2));
   options.action = options.action;
@@ -451,10 +475,10 @@ async function main() {
     let backup;
     if (options.action === "teardown") await assertTeardownTarget(plan, options);
     else if (options.action === "backup") await assertBackupTarget(plan, options);
-    else await assertTarget(plan, config, options, mutation);
+    else await assertTarget(plan, options.action === "rollback" ? configurationForPlan(config, plan) : config, options, mutation);
     if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, options);
     if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, options);
-    else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath], "Render gateway manifests", options);
+    else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath, "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor", "--api-versions", "monitoring.coreos.com/v1/PrometheusRule", "--api-versions", "monitoring.coreos.com/v1alpha1/AlertmanagerConfig"], "Render gateway manifests", options);
     else if (options.action === "rollback") await rollback(plan, options);
     else if (options.action === "teardown") {
       await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
@@ -477,7 +501,7 @@ async function main() {
 main().catch(async error => {
   emit("error", "failure", error.message);
   try { await flushLog(); } catch (logError) { process.stderr.write(`Unable to write lifecycle log: ${logError.message}\n`); }
-  if (/^(?:Action must|Unknown argument|--.+ requires|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
+  if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
   else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|target lock/.test(error.message)) process.exitCode = 3;
   else process.exitCode = 1;
 });

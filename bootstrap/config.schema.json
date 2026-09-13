@@ -123,17 +123,16 @@
     "redis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix", "managedChart", "managedChartVersion"],
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion"],
       "properties": {
         "mode": { "enum": ["external", "managed"] },
         "externalEndpoint": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?|\\[[A-Fa-f0-9:]+\\]):[0-9]{1,5}$" },
         "externalHaConfirmed": { "type": "boolean" },
         "externalEgressCidrs": { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
         "tls": { "type": "boolean" },
-        "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
         "credentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "adminCredentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
-        "username": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
         "instancePrefix": { "type": "string", "pattern": "^[A-Za-z0-9:_-]+$" },
         "managedChart": { "type": "string", "pattern": "^oci://[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" },
         "managedChartVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" }
@@ -148,7 +147,7 @@
         "host": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" },
         "allowedOrigins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^https?://[^@/?#]+/?$" } },
         "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
-        "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
         "certificateName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }
       }
     },
@@ -162,7 +161,7 @@
         "monitoringNamespaceLabels": { "$ref": "#/$defs/kubernetesLabels" },
         "monitoringPodLabels": { "$ref": "#/$defs/kubernetesLabels" },
         "otlpEndpoint": { "type": "string" },
-        "otlpHeadersSecret": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+        "otlpHeadersSecret": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
         "otlpHeadersKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "otlpEgressCidrs": { "type": "array", "items": { "$ref": "#/$defs/cidr" } },
         "otlpEgressNamespaceLabels": { "$ref": "#/$defs/kubernetesLabels" },

@@ -64,7 +64,8 @@ public sealed partial class BrandingConfigurationTests
         Assert.Contains(".bootstrap/naming.props", Read("Directory.Build.props"), StringComparison.Ordinal);
         var deployment = Read("scripts/Deploy-Realtime.ps1");
         Assert.Contains("$PSBoundParameters.ContainsKey('Application')", deployment, StringComparison.Ordinal);
-        Assert.Contains("$([string]$naming.redisInstancePrefix):$Environment", deployment, StringComparison.Ordinal);
+        Assert.Contains("[string]$naming.redisInstancePrefix", deployment, StringComparison.Ordinal);
+        Assert.DoesNotContain("$([string]$naming.redisInstancePrefix):$Environment", deployment, StringComparison.Ordinal);
         Assert.Contains("[ValidateLength(1,10)]", deployment, StringComparison.Ordinal);
         Assert.Contains("$target.Length -gt 53", deployment, StringComparison.Ordinal);
         Assert.Contains("$redisRelease.Length -gt 53", deployment, StringComparison.Ordinal);

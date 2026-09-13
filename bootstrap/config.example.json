@@ -39,7 +39,6 @@
     "credentialsSecret": "dev-realtime-redis",
     "credentialKey": "realtime",
     "adminCredentialKey": "redis-password",
-    "username": "realtime",
     "instancePrefix": "cormier:realtime:dev",
     "managedChart": "oci://registry-1.docker.io/bitnamicharts/redis",
     "managedChartVersion": "23.1.1"

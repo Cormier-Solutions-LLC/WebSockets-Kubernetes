@@ -136,7 +136,7 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix", "managedChart", "managedChartVersion"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion"], errors);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
@@ -146,14 +146,12 @@ export function validateConfiguration(input) {
   const externalEgressCidrs = Array.isArray(redis.externalEgressCidrs) ? redis.externalEgressCidrs : [];
   if (!Array.isArray(redis.externalEgressCidrs) || externalEgressCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.redis.externalEgressCidrs", "must contain valid IPv4 or IPv6 CIDRs"));
   if (redis.mode === "external" && externalEgressCidrs.length === 0) errors.push(problem("$.redis.externalEgressCidrs", "external Redis requires at least one explicit egress CIDR"));
-  requireString(redis.credentialsSecret, "$.redis.credentialsSecret", errors, dnsLabel);
+  requireString(redis.credentialsSecret, "$.redis.credentialsSecret", errors, dnsSubdomain);
   requireString(redis.credentialKey, "$.redis.credentialKey", errors, secretKey);
   requireString(redis.adminCredentialKey, "$.redis.adminCredentialKey", errors, secretKey);
-  requireString(redis.username, "$.redis.username", errors, /^[A-Za-z0-9_-]+$/);
   requireString(redis.instancePrefix, "$.redis.instancePrefix", errors, redisPrefix);
   requireString(redis.managedChart, "$.redis.managedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
   requireString(redis.managedChartVersion, "$.redis.managedChartVersion", errors, /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/);
-  if (redis.mode === "managed" && redis.credentialKey !== redis.username) errors.push(problem("$.redis.credentialKey", "must match redis.username for the managed Redis ACL mapping"));
 
   const ingress = requireRecord(config.ingress, "$.ingress", errors);
   requireKeys(ingress, "$.ingress", ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName", "certificateName"], errors);
@@ -171,7 +169,7 @@ export function validateConfiguration(input) {
     }
   });
   requireString(ingress.entryPoint, "$.ingress.entryPoint", errors, /^[A-Za-z0-9._-]+$/);
-  requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsLabel, !ingress.enabled);
+  requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsSubdomain, !ingress.enabled);
   requireString(ingress.certificateName, "$.ingress.certificateName", errors, dnsLabel, true);
 
   const observability = requireRecord(config.observability, "$.observability", errors);
@@ -186,7 +184,7 @@ export function validateConfiguration(input) {
       if (endpoint.search || endpoint.hash) errors.push(problem("$.observability.otlpEndpoint", "must not contain a query string or fragment; configure authentication through the headers Secret"));
     } catch { errors.push(problem("$.observability.otlpEndpoint", "must be a valid HTTP(S) URL")); }
   }
-  requireString(observability.otlpHeadersSecret, "$.observability.otlpHeadersSecret", errors, dnsLabel, true);
+  requireString(observability.otlpHeadersSecret, "$.observability.otlpHeadersSecret", errors, dnsSubdomain, true);
   requireString(observability.otlpHeadersKey, "$.observability.otlpHeadersKey", errors, secretKey);
   if (observability.otlpHeadersSecret && !observability.otlpEndpoint) errors.push(problem("$.observability.otlpHeadersSecret", "requires an enabled OTLP endpoint"));
   const monitoringNamespaceLabels = requireRecord(observability.monitoringNamespaceLabels, "$.observability.monitoringNamespaceLabels", errors);
@@ -198,7 +196,14 @@ export function validateConfiguration(input) {
   const otlpNamespaceLabels = requireRecord(observability.otlpEgressNamespaceLabels, "$.observability.otlpEgressNamespaceLabels", errors);
   const otlpPodLabels = requireRecord(observability.otlpEgressPodLabels, "$.observability.otlpEgressPodLabels", errors);
   if (!Array.isArray(observability.otlpEgressPorts) || observability.otlpEgressPorts.length === 0 || observability.otlpEgressPorts.some(port => !Number.isInteger(port) || port < 1 || port > 65535)) errors.push(problem("$.observability.otlpEgressPorts", "must contain valid TCP ports"));
-  if (observability.otlpEndpoint && otlpEgressCidrs.length === 0 && Object.keys(otlpNamespaceLabels).length === 0) errors.push(problem("$.observability", "an enabled OTLP endpoint requires an egress CIDR or namespace selector"));
+  if (observability.otlpEndpoint) {
+    if (!otlpEgressCidrs.length && Object.keys(otlpNamespaceLabels).length === 0) errors.push(problem("$.observability", "an enabled OTLP endpoint requires an egress CIDR or namespace selector"));
+    try {
+      const endpoint = new URL(observability.otlpEndpoint);
+      const endpointPort = Number(endpoint.port || (endpoint.protocol === "https:" ? 443 : 80));
+      if (Array.isArray(observability.otlpEgressPorts) && !observability.otlpEgressPorts.includes(endpointPort)) errors.push(problem("$.observability.otlpEgressPorts", `must include the OTLP endpoint port ${endpointPort}`));
+    } catch { /* URL syntax is reported above. */ }
+  }
   validateLabels(otlpNamespaceLabels, "$.observability.otlpEgressNamespaceLabels", errors);
   validateLabels(otlpPodLabels, "$.observability.otlpEgressPodLabels", errors);
 
@@ -282,8 +287,8 @@ export function inlineSecretPaths(value, path = "$") {
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
     const credentialField = secretValueKey.test(key) && !isSecretReferenceField(key, path);
-    if (credentialField && typeof child === "string" && child.length > 0) paths.push(childPath);
-    if (credentialField && Array.isArray(child)) child.forEach((item, index) => { if (typeof item === "string" && item.length > 0) paths.push(`${childPath}[${index}]`); });
+    if (credentialField && ((typeof child === "string" && child.length > 0) || typeof child === "number")) paths.push(childPath);
+    if (credentialField && Array.isArray(child)) child.forEach((item, index) => { if ((typeof item === "string" && item.length > 0) || typeof item === "number") paths.push(`${childPath}[${index}]`); });
     if (isRecord(child)) paths.push(...inlineSecretPaths(child, childPath));
     if (Array.isArray(child)) child.forEach((item, index) => { if (isRecord(item)) paths.push(...inlineSecretPaths(item, `${childPath}[${index}]`)); });
   }
@@ -358,7 +363,7 @@ export function renderValues(config, profile) {
       managedReleaseName: names.redisRelease,
       credentialsSecret: { name: config.redis.credentialsSecret, passwordKey: config.redis.credentialKey },
       managedAdminPasswordKey: config.redis.adminCredentialKey,
-      username: config.redis.username,
+      username: config.redis.credentialKey,
       instancePrefix: config.redis.instancePrefix,
     },
     networkPolicy: {
@@ -399,7 +404,7 @@ function renderManagedRedis(config, profile) {
           sentinel: false,
           userSecret: config.redis.credentialsSecret,
           users: [{
-            username: config.redis.username,
+            username: config.redis.credentialKey,
             enabled: "on",
             commands: "+@read +@write +@connection +@pubsub +@scripting +@stream",
             keys: `~${config.redis.instancePrefix}:*`,

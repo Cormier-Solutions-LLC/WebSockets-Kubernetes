@@ -92,6 +92,7 @@ test("Helm backup values containing inline credentials are detected by path", ()
   assert.deepEqual(inlineSecretPaths({ serviceAccount: { automountServiceAccountToken: false } }), []);
   assert.deepEqual(inlineSecretPaths({ auth: { passwords: ["first", "second"] } }), ["$.auth.passwords[0]", "$.auth.passwords[1]"]);
   assert.deepEqual(inlineSecretPaths({ oauth: { clientSecret: "exposed" } }), ["$.oauth.clientSecret"]);
+  assert.deepEqual(inlineSecretPaths({ auth: { password: 123456, tokens: [42] } }), ["$.auth.password", "$.auth.tokens[0]"]);
 });
 
 test("HA rejects insufficient failure domains", () => {
@@ -180,6 +181,9 @@ test("OTLP URL credentials and path traversal segments fail closed", () => {
   config.observability.otlpEndpoint = "https://collector.example.test/v1/traces";
   config.observability.otlpEgressCidrs = ["999.999.999.999/99"];
   assert(validateConfiguration(config).some(item => item.path === "$.observability.otlpEgressCidrs"));
+  config.observability.otlpEgressCidrs = ["192.0.2.50/32"];
+  config.observability.otlpEndpoint = "https://collector.example.test:8443/v1/traces";
+  assert(validateConfiguration(config).some(item => item.path === "$.observability.otlpEgressPorts" && item.message.includes("8443")));
 });
 
 test("MetalLB monitoring accepts IPv4 and IPv6 addresses and rejects malformed values", () => {
@@ -235,6 +239,16 @@ test("ingress mode selects explicit traffic sources and optional certificate mon
   assert.deepEqual(ingress.networkPolicy.ingressNamespaceSelector.matchLabels, { "kubernetes.io/metadata.name": config.networking.traefikNamespace });
   assert.deepEqual(ingress.networkPolicy.ingressPodSelector.matchLabels, config.networking.traefikPodLabels);
   assert.equal(ingress.observability.platformMetrics.certificateName, "realtime-certificate");
+});
+
+test("Secret references accept Kubernetes DNS subdomain names", () => {
+  const config = configuration();
+  config.redis.credentialsSecret = "realtime.redis-auth";
+  config.ingress.tlsSecretName = "realtime.gateway-tls";
+  config.observability.otlpHeadersSecret = "telemetry.headers";
+  config.observability.otlpEndpoint = "https://collector.example.test";
+  config.observability.otlpEgressCidrs = ["192.0.2.50/32"];
+  assert.deepEqual(validateConfiguration(config), []);
 });
 
 test("proxy trust, observability labels, and resource units fail closed", () => {
@@ -386,7 +400,11 @@ test("both entry points reject an invalid topology with a non-zero exit", async 
 });
 
 test("PowerShell delegates unsupported actions to the shared exit-code contract", async () => {
-  await assert.rejects(execute("pwsh", ["-NoProfile", "-File", resolve(repositoryRoot, "scripts/Realtime-Bootstrap.ps1"), "-Action", "unsupported-action"], { cwd: repositoryRoot }), error => error.code === 2 && /Action must be one of/.test(error.stdout));
+  const script = resolve(repositoryRoot, "scripts/Realtime-Bootstrap.ps1");
+  await assert.rejects(execute("pwsh", ["-NoProfile", "-File", script, "-Action", "unsupported-action"], { cwd: repositoryRoot }), error => error.code === 2 && /Action must be one of/.test(error.stdout));
+  await assert.rejects(execute("pwsh", ["-NoProfile", "-File", script, "-Action", "plan", "-Topology", "invalid"], { cwd: repositoryRoot }), error => error.code === 2);
+  await assert.rejects(execute("pwsh", ["-NoProfile", "-File", script, "-Action", "plan", "-NameSuffix", "INVALID"], { cwd: repositoryRoot }), error => error.code === 2);
+  await assert.rejects(execute("pwsh", ["-NoProfile", "-File", script, "-Action", "plan", "-TimeoutSeconds", "5"], { cwd: repositoryRoot }), error => error.code === 2);
 });
 
 test("both shells execute the complete lifecycle for both profiles with identical safety semantics", { timeout: 60_000 }, async t => {
@@ -480,6 +498,8 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     assert.match(log, new RegExp(`uninstall ${release}-redis .*--ignore-not-found`));
     assert.match(log, new RegExp(`uninstall ${release} .*--ignore-not-found`));
     assert.doesNotMatch(log, /get namespace metallb-system/);
+    assert.match(log, /list --namespace dev-realtime --filter .* --max 2 --output json/);
+    assert.match(log, /--history-max 0/);
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
@@ -569,7 +589,8 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   await mkdir(backup, { recursive: true });
   await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis" } }));
   await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-22.3.4", revision: "4" }]));
-  await writeFile(resolve(backup, `${release}.values.json`), stableJson({ replicaCount: 1, redis: { mode: "managed" } }));
+  const capturedGatewayValues = { replicaCount: 1, redis: { mode: "managed", credentialsSecret: { name: "captured.redis-auth", passwordKey: "realtime" }, managedAdminPasswordKey: "redis-password" } };
+  await writeFile(resolve(backup, `${release}.values.json`), stableJson(capturedGatewayValues));
   await writeFile(resolve(backup, `${release}-redis.values.json`), stableJson({ architecture: "standalone" }));
   const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LOG: operationLog };
   try {
@@ -578,10 +599,11 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
     assert.match(operations, new RegExp(`upgrade --install ${release}-redis oci://mirror\\.example\\.test/charts/redis --version 22\\.3\\.4`));
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
     assert.match(operations, /kubectl .*--context kind-example/);
+    assert.match(operations, /get secret captured\.redis-auth/);
     assert.doesNotMatch(operations, /^lint /m);
     const rollbackPlan = JSON.parse(await readFile(resolve(targetRoot, "plan.json"), "utf8"));
     const rollbackState = JSON.parse(await readFile(resolve(targetRoot, "state.json"), "utf8"));
-    assert.deepEqual(rollbackPlan.values, { replicaCount: 1, redis: { mode: "managed" } });
+    assert.deepEqual(rollbackPlan.values, capturedGatewayValues);
     assert.deepEqual(rollbackPlan.managedRedis.values, { architecture: "standalone" });
     assert.equal(rollbackPlan.managedRedis.chartVersion, "22.3.4");
     assert.equal(rollbackState.valuesSha256, rollbackPlan.valuesSha256);

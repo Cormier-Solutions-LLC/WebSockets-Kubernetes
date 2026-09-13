@@ -16,10 +16,9 @@ param(
     [string]$Action,
     [string]$Config,
     [Alias('Profile')]
-    [ValidateSet('ha', 'non-ha')][string]$Topology,
-    [ValidatePattern('^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]
+    [string]$Topology,
     [string]$NameSuffix,
-    [ValidateRange(60, 1800)][int]$TimeoutSeconds = 300,
+    [string]$TimeoutSeconds = '300',
     [string]$Backup,
     [switch]$DryRun,
     [switch]$ConfirmTopologyChange,

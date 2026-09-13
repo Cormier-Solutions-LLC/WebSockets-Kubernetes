@@ -19,7 +19,7 @@ Emergency disablement is `Diagnostics__Enabled=false` followed by a normal rollo
 - `GET /diagnostics/v1/events?durationSeconds=300` streams versioned aggregate operational events as server-sent events.
 - `GET /diagnostics/v1/logs/tail?level=Warning&category=Cormier.Realtime&durationSeconds=300` tails new log records only. Optional `instance` and `correlation` filters are exact matches. There is no historical-download endpoint.
 - `POST /diagnostics/v1/logging/overrides` applies a temporary capture-level change. Supply `category`, `level`, `durationSeconds`, `reason`, and `scope` (`all` or `instance`).
-- `DELETE /diagnostics/v1/logging/overrides/{id}` rolls an active override back. `GET /logging/overrides` and `GET /logging/audit` show active and bounded audit state.
+- `DELETE /diagnostics/v1/logging/overrides/{id}` rolls an active override back. `GET /diagnostics/v1/logging/overrides` and `GET /diagnostics/v1/logging/audit?offset=0&limit=25` show active overrides and paginated, bounded audit state.
 
 Example request body:
 
@@ -33,7 +33,7 @@ Example request body:
 }
 ```
 
-Categories must match `Diagnostics__LogCategoryAllowlist`; `None`, unknown levels, unbounded durations, missing reasons, and invalid scopes are rejected. Replica-wide changes are written with a Redis TTL and published to every instance. If Redis is unavailable, a replica-wide request fails with `503`; use an explicitly scoped `instance` change only when the incident commander accepts incomplete coverage. Overrides expire automatically and are restored after a replica restart while the Redis TTL remains active.
+Categories must match `Diagnostics__LogCategoryAllowlist`; `None`, unknown levels, unbounded durations, missing reasons, and invalid scopes are rejected. Replica-wide changes are written with a Redis TTL and published to every instance. If Redis is unavailable, a replica-wide request fails with `503`. An explicitly scoped `instance` change may continue locally only when `Redis__RequiredForReadiness=false`; when Redis is required, the service rolls the local change back and rejects it. Use local-only behavior only when the incident commander accepts incomplete coverage and reduced audit coordination. Redis-backed overrides expire automatically and are restored after a replica restart while their Redis TTL remains active; an uncoordinated local override exists only in the current process and expires there.
 
 ## Bounds and redaction
 

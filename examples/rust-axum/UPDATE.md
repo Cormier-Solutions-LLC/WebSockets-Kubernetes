@@ -1,14 +1,46 @@
 # Update and rollback
 
-Update the adapter, gateway, protocol, shared UI, and SDK atomically; mixed revisions are unsupported.
+Update this adapter atomically with the gateway, protocol fixtures, shared web assets, and SDK; mixed revisions are unsupported.
 
-1. Inventory `rustc --version`, `cargo --version`, toolchain/dependency pins, `Cargo.lock`, container digests, SDK/protocol/gateway versions, and deployment configuration. Preserve the prior image, commit, configuration references, and data.
-2. Review Rust, Axum, Tokio, Redis client, TLS, SDK, protocol, gateway, and base-image changelogs/deprecations. Validate prerequisites and rollback artifacts.
-3. Update the toolchain, manifest, lockfile, image digests, shared assets, gateway/protocol compatibility, and version table together. Never mutate Redis data implicitly.
-4. From a clean checkout, run format, locked tests, warning-as-error Clippy, locked release/image builds, bounded health, and shared browser expiry/Origin/outage/logout/shutdown scenarios.
-5. Deploy the immutable candidate with external configuration. On failure, stop nonzero, restore the prior image/configuration/commit, restart, and repeat verification; retain only redacted evidence.
+1. Inventory the current release inputs and rollback targets.
+   - From `examples/rust-axum`, record `rustc --version`, `cargo --version`, `rust-toolchain.toml`, `Cargo.toml`, and `Cargo.lock`.
+   - Record container base digests from `examples/rust-axum/Dockerfile` (`RUST_IMAGE` and `ALPINE_IMAGE`).
+   - Record compatibility artifacts: `sdk/typescript/package.json`, `sdk/typescript/dist/version.json`, and `protocol/fixtures/v1/envelopes.json`.
+   - Record deployment configuration and secret references only (never copy secret values into commits, tickets, or logs).
+2. Validate prerequisites before changing pins.
+   - Rust toolchain `1.98.1` with `rustfmt` and `clippy`.
+   - Node/npm able to build `sdk/typescript/dist`.
+   - Reachable Redis and gateway endpoints supplied through configuration, not hard-coded identities.
+   - Previous image digest and commit available for rollback.
+3. Apply coordinated updates in one change set.
+   - Update together: `rust-toolchain.toml`, `Cargo.toml`, `Cargo.lock`, `examples/rust-axum/Dockerfile`, compatibility/version documentation, and any required SDK/protocol/gateway references.
+   - Keep network locations, trust boundaries, and secrets externalized through environment/deployment configuration.
+   - Do not mutate or migrate Redis data implicitly during application startup or install steps.
+4. Verify from a clean checkout.
+   - Build canonical browser assets from repository root:
+     - `cd sdk/typescript`
+     - `npm ci --ignore-scripts`
+     - `npm run build --silent`
+   - Validate the Rust adapter from `examples/rust-axum`:
+     - `cargo fmt --check`
+     - `cargo test --locked`
+     - `cargo clippy --locked --all-targets -- -D warnings`
+     - `cargo build --locked --release`
+   - Build and scan the container from repository root:
+     - `docker build --file examples/rust-axum/Dockerfile --tag cormier-rust-axum:<candidate> .`
+     - Run the repository container vulnerability gate (HIGH/CRITICAL fail threshold).
+   - Run shared browser smoke scenarios from `sdk/typescript`:
+     - `npx playwright install --with-deps chromium`
+     - `npx playwright test --config playwright.rust-axum.config.mjs`
+   - Expected results: all commands exit `0`; `GET /health` returns `200` with `{"status":"healthy"}` when Redis is ready; rejected Origin, session expiry, gateway outage, logout, and graceful shutdown scenarios pass.
+5. Deploy and rehearse rollback.
+   - Deploy immutable image + mutable configuration/secrets.
+   - On failure: stop with a nonzero result, restore the previous image/configuration/commit, restart, and re-run health and browser smoke checks.
+   - Preserve only redacted structural evidence (no credentials, cookies, tickets, private origins, or internal addresses).
 
-The release check compares previous and candidate commits through clean locked builds, tests, images, browser scenarios, and rollback rehearsal. CI is mandatory; operators record commits, image digests, and rehearsal result.
+CI is a required gate for repository changes. Release qualification also requires recording previous/candidate commits, image digests, and rollback rehearsal results.
+
+If this procedure changes, coordinate matching updates to sibling adapter update docs, README compatibility notes, and changelog text through the related documentation sub-issues so contradictory instructions are not left behind.
 
 ## Deprecation policy
 

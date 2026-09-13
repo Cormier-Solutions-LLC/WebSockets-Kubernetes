@@ -35,7 +35,7 @@ if ($Backup) { $arguments += @('--backup', $Backup) }
 if ($DryRun) { $arguments += '--dry-run' }
 if ($ConfirmTopologyChange) { $arguments += '--confirm-topology-change' }
 if ($Force) { $arguments += '--force' }
-$node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
+$node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $node) {
     Write-Error 'Node.js 22 or later is required but node was not found on PATH.'
     exit 1

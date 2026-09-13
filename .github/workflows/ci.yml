@@ -489,6 +489,8 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
+      - name: Install Rust native build prerequisites
+        run: sudo apt-get update && sudo apt-get install --yes build-essential
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode

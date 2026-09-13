@@ -26,6 +26,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Parse PowerShell lifecycle scripts
         run: |
           docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview mcr.microsoft.com/powershell@sha256:042240d57ec9e47e511033b92625a8d95875ee5860af3015992c248b58a8be81 -NoLogo -NoProfile -Command '
@@ -73,6 +78,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -283,6 +293,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -336,6 +351,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -390,6 +410,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -443,6 +468,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -498,6 +528,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -553,6 +588,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -610,6 +650,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -662,6 +707,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -714,6 +764,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -766,6 +821,11 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -823,6 +883,11 @@ jobs:
         profile: [non-ha, ha]
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4

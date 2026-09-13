@@ -1,6 +1,6 @@
 # Package release policy
 
-Cormier.Realtime produces five NuGet packages and one optional npm package from one immutable release candidate:
+Cormier.Realtime produces five NuGet packages and one npm tarball from one immutable package candidate. Publishing the npm artifact is optional; constructing and verifying it is part of every candidate build.
 
 | Artifact | Version property | Purpose |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ Cormier.Realtime produces five NuGet packages and one optional npm package from 
 | `Cormier.Realtime.Browser` | `BrowserPackageVersion` | Razor static web assets generated from the browser SDK |
 | `@cormier/realtime` | `sdk/typescript/package.json` | Optional npm form of the same browser SDK; publication requires registry-owner approval |
 
-The NuGet IDs are the supported public identities. The npm name is a candidate identity and the release workflow does not publish it unless an approved registry and npm token are supplied explicitly. Package IDs, versions, and registry endpoints are release configuration; no customer or deployment name is part of an artifact identity.
+The NuGet IDs are the supported public identities. The npm name is a candidate identity and the release workflow does not publish it unless an approved registry and npm token are supplied explicitly. The gateway application/container and Helm chart have separate release workflows and are not included in this package candidate. Package IDs, versions, and registry endpoints are release configuration; no customer or deployment name is part of an artifact identity.
 
 ## Versioning and compatibility
 
@@ -33,6 +33,8 @@ Use PowerShell 7 and supply network identities as configuration:
   -PackageProjectUrl $env:PACKAGE_PROJECT_URL `
   -PackageReleaseNotesUrl $env:PACKAGE_RELEASE_NOTES_URL
 ```
+
+When version parameters are omitted, the build reads `ContractsVersion`, `DotNetClientVersion`, `RedisAdapterVersion`, `AspNetCoreIntegrationVersion`, and `BrowserPackageVersion` from `Directory.Build.props`. An explicit `BrowserPackageVersion` must match the normalized version in `sdk/typescript/package.json`.
 
 The workflow restores locked dependencies, builds, tests, creates browser outputs, packs all artifacts into isolated staging, inspects intended assets and dependency bounds, installs packages into clean consumers, checks reproducibility, and writes SHA-256 and manifest evidence. The protected main-branch publication job attests the exact selected candidate before promotion; branch-selectable build jobs have no OIDC or attestation permission. `-WhatIf` prints the plan without running tools or changing output. A repeated build is `UNCHANGED` only when every artifact hash matches; a different artifact with the same version fails as a version conflict.
 

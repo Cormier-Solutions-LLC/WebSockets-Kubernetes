@@ -20,7 +20,7 @@ env:
 
 jobs:
   helm-and-automation:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Parse PowerShell lifecycle scripts
@@ -66,7 +66,7 @@ jobs:
           grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
 
   build-test-aot:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -263,7 +263,7 @@ jobs:
 
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     permissions:
       contents: read
       pull-requests: write
@@ -274,7 +274,7 @@ jobs:
           fail-on-severity: high
 
   node-express:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -327,7 +327,7 @@ jobs:
           path: artifacts/node-express
 
   java-spring-boot:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -381,7 +381,7 @@ jobs:
           path: artifacts/java-spring-boot
 
   kotlin-ktor:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -434,7 +434,7 @@ jobs:
           path: artifacts/kotlin-ktor
 
   rust-axum:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -485,7 +485,7 @@ jobs:
           path: artifacts/rust-axum
 
   go-gin:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -540,7 +540,7 @@ jobs:
           path: artifacts/go-gin
 
   elixir-phoenix:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -597,7 +597,7 @@ jobs:
           path: artifacts/elixir-phoenix
 
   php-laravel:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -649,7 +649,7 @@ jobs:
           path: artifacts/php-laravel
 
   python-fastapi:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -701,7 +701,7 @@ jobs:
           path: artifacts/python-fastapi
 
   ruby-rails:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -753,7 +753,7 @@ jobs:
           path: artifacts/ruby-rails
 
   swift-vapor:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v4
       - name: Start configured Redis fixture
@@ -805,7 +805,7 @@ jobs:
           path: artifacts/swift-vapor
 
   full-circle:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     strategy:
       fail-fast: false
       matrix:
@@ -855,3 +855,4 @@ jobs:
         if: always() && matrix.shell == 'pwsh'
         shell: pwsh
         run: ./scripts/FullCircle.ps1 -Action cleanup -Profile '${{ matrix.profile }}'
+

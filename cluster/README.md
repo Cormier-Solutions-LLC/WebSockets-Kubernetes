@@ -1,14 +1,31 @@
 # Cluster deployment
 
-The gateway supports exactly one Redis mode per release. `external` points to an operator-managed endpoint; set TLS appropriately and restrict `externalRedisCidrs`. `managed` installs `oci://registry-1.docker.io/bitnamicharts/redis` chart `23.1.1` (Redis `8.2.1`) with replication, Sentinel quorum, persistent AOF storage, disruption budgets, resource bounds, NetworkPolicy, and exporter metrics.
+The supported deployment path is the versioned bootstrap contract in `bootstrap/config.schema.json`, invoked through `scripts/realtime-bootstrap.sh` or `scripts/Realtime-Bootstrap.ps1`. It validates the complete target, renders secret-redacted gateway and managed-Redis values, pins every cluster command to the configured context and namespace, captures pre-change Helm state, and performs bounded atomic upgrades. Start with the [bootstrap guide](../docs/bootstrap.md); use the files in this directory as reviewed component examples, not as a substitute for a generated plan.
 
-Secrets are never stored in values. Create the gateway Secret in advance with a key matching the ACL username (default `realtime`) and a distinct administrator credential in `redis-password`; automation checks the configured key names without reading or logging values. Bitnami's native ACL support mounts the Secret on every Redis and Sentinel node, persists the identity across restarts/failover, and restricts it to the configured key/channel prefix and command set. External Redis should likewise use separate session, realtime, and administrator credentials and prefixes.
+## Topology and Redis
 
-TLS is deliberately disabled in the in-cluster managed example because traffic is constrained by NetworkPolicy. Enable Bitnami TLS with a separately managed certificate Secret wherever cluster policy requires encryption in transit.
+Every release selects exactly one topology (`non-ha` or `ha`) and one Redis mode (`external` or `managed`):
 
-The gateway discovers the writable primary through Sentinel service `mymaster` on port 26379. Before upgrades, run `Deploy-Realtime.ps1 -Action BackupRedis`. It requests `BGSAVE`, copies the RDB from the current primary, and records it below ignored `.backups`. Test restore in a non-production namespace and retain copies outside the cluster.
+- `non-ha` runs one gateway and, when managed Redis is selected, one standalone Redis instance. It has no disruption budget, autoscaling, Sentinel, or replica failover; rollout and infrastructure interruptions can cause downtime.
+- `ha` requires at least three schedulable failure domains. It starts with three gateway replicas, a two-available disruption budget, topology spreading, autoscaling, and a zero-unavailable rolling update. Managed Redis uses one primary, three replicas, Sentinel with quorum two, persistent AOF storage, disruption budgets, resource bounds, NetworkPolicy, and exporter metrics.
+- `external` connects to an operator-managed endpoint. Configure TLS, explicit egress CIDRs, credentials, availability confirmation for HA, and the instance prefix for that target.
+- `managed` installs `oci://registry-1.docker.io/bitnamicharts/redis` chart `23.1.1` (Redis `8.2.1`). The selected topology determines whether the generated values use standalone Redis or replication with Sentinel.
 
-See the examples under `cluster/redis`. Never commit rendered Secrets or credential-bearing values.
+The topology is passed to the application explicitly as `Gateway__Topology`; replica count does not infer it. Direct conversion between managed and external Redis is rejected because data migration is an operator responsibility. Converting between HA and non-HA requires an explicit confirmation after reviewing the generated plan, capacity, and downtime implications.
+
+Secrets are never stored in configuration or rendered values. Create the configured Kubernetes Secret before installation. For managed Redis, `redis.credentialKey` is also the ACL username (the example uses `realtime`) and `redis.adminCredentialKey` identifies the distinct administrator password (the example uses `redis-password`). The generated ACL restricts the gateway identity to its configured key/channel prefix and command set. Automation verifies Secret existence and key names but never reads or logs their values.
+
+Managed Redis TLS is disabled by the current bootstrap schema and traffic is constrained by NetworkPolicy. Use external Redis with TLS when the target policy requires encrypted Redis transport. Validate the provider's certificate, availability, persistence, backup, recovery, and credential-rotation behavior independently.
+
+The `backup` action captures the installed gateway and managed-Redis Helm release inventory and values; it is not a Redis data backup. Preserve database backups through the selected Redis service's tested backup mechanism. The older `Deploy-Realtime.ps1` compatibility path retains `BackupRedis`/`RestoreRedis` for its managed deployment, but new automation should use the shared bootstrap engine and an independently verified data-protection procedure.
+
+The files under `cluster/redis` are manual reference values:
+
+- `managed-values.yaml` demonstrates the HA Bitnami Redis configuration and uses placeholder Secret identity `cormier-redis-auth`.
+- `managed-gateway-values.example.yaml` demonstrates gateway-side managed Redis settings with separate placeholder identities that must be reconciled with the Redis values.
+- `external-values.example.yaml` demonstrates TLS and egress settings for an external endpoint.
+
+Replace every example identity and make the Redis chart and gateway Secret names, key names, username, and instance prefix agree before use. Never commit rendered Secrets, credential-bearing values, environment inventory, or production endpoints.
 
 ## Development edge exposure
 
@@ -27,4 +44,4 @@ The LoadBalancer uses `externalTrafficPolicy: Local`: MetalLB advertises the VIP
 
 Gateway readiness turns false before its 25-second drain interval, which withdraws it from Traefik endpoints. It sends restart notices, then closes remaining sockets; Kubernetes grants 35 seconds, exceeding the app shutdown timeout by five seconds. Roll back as a unit by restoring the prior gateway release, route/certificate Secret, Traefik values, and MetalLB advertisement/pool after withdrawing the replacement VIP.
 
-Run `Test-RealtimeEdge.ps1` against a non-production environment after each edge change. It validates DNS, certificate readiness, MetalLB VIP assignment, source-IP policy, two non-terminating gateway endpoints, TLS routing, and an optional ticket-authenticated long WSS connection. The ticket is supplied only through `REALTIME_EDGE_TICKET` and is never logged. Before promotion, use a dedicated maintenance window to repeat this validation while restarting Traefik, rolling the gateway, draining a node, and failing over a MetalLB speaker/VIP; preserve the resulting redacted logs and edge metrics as release evidence.
+Run `scripts/Test-RealtimeEdge.ps1` against a non-production environment after each edge change. It validates DNS, certificate readiness, MetalLB VIP assignment, source-IP policy, two non-terminating gateway endpoints, TLS routing, and an optional ticket-authenticated long WSS connection. The ticket is supplied only through `REALTIME_EDGE_TICKET` and is never logged. Use `scripts/Invoke-RealtimeEdgeFailureTest.ps1` in a dedicated maintenance window for the approved reversible failure scenarios, including Traefik restart, gateway rollout, node drain, and MetalLB speaker restart; preserve the resulting redacted logs and edge metrics as release evidence.

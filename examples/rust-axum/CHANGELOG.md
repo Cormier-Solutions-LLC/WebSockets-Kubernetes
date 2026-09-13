@@ -1,5 +1,7 @@
 # Changelog
 
+Operator-visible changes to the Rust/Axum reference application are recorded here. Entries identify features, fixes, security/configuration impact, breaking behavior, and required operator action.
+
 ## Unreleased
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
@@ -20,7 +22,7 @@
 - Added a failing HIGH/CRITICAL image scan and upgraded runtime OS packages during image construction.
 - HTTP-only SameSite Strict cookies, restrictive browser headers, no-store responses, Origin validation, and bounded dependency work.
 
-### Limitations and actions
+### Limitations and operator actions
 
 - Production identity/authorization, CSRF/abuse controls, TLS termination, secrets, telemetry, and orchestration are omitted and must be supplied externally.
 - Configure the adapter/gateway with the same Redis namespace and trusted public origin; build the canonical SDK first.

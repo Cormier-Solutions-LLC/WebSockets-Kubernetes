@@ -108,8 +108,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ${{ steps.artifact.outputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
-          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+          username: ${{ secrets[vars.REGISTRY_USERNAME_SECRET_NAME] }}
+          password: ${{ secrets[vars.REGISTRY_PASSWORD_SECRET_NAME] }}
       - name: Verify published manifest exists
         run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
       - name: Render the exact promotion bundle

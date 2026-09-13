@@ -458,14 +458,16 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
         Assert.Contains("archiveSha256", publish, StringComparison.Ordinal);
         Assert.Contains("vars.CONTAINER_REGISTRY", publish, StringComparison.Ordinal);
-        Assert.Contains("secrets.REGISTRY_USERNAME", publish, StringComparison.Ordinal);
-        Assert.Contains("secrets.REGISTRY_PASSWORD", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets[vars.REGISTRY_USERNAME_SECRET_NAME]", publish, StringComparison.Ordinal);
+        Assert.Contains("secrets[vars.REGISTRY_PASSWORD_SECRET_NAME]", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("username: ${{ github.actor }}", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("'ghcr.io'", publish, StringComparison.Ordinal);
         Assert.Contains("rollbackPublishRunId", promote, StringComparison.Ordinal);
         Assert.Contains("actions/runs/$runId", promote, StringComparison.Ordinal);
         Assert.Contains(".github/workflows/publish.yml", promote, StringComparison.Ordinal);
         Assert.Contains("download-artifact", promote, StringComparison.Ordinal);
+        Assert.Contains("secrets[vars.REGISTRY_USERNAME_SECRET_NAME]", promote, StringComparison.Ordinal);
+        Assert.Contains("secrets[vars.REGISTRY_PASSWORD_SECRET_NAME]", promote, StringComparison.Ordinal);
         Assert.Contains("release-manifest.json", promote, StringComparison.Ordinal);
         Assert.Contains("sourceCommit", promote, StringComparison.Ordinal);
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);

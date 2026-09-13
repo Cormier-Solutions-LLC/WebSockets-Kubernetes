@@ -107,6 +107,10 @@ jobs:
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" lint helm/realtime-gateway --strict
+          if docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template invalid-ip helm/realtime-gateway --set observability.prometheusRule.ingressEnabled=true --set-string observability.platformMetrics.metalLbAddress=':::' >/tmp/invalid-ip.yaml 2>/tmp/invalid-ip.err; then
+            echo 'Helm schema accepted an invalid IPv6 MetalLB address.' >&2
+            exit 1
+          fi
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime > /tmp/external.yaml
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --values cluster/redis/managed-gateway-values.example.yaml > /tmp/managed.yaml
           docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template ci-realtime helm/realtime-gateway --namespace ci-realtime --api-versions monitoring.coreos.com/v1/ServiceMonitor --api-versions monitoring.coreos.com/v1/PrometheusRule --api-versions monitoring.coreos.com/v1alpha1/AlertmanagerConfig --set observability.alertmanagerConfig.enabled=true --set observability.alertmanagerConfig.webhookSecret.name=ci-alert-webhook --set autoscaling.connectionsMetric.enabled=true --set autoscaling.queueDepthMetric.enabled=true --set metrics.authorizationPolicy=ci-metrics --set metrics.scrapeTokenSecret.name=ci-metrics > /tmp/observability.yaml

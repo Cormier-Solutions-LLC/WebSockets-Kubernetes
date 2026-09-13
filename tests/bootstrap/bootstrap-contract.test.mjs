@@ -14,6 +14,7 @@ const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const example = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.example.json"), "utf8"));
 const bootstrapSchema = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.schema.json"), "utf8"));
+const helmSchema = JSON.parse(await readFile(resolve(repositoryRoot, "helm/realtime-gateway/values.schema.json"), "utf8"));
 const profiles = {
   "non-ha": JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/profiles/non-ha.json"), "utf8")),
   ha: JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/profiles/ha.json"), "utf8")),
@@ -194,6 +195,9 @@ test("MetalLB monitoring accepts IPv4 and IPv6 addresses and rejects malformed v
   assert(validateConfiguration(config).some(item => item.path === "$.networking.metalLbAddress"));
   config.networking.metalLbAddress = "deadbeef";
   assert(validateConfiguration(config).some(item => item.path === "$.networking.metalLbAddress"));
+  config.networking.metalLbAddress = ":::";
+  assert(validateConfiguration(config).some(item => item.path === "$.networking.metalLbAddress"));
+  assert.deepEqual(helmSchema.properties.observability.properties.platformMetrics.properties.metalLbAddress.anyOf, [{ format: "ipv4" }, { format: "ipv6" }]);
 });
 
 test("rollback plans use the exact captured gateway and managed Redis values", () => {
@@ -249,6 +253,15 @@ test("Secret references accept Kubernetes DNS subdomain names", () => {
   config.observability.otlpEndpoint = "https://collector.example.test";
   config.observability.otlpEgressCidrs = ["192.0.2.50/32"];
   assert.deepEqual(validateConfiguration(config), []);
+});
+
+test("Certificate and storage-class references accept DNS subdomains and reject path syntax", () => {
+  const config = configuration();
+  config.ingress.certificateName = "realtime.gateway-cert";
+  config.kubernetes.storageClass = "storage.fast";
+  assert.deepEqual(validateConfiguration(config), []);
+  config.kubernetes.storageClass = "fast/storage";
+  assert(validateConfiguration(config).some(item => item.path === "$.kubernetes.storageClass"));
 });
 
 test("proxy trust, observability labels, and resource units fail closed", () => {
@@ -340,7 +353,7 @@ if [[ "\${BOOTSTRAP_FAKE_FAIL:-}" == 'redis' && "$*" == *"$BOOTSTRAP_FAKE_REDIS_
 case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
   list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0","revision":"3"},{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
-  get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" ]]; then printf '{"architecture":"standalone","commonAnnotations":{"cormier.solutions/managed-chart":"%s"}}\\n' "\${BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART:-oci://registry-1.docker.io/bitnamicharts/redis}"; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
+  get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" && "\${BOOTSTRAP_FAKE_LEGACY_REDIS:-}" == '1' ]]; then printf '{"fullnameOverride":"%s","architecture":"standalone","auth":{"existingSecret":"%s","existingSecretPasswordKey":"redis-password","acl":{"userSecret":"%s","users":[{"username":"realtime","keys":"~%s:*","channels":"&%s:*"}]}}}\\n' "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}"; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" ]]; then printf '{"architecture":"standalone","commonAnnotations":{"cormier.solutions/managed-chart":"%s"}}\\n' "\${BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART:-oci://registry-1.docker.io/bitnamicharts/redis}"; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
   lint|template|upgrade|uninstall|rollback) printf '%s\\n' 'ok' ;;
   *) printf 'unsupported fake helm command: %s\\n' "\${1:-}" >&2; exit 64 ;;
 esac
@@ -503,6 +516,33 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
+  }
+});
+
+test("update adopts only a verified legacy managed Redis release", { timeout: 30_000 }, async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-legacy-redis-tools-"));
+  await fakeClusterTools(fakeBin);
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-legacy-redis-config-"));
+  const config = configuration();
+  config.naming.suffix = "legacy-adopt";
+  const configPath = resolve(directory, "config.json");
+  await writeFile(configPath, stableJson(config));
+  const release = "dev-realtime-legacy-adopt";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LEGACY_REDIS: "1", BOOTSTRAP_FAKE_REDIS_SECRET: config.redis.credentialsSecret, BOOTSTRAP_FAKE_REDIS_PREFIX: `${config.redis.instancePrefix}:${config.naming.suffix}` };
+  try {
+    const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: environment });
+    const backup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
+    assert(backup);
+    assert.equal(JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8")).managedRedis.chart, config.redis.managedChart);
+    assert.match(updated.stdout, /Adopting verified legacy managed Redis release metadata/);
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_REDIS_PREFIX: "wrong:prefix" } }), error => error.code === 1 && /does not match the verified legacy deployment contract/.test(error.stdout));
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(targetBackups, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
@@ -708,7 +748,7 @@ test("stale lifecycle locks are recovered with bounded owner metadata", { timeou
   }
 });
 
-test("name suffix override updates the plan and shared naming manifest", async () => {
+test("configured and overridden name suffixes isolate Redis and update the shared naming manifest", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-name-config-"));
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(configuration()));
@@ -720,6 +760,11 @@ test("name suffix override updates the plan and shared naming manifest", async (
     const naming = JSON.parse(await readFile(namingPath, "utf8"));
     assert.equal(naming.application, "realtime-contract-name");
     assert.equal(naming.redisInstancePrefix, "cormier:realtime:dev:contract-name");
+    const configured = configuration();
+    configured.naming.suffix = "configured-name";
+    await writeFile(configPath, stableJson(configured));
+    const configuredResult = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "plan", "--config", configPath], { cwd: repositoryRoot });
+    assert.equal(normalizedPlan(configuredResult.stdout).values.redis.instancePrefix, "cormier:realtime:dev:configured-name");
     assert.equal(await fileExists(resolve(repositoryRoot, ".bootstrap/locks/naming-manifest")), false);
   } finally {
     if (priorNaming === undefined) await rm(namingPath, { force: true });

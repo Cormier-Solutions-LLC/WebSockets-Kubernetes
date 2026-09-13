@@ -172,9 +172,7 @@ async function saveState(plan, options) {
         const secretPaths = inlineSecretPaths(values);
         if (secretPaths.length > 0) throw new Error(`Refusing to persist inline credential values returned by Helm at: ${secretPaths.join(", ")}. Replace them with Secret references before retrying.`);
         if (release === plan.target.redisRelease) {
-          const installedChart = values.commonAnnotations?.["cormier.solutions/managed-chart"];
-          if (typeof installedChart !== "string" || !installedChart.startsWith("oci://")) throw new Error(`Installed managed Redis release '${release}' does not record its chart repository; update it with this bootstrap contract before it can be backed up safely.`);
-          capturedPlan.managedRedis.chart = installedChart;
+          capturedPlan.managedRedis.chart = managedRedisChartForBackup(plan, releases, release, values, options);
         }
         await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
       }
@@ -324,6 +322,29 @@ function capturedRedisChartVersion(releaseInventory, release) {
   return match[1];
 }
 
+function managedRedisChartForBackup(plan, releaseInventory, release, values, options) {
+  const annotatedChart = values.commonAnnotations?.["cormier.solutions/managed-chart"];
+  if (typeof annotatedChart === "string" && annotatedChart.startsWith("oci://")) return annotatedChart;
+
+  const installedVersion = capturedRedisChartVersion(releaseInventory, release);
+  const expected = plan.managedRedis?.values;
+  const actualUser = values.auth?.acl?.users?.[0];
+  const expectedUser = expected?.auth?.acl?.users?.[0];
+  const legacyMatches = installedVersion === plan.managedRedis?.chartVersion
+    && values.fullnameOverride === release
+    && values.auth?.existingSecret === expected?.auth?.existingSecret
+    && values.auth?.existingSecretPasswordKey === expected?.auth?.existingSecretPasswordKey
+    && values.auth?.acl?.userSecret === expected?.auth?.acl?.userSecret
+    && actualUser?.username === expectedUser?.username
+    && actualUser?.keys === expectedUser?.keys
+    && actualUser?.channels === expectedUser?.channels;
+  if (!legacyMatches || typeof plan.managedRedis?.chart !== "string" || !plan.managedRedis.chart.startsWith("oci://")) {
+    throw new Error(`Installed managed Redis release '${release}' does not record its chart repository and does not match the verified legacy deployment contract.`);
+  }
+  emit("info", options.action, "Adopting verified legacy managed Redis release metadata.", { release, chart: plan.managedRedis.chart });
+  return plan.managedRedis.chart;
+}
+
 function capturedReleaseRevision(releaseInventory, release) {
   const revision = Number(releaseInventory.find(item => item?.name === release)?.revision);
   if (!Number.isInteger(revision) || revision < 1) throw new Error(`Backup inventory for '${release}' does not contain a valid Helm revision.`);
@@ -387,7 +408,10 @@ async function main() {
   if (options.nameSuffix !== undefined) {
     config = structuredClone(config);
     config.naming.suffix = options.nameSuffix;
-    config.redis.instancePrefix = `${config.redis.instancePrefix}:${options.nameSuffix}`;
+  }
+  if (config.naming.suffix) {
+    config = structuredClone(config);
+    config.redis.instancePrefix = `${config.redis.instancePrefix}:${config.naming.suffix}`;
   }
   options.generatedRoot = resolve(repositoryRoot, config.paths.generatedDirectory);
   options.backupRoot = resolve(repositoryRoot, config.paths.backupDirectory);
@@ -395,7 +419,6 @@ async function main() {
   assertPathInside(repositoryRoot, options.generatedRoot, "generated output");
   assertPathInside(repositoryRoot, options.backupRoot, "backup output");
   assertPathInside(repositoryRoot, logRoot, "log output");
-  await archiveOldLogs(logRoot);
   activeLogPath = resolve(logRoot, `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
   const names = config.naming.suffix ? `realtime-${config.naming.suffix}` : "realtime";
   const targetRoot = resolve(options.generatedRoot, `${config.environment.name}-${names}`);
@@ -410,6 +433,7 @@ async function main() {
   const namingLockToken = await acquireLock(namingLockPath);
   let lockToken;
   try {
+    await archiveOldLogs(logRoot);
     lockToken = await acquireLock(lockPath);
     await writeNamingManifest(config);
   } catch (error) {

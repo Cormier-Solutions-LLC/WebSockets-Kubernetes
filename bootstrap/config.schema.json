@@ -100,7 +100,7 @@
       "properties": {
         "context": { "type": "string", "minLength": 1 },
         "namespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
-        "storageClass": { "type": "string", "minLength": 1 },
+        "storageClass": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 },
         "failureDomains": { "type": "integer", "minimum": 1 }
       }
     },
@@ -148,7 +148,7 @@
         "allowedOrigins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^https?://[^@/?#]+/?$" } },
         "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
-        "certificateName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 }
+        "certificateName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 }
       }
     },
     "observability": {

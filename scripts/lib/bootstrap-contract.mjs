@@ -132,7 +132,7 @@ export function validateConfiguration(input) {
   requireKeys(kubernetes, "$.kubernetes", ["context", "namespace", "storageClass", "failureDomains"], errors);
   requireString(kubernetes.context, "$.kubernetes.context", errors);
   requireString(kubernetes.namespace, "$.kubernetes.namespace", errors, dnsLabel);
-  requireString(kubernetes.storageClass, "$.kubernetes.storageClass", errors);
+  requireString(kubernetes.storageClass, "$.kubernetes.storageClass", errors, dnsSubdomain);
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
@@ -170,7 +170,7 @@ export function validateConfiguration(input) {
   });
   requireString(ingress.entryPoint, "$.ingress.entryPoint", errors, /^[A-Za-z0-9._-]+$/);
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsSubdomain, !ingress.enabled);
-  requireString(ingress.certificateName, "$.ingress.certificateName", errors, dnsLabel, true);
+  requireString(ingress.certificateName, "$.ingress.certificateName", errors, dnsSubdomain, true);
 
   const observability = requireRecord(config.observability, "$.observability", errors);
   requireKeys(observability, "$.observability", ["cluster", "serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);

@@ -63,10 +63,15 @@ jobs:
           grep --quiet 'replicas: 1' /tmp/non-ha.yaml
           if grep --quiet 'kind: PodDisruptionBudget' /tmp/non-ha.yaml; then exit 1; fi
           grep --quiet 'Gateway__Topology: "non-ha"' /tmp/non-ha.yaml
+          grep --quiet 'Redis__Endpoint: "dev-realtime-redis-master:6379"' /tmp/non-ha.yaml
+          if grep --quiet 'Redis__SentinelPassword' /tmp/non-ha.yaml; then exit 1; fi
           grep --quiet 'replicas: 3' /tmp/ha.yaml
           grep --quiet 'kind: PodDisruptionBudget' /tmp/ha.yaml
           grep --quiet 'topologySpreadConstraints:' /tmp/ha.yaml
+          grep --quiet 'whenUnsatisfiable: DoNotSchedule' /tmp/ha.yaml
           grep --quiet 'Gateway__Topology: "ha"' /tmp/ha.yaml
+          grep --quiet 'Redis__Endpoint: "dev-realtime-redis:26379"' /tmp/ha.yaml
+          grep --quiet 'Redis__SentinelPassword' /tmp/ha.yaml
       - name: Helm lint, schema, and render validation
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json

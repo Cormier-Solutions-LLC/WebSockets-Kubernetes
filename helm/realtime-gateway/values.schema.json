@@ -39,7 +39,7 @@
           "replicaCount": { "minimum": 3 },
           "deploymentStrategy": { "properties": { "maxUnavailable": { "const": 0 }, "maxSurge": { "minimum": 1 } } },
           "podDisruptionBudget": { "properties": { "enabled": { "const": true }, "minAvailable": { "minimum": 2 } } },
-          "topologySpreadConstraints": { "properties": { "enabled": { "const": true } } },
+          "topologySpreadConstraints": { "properties": { "enabled": { "const": true }, "zoneWhenUnsatisfiable": { "const": "DoNotSchedule" } } },
           "autoscaling": { "properties": { "minReplicas": { "minimum": 3 }, "maxReplicas": { "minimum": 3 } } }
         }
       }
@@ -57,6 +57,14 @@
   ],
   "properties": {
     "topology": { "enum": ["ha", "non-ha"] },
+    "topologySpreadConstraints": {
+      "type": "object",
+      "required": ["enabled", "zoneWhenUnsatisfiable"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "zoneWhenUnsatisfiable": { "enum": ["DoNotSchedule", "ScheduleAnyway"] }
+      }
+    },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "deploymentStrategy": {
       "type": "object",

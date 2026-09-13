@@ -5,6 +5,12 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "environment", "naming", "paths", "image", "kubernetes", "networking", "redis", "ingress", "observability", "resources", "topology"],
+  "allOf": [
+    {
+      "if": { "properties": { "redis": { "properties": { "mode": { "const": "managed" } } } } },
+      "then": { "properties": { "redis": { "properties": { "tls": { "const": false } } } } }
+    }
+  ],
   "properties": {
     "schemaVersion": { "const": 1 },
     "environment": {
@@ -39,6 +45,7 @@
       "properties": {
         "repository": { "type": "string", "pattern": "^[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" },
         "tag": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$" },
         "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
       }
     },
@@ -56,10 +63,11 @@
     "networking": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["traefikNamespace", "traefikService", "metalLbNamespace", "metalLbAddress", "advertisementMode"],
+      "required": ["traefikNamespace", "traefikService", "traefikPodLabels", "metalLbNamespace", "metalLbAddress", "advertisementMode"],
       "properties": {
         "traefikNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
         "traefikService": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "traefikPodLabels": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
         "metalLbNamespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
         "metalLbAddress": { "type": "string", "pattern": "^[A-Fa-f0-9:.]+$" },
         "advertisementMode": { "enum": ["l2", "bgp"] }
@@ -68,11 +76,12 @@
     "redis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"],
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"],
       "properties": {
         "mode": { "enum": ["external", "managed"] },
         "externalEndpoint": { "type": "string" },
         "externalHaConfirmed": { "type": "boolean" },
+        "tls": { "type": "boolean" },
         "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
         "credentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "adminCredentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
@@ -83,10 +92,11 @@
     "ingress": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "host", "entryPoint", "tlsSecretName"],
+      "required": ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName"],
       "properties": {
         "enabled": { "type": "boolean" },
         "host": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" },
+        "allowedOrigins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^https?://[^/?#]+/?$" } },
         "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "tlsSecretName": { "type": "string" }
       }
@@ -94,10 +104,14 @@
     "observability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["serviceMonitor", "otlpEndpoint"],
+      "required": ["serviceMonitor", "otlpEndpoint", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"],
       "properties": {
         "serviceMonitor": { "type": "boolean" },
-        "otlpEndpoint": { "type": "string" }
+        "otlpEndpoint": { "type": "string" },
+        "otlpEgressCidrs": { "type": "array", "items": { "type": "string", "minLength": 3 } },
+        "otlpEgressNamespaceLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "otlpEgressPodLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "otlpEgressPorts": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } }
       }
     },
     "resources": {

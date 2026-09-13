@@ -42,7 +42,7 @@ data:
   OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.observability.otlp.protocol | quote }}
   {{- end }}
   Redis__Endpoint: {{ include "realtime-gateway.redisEndpoint" . | quote }}
-  Redis__SentinelServiceName: {{ ternary .Values.redis.sentinelServiceName "" (eq .Values.redis.mode "managed") | quote }}
+  Redis__SentinelServiceName: {{ ternary .Values.redis.sentinelServiceName "" (and (eq .Values.redis.mode "managed") (eq .Values.topology "ha")) | quote }}
   Redis__RequiredForReadiness: {{ .Values.redis.requiredForReadiness | quote }}
   Redis__InstancePrefix: {{ .Values.redis.instancePrefix | quote }}
   Redis__SessionKeyPrefix: {{ .Values.redis.sessionKeyPrefix | quote }}

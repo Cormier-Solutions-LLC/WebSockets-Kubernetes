@@ -185,6 +185,7 @@ autoscaling:
 
 topologySpreadConstraints:
   enabled: true
+  zoneWhenUnsatisfiable: DoNotSchedule
 
 networkPolicy:
   enabled: true

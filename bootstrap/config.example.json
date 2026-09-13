@@ -10,6 +10,7 @@
   "image": {
     "repository": "registry.example.com/cormier/realtime-gateway",
     "tag": "0.1.0",
+    "digest": "",
     "pullPolicy": "IfNotPresent"
   },
   "kubernetes": {
@@ -21,6 +22,7 @@
   "networking": {
     "traefikNamespace": "traefik",
     "traefikService": "traefik",
+    "traefikPodLabels": { "app.kubernetes.io/name": "traefik" },
     "metalLbNamespace": "metallb-system",
     "metalLbAddress": "192.0.2.10",
     "advertisementMode": "l2"
@@ -29,6 +31,7 @@
     "mode": "managed",
     "externalEndpoint": "",
     "externalHaConfirmed": false,
+    "tls": false,
     "credentialsSecret": "dev-realtime-redis",
     "credentialKey": "realtime",
     "adminCredentialKey": "redis-password",
@@ -38,10 +41,18 @@
   "ingress": {
     "enabled": false,
     "host": "realtime.example.test",
+    "allowedOrigins": ["https://realtime.example.test"],
     "entryPoint": "websecure",
     "tlsSecretName": "dev-realtime-tls"
   },
-  "observability": { "serviceMonitor": true, "otlpEndpoint": "" },
+  "observability": {
+    "serviceMonitor": true,
+    "otlpEndpoint": "",
+    "otlpEgressCidrs": [],
+    "otlpEgressNamespaceLabels": {},
+    "otlpEgressPodLabels": {},
+    "otlpEgressPorts": [4317, 4318, 443]
+  },
   "resources": { "gatewayCpu": "250m", "gatewayMemory": "256Mi", "redisStorage": "8Gi" },
   "topology": "non-ha"
 }

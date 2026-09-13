@@ -4,6 +4,7 @@
     "autoscaling": { "enabled": false, "minReplicas": 1, "maxReplicas": 1 },
     "podDisruptionBudget": { "enabled": false, "minAvailable": 0 },
     "topologySpread": false,
+    "zoneWhenUnsatisfiable": "ScheduleAnyway",
     "maxUnavailable": 1,
     "maxSurge": 0
   },

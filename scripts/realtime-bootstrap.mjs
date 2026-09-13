@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  actions, assertPathInside, atomicWrite, buildPlan, fileExists, loadContract, readJson, stableJson,
+  actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, stableJson,
 } from "./lib/bootstrap-contract.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -109,17 +109,41 @@ async function saveState(plan, options) {
   const directory = resolve(options.backupRoot, plan.target.release, stamp);
   assertPathInside(options.backupRoot, directory, "backup");
   await mkdir(directory, { recursive: true });
-  const releases = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory installed releases", { ...options, capture: true });
-  await atomicWrite(resolve(directory, "releases.json"), `${releases}\n`);
-  for (const release of [plan.target.release, plan.target.redisRelease]) {
-    if (releases.includes(`\"name\":\"${release}\"`) || releases.includes(`\"name\": \"${release}\"`)) {
-      const values = await command("helm", ["get", "values", release, "--namespace", plan.target.namespace, "--all", "--output", "json"], `Back up ${release} values`, { ...options, capture: true });
-      await atomicWrite(resolve(directory, `${release}.values.json`), `${values}\n`);
+  try {
+    const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory installed releases", { ...options, capture: true });
+    const releases = JSON.parse(releasesDocument);
+    if (!Array.isArray(releases)) throw new Error("Helm release inventory was not a JSON array.");
+    await atomicWrite(resolve(directory, "releases.json"), `${stableJson(releases)}`);
+    const installed = new Set(releases.map(release => release?.name).filter(Boolean));
+    for (const release of [plan.target.release, plan.target.redisRelease]) {
+      if (installed.has(release)) {
+        const valuesDocument = await command("helm", ["get", "values", release, "--namespace", plan.target.namespace, "--all", "--output", "json"], `Back up ${release} values`, { ...options, capture: true });
+        const values = JSON.parse(valuesDocument);
+        const secretPaths = inlineSecretPaths(values);
+        if (secretPaths.length > 0) throw new Error(`Refusing to persist inline credential values returned by Helm at: ${secretPaths.join(", ")}. Replace them with Secret references before retrying.`);
+        await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
+      }
     }
+    await atomicWrite(resolve(directory, "plan.json"), stableJson(plan));
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
   }
-  await atomicWrite(resolve(directory, "plan.json"), stableJson(plan));
   emit("pass", options.action, "Pre-change state captured.", { backup: directory });
   return directory;
+}
+
+async function installedTopology(planTarget, options) {
+  const context = await currentContext(options);
+  if (context !== planTarget.context) throw new Error(`Target mismatch: expected Kubernetes context '${planTarget.context}', found '${context}'.`);
+  const releasesDocument = await command("helm", ["list", "--namespace", planTarget.namespace, "--output", "json"], "Inspect installed releases for topology", { ...options, capture: true });
+  const releases = JSON.parse(releasesDocument);
+  if (!Array.isArray(releases) || !releases.some(release => release?.name === planTarget.release)) return undefined;
+  const valuesDocument = await command("helm", ["get", "values", planTarget.release, "--namespace", planTarget.namespace, "--all", "--output", "json"], "Read installed gateway topology", { ...options, capture: true });
+  const values = JSON.parse(valuesDocument);
+  if (["ha", "non-ha"].includes(values.topology)) return values.topology;
+  if (Number.isInteger(values.replicaCount)) return values.replicaCount > 1 ? "ha" : "non-ha";
+  throw new Error(`Installed release '${planTarget.release}' does not expose a supported topology value.`);
 }
 
 function gatewayUpgradeArguments(plan, options, action = "upgrade") {
@@ -128,7 +152,7 @@ function gatewayUpgradeArguments(plan, options, action = "upgrade") {
 
 async function apply(plan, config, profile, options) {
   if (config.redis.mode === "managed") {
-    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, "oci://registry-1.docker.io/bitnamicharts/redis", "--version", "23.1.1", "--namespace", plan.target.namespace, "--create-namespace", "--set", `architecture=${profile.redis.managedArchitecture}`, "--set", `replica.replicaCount=${profile.redis.replicas}`, "--set", `sentinel.enabled=${profile.redis.sentinel}`, "--set", `global.storageClass=${config.kubernetes.storageClass}`, "--set", "master.persistence.enabled=true", "--set", `master.persistence.size=${config.resources.redisStorage}`, "--set", "replica.persistence.enabled=true", "--set", `replica.persistence.size=${config.resources.redisStorage}`, "--set", `auth.existingSecret=${config.redis.credentialsSecret}`, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
+    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, "oci://registry-1.docker.io/bitnamicharts/redis", "--version", "23.1.1", "--namespace", plan.target.namespace, "--create-namespace", "--values", "cluster/redis/managed-values.yaml", "--set", `architecture=${profile.redis.managedArchitecture}`, "--set", `replica.replicaCount=${profile.redis.replicas}`, "--set", `sentinel.enabled=${profile.redis.sentinel}`, "--set", `auth.sentinel=${profile.redis.sentinel}`, "--set", `global.storageClass=${config.kubernetes.storageClass}`, "--set", "master.persistence.enabled=true", "--set", `master.persistence.size=${config.resources.redisStorage}`, "--set", "replica.persistence.enabled=true", "--set", `replica.persistence.size=${config.resources.redisStorage}`, "--set", `auth.existingSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.existingSecretPasswordKey=${config.redis.adminCredentialKey}`, "--set", `auth.acl.userSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.acl.users[0].username=${config.redis.username}`, "--set-string", `auth.acl.users[0].keys=~${config.redis.instancePrefix}:*`, "--set-string", `auth.acl.users[0].channels=&${config.redis.instancePrefix}:*`, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
     await command("helm", redisArgs, "Install or update managed Redis", options);
   }
   await command("helm", gatewayUpgradeArguments(plan, options), "Install or update realtime gateway", options);
@@ -141,15 +165,20 @@ async function rollback(plan, options) {
   assertPathInside(options.backupRoot, backup, "rollback source");
   const savedPlan = await readJson(resolve(backup, "plan.json"));
   if (savedPlan.target.context !== plan.target.context || savedPlan.target.namespace !== plan.target.namespace || savedPlan.target.release !== plan.target.release) throw new Error("Backup target does not match the requested context, namespace, and release.");
+  const releaseInventory = await readJson(resolve(backup, "releases.json"));
+  if (!Array.isArray(releaseInventory)) throw new Error("Backup release inventory is invalid.");
+  const installedAtBackup = new Set(releaseInventory.map(release => release?.name).filter(Boolean));
   for (const release of [plan.target.redisRelease, plan.target.release]) {
     const valuesPath = resolve(backup, `${release}.values.json`);
-    if (await fileExists(valuesPath)) {
+    if (!installedAtBackup.has(release)) {
+      await command("helm", ["uninstall", release, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], `Remove ${release} absent from backup`, options);
+    } else if (await fileExists(valuesPath)) {
       const chart = release === plan.target.release ? "helm/realtime-gateway" : "oci://registry-1.docker.io/bitnamicharts/redis";
       const arguments_ = ["upgrade", "--install", release, chart];
       if (release !== plan.target.release) arguments_.push("--version", "23.1.1");
       arguments_.push("--namespace", plan.target.namespace, "--values", valuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
       await command("helm", arguments_, `Restore ${release}`, options);
-    }
+    } else throw new Error(`Backup inventory includes '${release}' but its values snapshot is missing.`);
   }
 }
 
@@ -180,7 +209,10 @@ async function main() {
   try {
     const statePath = resolve(targetRoot, "state.json");
     const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
-    const plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology: priorState?.topology });
+    const provisionalPlan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology: priorState?.topology });
+    const clusterAware = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
+    const previousTopology = clusterAware ? await installedTopology(provisionalPlan.target, options) : priorState?.topology;
+    const plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
     await atomicWrite(options.valuesPath, stableJson(plan.values));

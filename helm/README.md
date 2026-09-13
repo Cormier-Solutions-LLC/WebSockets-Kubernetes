@@ -1,18 +1,100 @@
 # Realtime gateway Helm chart
 
-`helm/realtime-gateway` is the versioned Cormier deployment chart. Release and namespace names use `<environment>-<application>`, such as `prod-realtime`; resource names derive from the release.
+`helm/realtime-gateway` is the versioned deployment chart for the Cormier Realtime gateway.
 
-The chart creates a Deployment, ClusterIP Service, ConfigMap, ServiceAccount, PodDisruptionBudget, HorizontalPodAutoscaler, and NetworkPolicy. Pods run as UID/GID 1654, drop all capabilities, use a read-only root filesystem, do not mount service-account tokens, and expose separate probes.
+## What the chart renders
 
-Validate with Helm 4.2.0:
+With default values, the chart renders:
 
-```powershell
+- Deployment
+- Service (ClusterIP)
+- ConfigMap
+- ServiceAccount
+- PodDisruptionBudget
+- HorizontalPodAutoscaler
+- NetworkPolicy
+
+It can conditionally render these resources based on values and available cluster API versions:
+
+- IngressRoute (`ingressRoute.enabled=true`)
+- ServiceMonitor (`metrics.enabled=true` and `observability.serviceMonitor.enabled=true`)
+- PrometheusRule (`metrics.enabled=true` and `observability.prometheusRule.enabled=true`)
+- Grafana dashboard ConfigMap (`observability.grafanaDashboard.enabled=true`)
+- AlertmanagerConfig (`observability.alertmanagerConfig.enabled=true`)
+
+Security defaults include `runAsUser/runAsGroup/fsGroup=1654`, `allowPrivilegeEscalation=false`, `readOnlyRootFilesystem=true`, `capabilities.drop=["ALL"]`, and `automountServiceAccountToken=false`.
+
+## Validate locally
+
+Validated in this repository with Helm `v3.21.4`:
+
+```sh
 helm lint ./helm/realtime-gateway --strict
 helm template dev-realtime ./helm/realtime-gateway --namespace dev-realtime --values ./cluster/redis/managed-gateway-values.example.yaml
 ```
 
-Production releases should pin `image.digest`, use namespace-specific ingress selectors, specify narrow Redis egress CIDRs/selectors, and supply pre-created Secrets. Managed gateway pods receive the release-specific Redis client label and discover the writable node through Sentinel. Use the lifecycle script for upgrades so Secret rotations force a gateway rollout. The chart never creates credentials.
+## Install and upgrade
 
-When OTLP export is enabled with NetworkPolicy enforcement, configure `observability.otlp.egressNamespaceSelector` (and optionally `egressPodSelector`) or explicit `egressCidrs`, plus the permitted `egressPorts`. The chart rejects OTLP enablement without a bounded egress destination.
+Provide environment-specific values through files and `--set` overrides:
 
-Diagnostics remain disabled by default. To enable the built-in operator bearer policy, set `diagnostics.enabled=true`, explicitly opt in with `diagnostics.productionEnabled=true` for Production, configure narrow `allowedNetworks`/`allowedOrigins`, and set `diagnostics.operatorTokenSecret.name` to a pre-created Secret containing a strong token under the configured `key` (default `token`). Protected metrics require a separate pre-created Secret through `metrics.scrapeTokenSecret` whenever `metrics.authorizationPolicy` is set. Diagnostics and metrics must use distinct policy names and tokens. The chart reads both values through `secretKeyRef`; neither is placed in the ConfigMap. Rotate a Secret and restart the Deployment to replace its credential. For emergency disablement, set `diagnostics.enabled=false` and roll out the release.
+```sh
+RELEASE_NAME='<release-name>'
+NAMESPACE='<namespace>'
+VALUES_FILE='<path-to-values.yaml>'
+IMAGE_REPOSITORY='<registry/repository>'
+IMAGE_DIGEST='sha256:<64-hex-digest>'
+
+helm upgrade --install "$RELEASE_NAME" ./helm/realtime-gateway \
+  --namespace "$NAMESPACE" \
+  --create-namespace \
+  --values "$VALUES_FILE" \
+  --set-string image.repository="$IMAGE_REPOSITORY" \
+  --set-string image.digest="$IMAGE_DIGEST" \
+  --atomic --wait
+```
+
+For managed Redis gateway values, use `cluster/redis/managed-gateway-values.example.yaml` as the baseline. For external Redis, use `cluster/redis/external-values.example.yaml`.
+
+## Naming
+
+Release and namespace names are configuration inputs. Use environment-specific names (for example, `dev-realtime` / `dev-realtime`) and keep those values outside source-controlled templates.
+
+## Topology and Redis mode expectations
+
+- `topology=ha` requires at least 3 replicas and keeps PDB/HPA/topology spread enabled.
+- `topology=non-ha` requires a single replica and disables HA controls.
+- `redis.mode=managed` uses the managed release endpoint; Sentinel discovery is used only when both `redis.mode=managed` and `topology=ha`.
+- `redis.mode=external` requires `redis.externalEndpoint`.
+
+## Secrets and credentials
+
+This chart references existing Secrets and does not create credentials.
+
+Pre-create and pass Secret names/keys for:
+
+- `redis.credentialsSecret` (required)
+- `diagnostics.operatorTokenSecret` (required when `diagnostics.enabled=true`)
+- `metrics.scrapeTokenSecret` (required when `metrics.authorizationPolicy` is set)
+- `observability.otlp.headersSecret` (optional)
+- `observability.alertmanagerConfig.webhookSecret` (required when alertmanager routing is enabled)
+
+When `networkPolicy.enabled=true`, OTLP egress must be bounded by namespace selector and/or CIDRs, and explicit ports (`observability.otlp.egressPorts`) must be set.
+
+## Rollback
+
+Roll back to a previous chart revision with:
+
+```sh
+helm rollback "$RELEASE_NAME" <revision> --namespace "$NAMESPACE" --wait
+```
+
+For full promotion/rollback operating guidance, see `../docs/runbooks/README.md`.
+
+## Post-deploy verification
+
+```sh
+kubectl -n "$NAMESPACE" rollout status deployment/"$RELEASE_NAME"
+kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/instance="$RELEASE_NAME"
+kubectl -n "$NAMESPACE" get networkpolicy
+helm status "$RELEASE_NAME" -n "$NAMESPACE"
+```

@@ -12,6 +12,8 @@ The ten reference web stacks consume one generated asset set from `examples/shar
 
 Production containers set `SHARED_ASSET_ROOT` to `/app/shared-web/optimized`. Local non-Release .NET development continues to use the canonical readable source. The asset root remains configuration so an operator can select the readable profile for diagnosis or rollback without changing application code.
 
+The current checked-in contract is pipeline `1.1.0` for SDK/package version `0.1.0`. `sdk/typescript/asset-pipeline.config.json` sets aggregate optimized budgets of 8,192 uncompressed bytes and 4,096 deterministic-gzip bytes. The checked-in `size-report.json` records 4,559 bytes and 2,161 gzip bytes for the optimized HTML, CSS, and application JavaScript set; SDK IIFE bytes are inventoried separately in `asset-manifest.json`. Treat these figures as generated evidence, not permanent targets: change the configured budgets only through an explicit reviewed pipeline update.
+
 Obfuscation is disabled by default. It is not a security boundary, does not protect browser-delivered secrets, and can make debugging and accessibility investigation harder. Enable it only through the explicit build command after evaluating those tradeoffs:
 
 ```console
@@ -24,7 +26,7 @@ npm run build:obfuscated
 
 `npm run build` produces readable and optimized profiles. `npm run check` builds the default output twice, builds the optional obfuscated output twice, compares SHA-256 inventories, restores the default output, and validates it. Tool versions are exact dependencies in `package-lock.json`.
 
-`asset-manifest.json` records the pipeline version, profile defaults, tool versions, selector mappings, source-map policy, byte counts, deterministic gzip counts, SHA-256 hashes, and SHA-384 Subresource Integrity values. `size-report.json` enforces the optimized aggregate byte and gzip budgets. Legal notices are retained in HTML, CSS, and JavaScript.
+`asset-manifest.json` records the schema and pipeline versions, SDK package/version, profile defaults, tool versions, selector mappings, Content Security Policy, source-map policy, byte counts, deterministic gzip counts, SHA-256 hashes, and SHA-384 Subresource Integrity values. `size-report.json` enforces the optimized aggregate byte and gzip budgets. Legal notices are retained in HTML, CSS, and JavaScript.
 
 The generated HTML uses external scripts and styles compatible with the reference Content Security Policy. It includes SRI for application CSS, application JavaScript, and the matching SDK IIFE. The shared browser suite loads the optimized profile in every adapter and verifies CSP, SRI-bearing references, accessible controls, live-region semantics, and the existing login/reconnect/publish lifecycle.
 

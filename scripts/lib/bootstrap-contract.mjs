@@ -8,7 +8,9 @@ export const actions = Object.freeze([
   "prerequisites", "plan", "bootstrap", "backup", "install", "update", "validate", "rollback", "recover", "teardown",
 ]);
 
-const dnsLabel = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const dnsLabel = /^(?=.{1,63}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const dnsSubdomain = /^(?=.{1,253}$)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$/;
+const labelName = /^(?=.{1,63}$)[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$/;
 const registryRepository = /^[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/;
 const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
@@ -28,6 +30,24 @@ function isCidr(value) {
   const prefix = Number(value.slice(separator + 1));
   const family = isIP(address);
   return Number.isInteger(prefix) && ((family === 4 && prefix >= 0 && prefix <= 32) || (family === 6 && prefix >= 0 && prefix <= 128));
+}
+
+function isLabelKey(value) {
+  if (typeof value !== "string" || !value) return false;
+  const slash = value.indexOf("/");
+  if (slash < 0) return labelName.test(value);
+  return value.indexOf("/", slash + 1) < 0 && dnsSubdomain.test(value.slice(0, slash)) && labelName.test(value.slice(slash + 1));
+}
+
+function isLabelValue(value) {
+  return typeof value === "string" && labelName.test(value);
+}
+
+function validateLabels(labels, path, errors) {
+  for (const [key, value] of Object.entries(labels)) {
+    if (!isLabelKey(key)) errors.push(problem(`${path}.${key}`, "must use Kubernetes label-key syntax"));
+    if (!isLabelValue(value)) errors.push(problem(`${path}.${key}`, "must be a non-empty Kubernetes label value"));
+  }
 }
 
 function problem(path, message) {
@@ -127,7 +147,16 @@ export function validateConfiguration(input) {
   if (typeof ingress.enabled !== "boolean") errors.push(problem("$.ingress.enabled", "must be boolean"));
   requireString(ingress.host, "$.ingress.host", errors, /^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/, !ingress.enabled);
   if (!Array.isArray(ingress.allowedOrigins) || ingress.allowedOrigins.length === 0) errors.push(problem("$.ingress.allowedOrigins", "must contain at least one configured HTTP(S) origin"));
-  else ingress.allowedOrigins.forEach((origin, index) => requireString(origin, `$.ingress.allowedOrigins[${index}]`, errors, /^https?:\/\/[^/?#]+\/?$/));
+  else ingress.allowedOrigins.forEach((origin, index) => {
+    const path = `$.ingress.allowedOrigins[${index}]`;
+    requireString(origin, path, errors, /^https?:\/\/[^@/?#]+\/?$/);
+    if (typeof origin === "string") {
+      try {
+        const parsed = new URL(origin);
+        if (parsed.username || parsed.password) errors.push(problem(path, "must not contain URL userinfo"));
+      } catch { errors.push(problem(path, "must be a valid HTTP(S) origin")); }
+    }
+  });
   requireString(ingress.entryPoint, "$.ingress.entryPoint", errors, /^[A-Za-z0-9._-]+$/);
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsLabel, !ingress.enabled);
 
@@ -148,17 +177,15 @@ export function validateConfiguration(input) {
   const monitoringNamespaceLabels = requireRecord(observability.monitoringNamespaceLabels, "$.observability.monitoringNamespaceLabels", errors);
   const monitoringPodLabels = requireRecord(observability.monitoringPodLabels, "$.observability.monitoringPodLabels", errors);
   if (observability.serviceMonitor && (Object.keys(monitoringNamespaceLabels).length === 0 || Object.keys(monitoringPodLabels).length === 0)) errors.push(problem("$.observability", "ServiceMonitor requires explicit monitoring namespace and pod selectors"));
-  for (const [path, labels] of [["$.observability.monitoringNamespaceLabels", monitoringNamespaceLabels], ["$.observability.monitoringPodLabels", monitoringPodLabels]]) {
-    for (const [key, value] of Object.entries(labels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`${path}.${key}`, "must be a non-empty label"));
-  }
+  for (const [path, labels] of [["$.observability.monitoringNamespaceLabels", monitoringNamespaceLabels], ["$.observability.monitoringPodLabels", monitoringPodLabels]]) validateLabels(labels, path, errors);
   const otlpEgressCidrs = Array.isArray(observability.otlpEgressCidrs) ? observability.otlpEgressCidrs : [];
   if (!Array.isArray(observability.otlpEgressCidrs)) errors.push(problem("$.observability.otlpEgressCidrs", "must be an array"));
   const otlpNamespaceLabels = requireRecord(observability.otlpEgressNamespaceLabels, "$.observability.otlpEgressNamespaceLabels", errors);
   const otlpPodLabels = requireRecord(observability.otlpEgressPodLabels, "$.observability.otlpEgressPodLabels", errors);
   if (!Array.isArray(observability.otlpEgressPorts) || observability.otlpEgressPorts.length === 0 || observability.otlpEgressPorts.some(port => !Number.isInteger(port) || port < 1 || port > 65535)) errors.push(problem("$.observability.otlpEgressPorts", "must contain valid TCP ports"));
   if (observability.otlpEndpoint && otlpEgressCidrs.length === 0 && Object.keys(otlpNamespaceLabels).length === 0) errors.push(problem("$.observability", "an enabled OTLP endpoint requires an egress CIDR or namespace selector"));
-  for (const [key, value] of Object.entries(otlpNamespaceLabels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`$.observability.otlpEgressNamespaceLabels.${key}`, "must be a non-empty label"));
-  for (const [key, value] of Object.entries(otlpPodLabels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`$.observability.otlpEgressPodLabels.${key}`, "must be a non-empty label"));
+  validateLabels(otlpNamespaceLabels, "$.observability.otlpEgressNamespaceLabels", errors);
+  validateLabels(otlpPodLabels, "$.observability.otlpEgressPodLabels", errors);
 
   const resources = requireRecord(config.resources, "$.resources", errors);
   requireKeys(resources, "$.resources", ["gatewayCpu", "gatewayMemory", "redisStorage"], errors);
@@ -177,7 +204,7 @@ export function validateConfiguration(input) {
   requireString(networking.traefikService, "$.networking.traefikService", errors, dnsLabel);
   const traefikPodLabels = requireRecord(networking.traefikPodLabels, "$.networking.traefikPodLabels", errors);
   if (Object.keys(traefikPodLabels).length === 0) errors.push(problem("$.networking.traefikPodLabels", "must contain at least one label"));
-  for (const [key, value] of Object.entries(traefikPodLabels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`$.networking.traefikPodLabels.${key}`, "must be a non-empty label"));
+  validateLabels(traefikPodLabels, "$.networking.traefikPodLabels", errors);
   const trustedProxyCidrs = Array.isArray(networking.trustedProxyCidrs) ? networking.trustedProxyCidrs : [];
   if (!Array.isArray(networking.trustedProxyCidrs) || trustedProxyCidrs.length === 0 || trustedProxyCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.networking.trustedProxyCidrs", "must contain at least one valid IPv4 or IPv6 CIDR"));
   requireString(networking.metalLbNamespace, "$.networking.metalLbNamespace", errors, dnsLabel);
@@ -306,10 +333,57 @@ export function renderValues(config, profile) {
   });
 }
 
+function renderManagedRedis(config, profile) {
+  if (config.redis.mode !== "managed") return null;
+  const names = releaseNames(config);
+  const topologySpreadConstraints = config.topology === "ha" ? [{
+    labelSelector: { matchLabels: { "app.kubernetes.io/component": "node", "app.kubernetes.io/instance": names.redisRelease, "app.kubernetes.io/name": "redis" } },
+    maxSkew: 1,
+    topologyKey: "topology.kubernetes.io/zone",
+    whenUnsatisfiable: "DoNotSchedule",
+  }] : [];
+  return stable({
+    baseValuesPath: "cluster/redis/managed-values.yaml",
+    chart: "oci://registry-1.docker.io/bitnamicharts/redis",
+    chartVersion: "23.1.1",
+    values: {
+      architecture: profile.redis.managedArchitecture,
+      auth: {
+        sentinel: profile.redis.sentinel,
+        existingSecret: config.redis.credentialsSecret,
+        existingSecretPasswordKey: config.redis.adminCredentialKey,
+        acl: {
+          enabled: true,
+          sentinel: false,
+          userSecret: config.redis.credentialsSecret,
+          users: [{
+            username: config.redis.username,
+            enabled: "on",
+            commands: "+@read +@write +@connection +@pubsub +@scripting +@stream",
+            keys: `~${config.redis.instancePrefix}:*`,
+            channels: `&${config.redis.instancePrefix}:*`,
+          }],
+        },
+      },
+      global: { storageClass: config.kubernetes.storageClass },
+      master: { pdb: { create: profile.redis.sentinel }, persistence: { enabled: true, size: config.resources.redisStorage } },
+      replica: {
+        replicaCount: profile.redis.replicas,
+        pdb: { create: profile.redis.sentinel },
+        persistence: { enabled: true, size: config.resources.redisStorage },
+        topologySpreadConstraints,
+      },
+      sentinel: { enabled: profile.redis.sentinel },
+    },
+  });
+}
+
 export function buildPlan(action, config, profile, options = {}) {
   if (!actions.includes(action)) throw new Error(`Unsupported action '${action}'.`);
   const names = releaseNames(config);
   const values = renderValues(config, profile);
+  const managedRedis = renderManagedRedis(config, profile);
+  const deploymentValues = { gateway: values, managedRedis };
   const changeClass = options.previousTopology && options.previousTopology !== config.topology ? "topology-conversion" : action === "install" ? "installation" : action;
   const mutations = ["install", "update", "rollback", "recover", "teardown"].includes(action);
   return stable({
@@ -348,8 +422,9 @@ export function buildPlan(action, config, profile, options = {}) {
       boundedTimeoutSeconds: options.timeoutSeconds ?? 300,
       secretValuesAccepted: false,
     },
+    managedRedis,
     values,
-    valuesSha256: createHash("sha256").update(stableJson(values)).digest("hex"),
+    valuesSha256: createHash("sha256").update(stableJson(deploymentValues)).digest("hex"),
   });
 }
 

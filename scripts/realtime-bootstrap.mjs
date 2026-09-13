@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -80,8 +81,10 @@ async function assertTarget(plan, config, options, mutation) {
   await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
   await command("helm", ["lint", "helm/realtime-gateway", "--strict", "--values", options.valuesPath], "Lint rendered gateway configuration", options);
   if (config.redis.mode === "managed") await command("kubectl", ["get", "storageclass", config.kubernetes.storageClass, "--request-timeout=15s"], "Validate storage class", options);
-  await command("kubectl", ["get", "namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress namespace", options);
-  await command("kubectl", ["get", "service", config.networking.traefikService, "--namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress service", options);
+  if (config.ingress.enabled) {
+    await command("kubectl", ["get", "namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress namespace", options);
+    await command("kubectl", ["get", "service", config.networking.traefikService, "--namespace", config.networking.traefikNamespace, "--request-timeout=15s"], "Validate ingress service", options);
+  }
   await command("kubectl", ["get", "namespace", config.networking.metalLbNamespace, "--request-timeout=15s"], "Validate MetalLB namespace", options);
   if (config.ingress.enabled) await command("kubectl", ["get", "secret", config.ingress.tlsSecretName, "--namespace", plan.target.namespace, "--request-timeout=15s"], "Validate ingress TLS Secret reference", options);
   if (config.observability.serviceMonitor) await command("kubectl", ["get", "customresourcedefinition", "servicemonitors.monitoring.coreos.com", "--request-timeout=15s"], "Validate ServiceMonitor support", options);
@@ -205,13 +208,48 @@ function gatewayUpgradeArguments(plan, options, action = "upgrade") {
   return [action, "--install", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--create-namespace", "--values", options.valuesPath, "--atomic", "--wait", `--timeout=${plan.safety.boundedTimeoutSeconds}s`];
 }
 
-async function apply(plan, config, profile, options) {
+async function apply(plan, config, options) {
   if (config.redis.mode === "managed") {
-    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, "oci://registry-1.docker.io/bitnamicharts/redis", "--version", "23.1.1", "--namespace", plan.target.namespace, "--create-namespace", "--values", "cluster/redis/managed-values.yaml", "--set", `architecture=${profile.redis.managedArchitecture}`, "--set", `replica.replicaCount=${profile.redis.replicas}`, "--set", `sentinel.enabled=${profile.redis.sentinel}`, "--set", `auth.sentinel=${profile.redis.sentinel}`, "--set", `master.pdb.create=${profile.redis.sentinel}`, "--set", `replica.pdb.create=${profile.redis.sentinel}`, "--set", `global.storageClass=${config.kubernetes.storageClass}`, "--set", "master.persistence.enabled=true", "--set", `master.persistence.size=${config.resources.redisStorage}`, "--set", "replica.persistence.enabled=true", "--set", `replica.persistence.size=${config.resources.redisStorage}`, "--set", `auth.existingSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.existingSecretPasswordKey=${config.redis.adminCredentialKey}`, "--set", `auth.acl.userSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.acl.users[0].username=${config.redis.username}`, "--set-string", `auth.acl.users[0].keys=~${config.redis.instancePrefix}:*`, "--set-string", `auth.acl.users[0].channels=&${config.redis.instancePrefix}:*`, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
+    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, plan.managedRedis.chart, "--version", plan.managedRedis.chartVersion, "--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
     await command("helm", redisArgs, "Install or update managed Redis", options);
   }
   await command("helm", gatewayUpgradeArguments(plan, options), "Install or update realtime gateway", options);
+  if (["update", "recover"].includes(options.action)) await command("kubectl", ["rollout", "restart", `deployment/${plan.target.release}`, "--namespace", plan.target.namespace], "Restart gateway after referenced Secret rotation", options);
   await command("kubectl", ["rollout", "status", `deployment/${plan.target.release}`, "--namespace", plan.target.namespace, `--timeout=${options.timeoutSeconds}s`], "Verify gateway rollout", options);
+}
+
+function processExists(pid) {
+  if (!Number.isInteger(pid) || pid < 1) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return error.code === "EPERM"; }
+}
+
+async function acquireLock(lockPath) {
+  const ownerPath = resolve(lockPath, "owner.json");
+  const owner = { createdAt: new Date().toISOString(), hostname: hostname(), pid: process.pid };
+  try {
+    await mkdir(lockPath);
+    await atomicWrite(ownerPath, stableJson(owner));
+    return;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+
+  let stale = false;
+  if (await fileExists(ownerPath)) {
+    try {
+      const existing = await readJson(ownerPath);
+      const age = Date.now() - Date.parse(existing.createdAt);
+      stale = existing.hostname === hostname() ? !processExists(existing.pid) : Number.isFinite(age) && age > 2 * 60 * 60 * 1000;
+    } catch { stale = Date.now() - (await stat(lockPath)).mtimeMs > 2 * 60 * 60 * 1000; }
+  } else {
+    stale = Date.now() - (await stat(lockPath)).mtimeMs > 2 * 60 * 60 * 1000;
+  }
+  if (!stale) throw new Error(`Another lifecycle operation holds the target lock '${lockPath}'.`);
+  await rm(lockPath, { recursive: true, force: true });
+  try { await mkdir(lockPath); }
+  catch (error) { if (error.code === "EEXIST") throw new Error(`Another lifecycle operation holds the target lock '${lockPath}'.`); throw error; }
+  await atomicWrite(ownerPath, stableJson(owner));
 }
 
 function capturedRedisChartVersion(releaseInventory, release) {
@@ -270,10 +308,7 @@ async function main() {
   const mutation = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
   const lockRequired = mutation || options.action === "backup";
   const lockPath = resolve(targetRoot, "operation.lock");
-  if (lockRequired) {
-    try { await mkdir(lockPath); }
-    catch (error) { if (error.code === "EEXIST") throw new Error(`Another lifecycle operation holds the target lock '${lockPath}'.`); throw error; }
-  }
+  if (lockRequired) await acquireLock(lockPath);
   try {
     const statePath = resolve(targetRoot, "state.json");
     const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
@@ -295,6 +330,10 @@ async function main() {
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
     await atomicWrite(options.valuesPath, stableJson(plan.values));
+    if (plan.managedRedis) {
+      options.redisValuesPath = resolve(targetRoot, "redis-values.json");
+      await atomicWrite(options.redisValuesPath, stableJson(plan.managedRedis.values));
+    }
     emit("info", "plan", "Normalized execution plan.", plan);
     if (plan.topology.conversion && !options.confirmTopologyChange && !options.dryRun) throw new Error("Topology conversion requires --confirm-topology-change after reviewing the plan and impact warning.");
     if (options.action === "teardown" && !options.force && !options.dryRun) throw new Error("teardown requires --force after reviewing the target and data-loss warning.");
@@ -329,14 +368,14 @@ async function main() {
     if (options.action === "teardown") await assertTeardownTarget(plan, options);
     else await assertTarget(plan, config, options, mutation);
     if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, options);
-    if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, profile, options);
+    if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, options);
     else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath], "Render gateway manifests", options);
     else if (options.action === "rollback") await rollback(plan, options);
     else if (options.action === "teardown") {
       await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
       if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
-    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false) await rm(statePath, { force: true });
+    if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) await rm(statePath, { force: true });
     else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 1, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
     emit("pass", options.action, "Lifecycle action completed.", {
       backup: backup ?? null,

@@ -2,11 +2,11 @@
 
 ## ASP.NET Core hosting package
 
-`Cormier.Realtime.AspNetCore` exposes `AddRealtimeGateway`, `UseRealtimeGateway`, and `MapRealtimeGateway` for applications that need the realtime gateway inside an existing ASP.NET Core host. The package binds and validates the same `Gateway`, `Redis`, `Proxy`, and `Realtime` configuration sections used by the standalone gateway.
+`Cormier.Realtime.AspNetCore` exposes `AddRealtimeGateway`, `UseRealtimeGateway`, and `MapRealtimeGateway` for applications that need the realtime gateway inside an existing ASP.NET Core host. The package binds and validates the same `Gateway`, `Redis`, `Proxy`, `Realtime`, `Metrics`, and `Diagnostics` configuration sections used by the standalone gateway. The host decides whether to use the supplied bearer helpers or its own authorization policies.
 
 For standard ASP.NET Core session integration, configure `Realtime:SessionSource` as `AspNetCoreSession`, register session services, and place `UseSession` before the mapped endpoints execute. The configured session identifier is revalidated through `IRealtimeSessionStore` on initial connection and during the connection lifetime, so expiration, logout/revocation, tenant scope, and multi-instance reconnect retain the Redis contract.
 
-The runnable example is under `examples/aspnet-core`. `scripts/Test-AspNetCorePackage.ps1` packs the package and its project dependencies into a temporary local feed, then restores and compiles a clean consumer outside the repository tree.
+The runnable example is under `examples/aspnet-core`. `scripts/Test-AspNetCorePackage.ps1` validates already-built packages from an isolated local feed by restoring and compiling a clean consumer outside the repository tree; `scripts/Build-RealtimePackages.ps1` creates the coordinated package set and invokes that consumer test.
 
 ## .NET Standard client
 
@@ -62,7 +62,7 @@ The browser suite starts two gateway processes plus an ordinary round-robin WebS
 
 Configuration uses normal ASP.NET Core providers. Environment variables use double underscores, for example `Gateway__ShutdownDrainSeconds=30` and `Redis__Endpoint=redis:6379`. Never commit Redis credentials or put secrets in command arguments.
 
-TLS is expected to terminate at a trusted ingress. The gateway processes one `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` hop before origin checks, but only from CIDRs in `Proxy:TrustedNetworks`. Override the private-network defaults to match the cluster's actual ingress network; never configure untrusted public ranges.
+TLS is expected to terminate at a trusted ingress. The gateway processes one `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` hop before origin checks, but only from CIDRs explicitly configured in `Proxy:TrustedNetworks`. The application default is empty; the Helm/bootstrap values must match the target ingress network and must never trust arbitrary public ranges.
 
 For browser WebSocket testing, configure an exact origin in `Realtime__AllowedOrigins__0`, create a namespaced Redis session record, and send its ID in the configured HttpOnly cookie. Cross-origin tools should obtain a one-time ticket from `/realtime/tickets`. The full envelope, route, close-code, reconnect, and delivery contracts are in [protocol.md](protocol.md).
 
@@ -88,7 +88,7 @@ CI publishes and tests `linux-x64`. Any compiler, analyzer, trimming, or AOT war
 
 ## OCI publishing
 
-The gateway project uses the .NET SDK container publisher, a chiseled `runtime-deps` base, port 8080, and non-root UID 1654. CI produces an OCI archive without requiring a Dockerfile. For a local daemon publish:
+The gateway project uses the .NET SDK container publisher, a chiseled `runtime-deps` base, port 8080, and non-root UID 1654. CI produces an OCI archive without requiring a Dockerfile. On a Linux x64 host with the Native AOT toolchain, publish to the local container daemon with:
 
 ```powershell
 dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r linux-x64 --self-contained /t:PublishContainer
@@ -97,3 +97,13 @@ dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r linux-x64 --self-con
 ## Failure behavior
 
 Bootstrap validation fails before restore/build work and returns a non-zero exit code. Configuration errors stop host startup with the exact invalid setting. Logs are structured, secrets are never expected in source or command arguments, and diagnostics must remain redacted.
+
+## Additional validation surfaces
+
+- `node --test ./tests/bootstrap/*.test.mjs` validates the shared bootstrap contract, deterministic plans, safety guards, and failure handling.
+- `pwsh ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1` validates the PowerShell wrapper; CI also proves Bash/PowerShell plan and error parity on supported hosts.
+- `helm lint` plus the Kubernetes test project validate chart schema, rendered resources, topology profiles, security context, NetworkPolicy, observability resources, and example edge assets.
+- `scripts/full-circle.sh` and `scripts/FullCircle.ps1` build packages, restore a clean full-circle consumer, run two gateway instances through a proxy and Redis, and execute the browser contract for both topology profiles.
+- Reference-stack Playwright configurations under `sdk/typescript` run the same browser scenarios against each maintained alternative server adapter.
+
+Use [the package release policy](package-release.md) for reproducible package candidates and promotion, [the operator runbooks](runbooks/README.md) for deployment validation and failure exercises, and [the architecture guide](architecture.md) for component and trust boundaries.

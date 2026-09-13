@@ -9,6 +9,14 @@
     {
       "if": { "properties": { "redis": { "properties": { "mode": { "const": "managed" } } } } },
       "then": { "properties": { "redis": { "properties": { "tls": { "const": false } } } } }
+    },
+    {
+      "if": { "properties": { "redis": { "properties": { "mode": { "const": "external" } } } } },
+      "then": { "properties": { "redis": { "properties": { "externalEgressCidrs": { "minItems": 1 } } } } }
+    },
+    {
+      "if": { "properties": { "observability": { "properties": { "serviceMonitor": { "const": true } } } } },
+      "then": { "properties": { "observability": { "properties": { "monitoringNamespaceLabels": { "minProperties": 1 }, "monitoringPodLabels": { "minProperties": 1 } } } } }
     }
   ],
   "properties": {
@@ -33,9 +41,9 @@
       "additionalProperties": false,
       "required": ["generatedDirectory", "backupDirectory", "logDirectory"],
       "properties": {
-        "generatedDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/[A-Za-z0-9._-]+)*$" },
-        "backupDirectory": { "type": "string", "pattern": "^\\.backups(?:/[A-Za-z0-9._-]+)*$" },
-        "logDirectory": { "type": "string", "pattern": "^\\.logs(?:/[A-Za-z0-9._-]+)*$" }
+        "generatedDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" },
+        "backupDirectory": { "type": "string", "pattern": "^\\.backups(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" },
+        "logDirectory": { "type": "string", "pattern": "^\\.logs(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" }
       }
     },
     "image": {
@@ -76,11 +84,12 @@
     "redis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"],
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"],
       "properties": {
         "mode": { "enum": ["external", "managed"] },
         "externalEndpoint": { "type": "string" },
         "externalHaConfirmed": { "type": "boolean" },
+        "externalEgressCidrs": { "type": "array", "items": { "type": "string", "pattern": "^[0-9A-Fa-f:.]+/[0-9]{1,3}$" } },
         "tls": { "type": "boolean" },
         "credentialsSecret": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
         "credentialKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
@@ -104,11 +113,15 @@
     "observability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["serviceMonitor", "otlpEndpoint", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"],
+      "required": ["serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"],
       "properties": {
         "serviceMonitor": { "type": "boolean" },
+        "monitoringNamespaceLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "monitoringPodLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
         "otlpEndpoint": { "type": "string" },
-        "otlpEgressCidrs": { "type": "array", "items": { "type": "string", "minLength": 3 } },
+        "otlpHeadersSecret": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "otlpHeadersKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "otlpEgressCidrs": { "type": "array", "items": { "type": "string", "pattern": "^[0-9A-Fa-f:.]+/[0-9]{1,3}$" } },
         "otlpEgressNamespaceLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
         "otlpEgressPodLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
         "otlpEgressPorts": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } }

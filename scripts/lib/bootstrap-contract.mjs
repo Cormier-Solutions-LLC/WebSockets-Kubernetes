@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 export const contractVersion = 1;
@@ -12,7 +13,21 @@ const registryRepository = /^[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/;
 const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
 const resourceQuantity = /^[1-9][0-9]*(?:m|Mi|Gi|Ti)$/;
-const secretValueKey = /(?:password|token|secret|credential|private.?key|authorization|cookie)s?$/i;
+const secretValueKey = /(?:password|token|secret|credential|private.?key|api.?key|authorization|cookie)s?$/i;
+
+function isSecretReferenceField(key, parentPath = "") {
+  return /Secret$/i.test(key) || /(?:password|token|credential|secret)Key$/i.test(key) || (key === "key" && /secret/i.test(parentPath.split(".").at(-1) ?? ""));
+}
+
+function isCidr(value) {
+  if (typeof value !== "string") return false;
+  const separator = value.lastIndexOf("/");
+  if (separator < 1) return false;
+  const address = value.slice(0, separator);
+  const prefix = Number(value.slice(separator + 1));
+  const family = isIP(address);
+  return Number.isInteger(prefix) && ((family === 4 && prefix >= 0 && prefix <= 32) || (family === 6 && prefix >= 0 && prefix <= 128));
+}
 
 function problem(path, message) {
   return { path, message };
@@ -66,9 +81,9 @@ export function validateConfiguration(input) {
 
   const paths = requireRecord(config.paths, "$.paths", errors);
   requireKeys(paths, "$.paths", ["generatedDirectory", "backupDirectory", "logDirectory"], errors);
-  requireString(paths.generatedDirectory, "$.paths.generatedDirectory", errors, /^\.bootstrap(?:\/[A-Za-z0-9._-]+)*$/);
-  requireString(paths.backupDirectory, "$.paths.backupDirectory", errors, /^\.backups(?:\/[A-Za-z0-9._-]+)*$/);
-  requireString(paths.logDirectory, "$.paths.logDirectory", errors, /^\.logs(?:\/[A-Za-z0-9._-]+)*$/);
+  requireString(paths.generatedDirectory, "$.paths.generatedDirectory", errors, /^\.bootstrap(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
+  requireString(paths.backupDirectory, "$.paths.backupDirectory", errors, /^\.backups(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
+  requireString(paths.logDirectory, "$.paths.logDirectory", errors, /^\.logs(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
 
   const image = requireRecord(config.image, "$.image", errors);
   requireKeys(image, "$.image", ["repository", "tag", "pullPolicy"], errors, ["digest"]);
@@ -85,13 +100,16 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "username", "instancePrefix"], errors);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
   if (typeof redis.tls !== "boolean") errors.push(problem("$.redis.tls", "must be boolean"));
   if (redis.mode === "managed" && redis.tls === true) errors.push(problem("$.redis.tls", "managed Redis TLS requires certificate configuration and is not supported by this contract; use false or an external TLS endpoint"));
   if (redis.mode === "external" && !/^[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$/.test(redis.externalEndpoint)) errors.push(problem("$.redis.externalEndpoint", "must be a host and port supplied by configuration"));
+  const externalEgressCidrs = Array.isArray(redis.externalEgressCidrs) ? redis.externalEgressCidrs : [];
+  if (!Array.isArray(redis.externalEgressCidrs) || externalEgressCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.redis.externalEgressCidrs", "must contain valid IPv4 or IPv6 CIDRs"));
+  if (redis.mode === "external" && externalEgressCidrs.length === 0) errors.push(problem("$.redis.externalEgressCidrs", "external Redis requires at least one explicit egress CIDR"));
   requireString(redis.credentialsSecret, "$.redis.credentialsSecret", errors, dnsLabel);
   requireString(redis.credentialKey, "$.redis.credentialKey", errors, secretKey);
   requireString(redis.adminCredentialKey, "$.redis.adminCredentialKey", errors, secretKey);
@@ -109,15 +127,31 @@ export function validateConfiguration(input) {
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsLabel, !ingress.enabled);
 
   const observability = requireRecord(config.observability, "$.observability", errors);
-  requireKeys(observability, "$.observability", ["serviceMonitor", "otlpEndpoint", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);
+  requireKeys(observability, "$.observability", ["serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);
   if (typeof observability.serviceMonitor !== "boolean") errors.push(problem("$.observability.serviceMonitor", "must be boolean"));
   requireString(observability.otlpEndpoint, "$.observability.otlpEndpoint", errors, /^https?:\/\//, true);
+  if (typeof observability.otlpEndpoint === "string" && observability.otlpEndpoint) {
+    try {
+      const endpoint = new URL(observability.otlpEndpoint);
+      if (endpoint.username || endpoint.password) errors.push(problem("$.observability.otlpEndpoint", "must not contain URL userinfo; configure authentication through the headers Secret"));
+    } catch { errors.push(problem("$.observability.otlpEndpoint", "must be a valid HTTP(S) URL")); }
+  }
+  requireString(observability.otlpHeadersSecret, "$.observability.otlpHeadersSecret", errors, dnsLabel, true);
+  requireString(observability.otlpHeadersKey, "$.observability.otlpHeadersKey", errors, secretKey);
+  if (observability.otlpHeadersSecret && !observability.otlpEndpoint) errors.push(problem("$.observability.otlpHeadersSecret", "requires an enabled OTLP endpoint"));
+  const monitoringNamespaceLabels = requireRecord(observability.monitoringNamespaceLabels, "$.observability.monitoringNamespaceLabels", errors);
+  const monitoringPodLabels = requireRecord(observability.monitoringPodLabels, "$.observability.monitoringPodLabels", errors);
+  if (observability.serviceMonitor && (Object.keys(monitoringNamespaceLabels).length === 0 || Object.keys(monitoringPodLabels).length === 0)) errors.push(problem("$.observability", "ServiceMonitor requires explicit monitoring namespace and pod selectors"));
+  for (const [path, labels] of [["$.observability.monitoringNamespaceLabels", monitoringNamespaceLabels], ["$.observability.monitoringPodLabels", monitoringPodLabels]]) {
+    for (const [key, value] of Object.entries(labels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`${path}.${key}`, "must be a non-empty label"));
+  }
   const otlpEgressCidrs = Array.isArray(observability.otlpEgressCidrs) ? observability.otlpEgressCidrs : [];
   if (!Array.isArray(observability.otlpEgressCidrs)) errors.push(problem("$.observability.otlpEgressCidrs", "must be an array"));
   const otlpNamespaceLabels = requireRecord(observability.otlpEgressNamespaceLabels, "$.observability.otlpEgressNamespaceLabels", errors);
   const otlpPodLabels = requireRecord(observability.otlpEgressPodLabels, "$.observability.otlpEgressPodLabels", errors);
   if (!Array.isArray(observability.otlpEgressPorts) || observability.otlpEgressPorts.length === 0 || observability.otlpEgressPorts.some(port => !Number.isInteger(port) || port < 1 || port > 65535)) errors.push(problem("$.observability.otlpEgressPorts", "must contain valid TCP ports"));
   if (observability.otlpEndpoint && otlpEgressCidrs.length === 0 && Object.keys(otlpNamespaceLabels).length === 0) errors.push(problem("$.observability", "an enabled OTLP endpoint requires an egress CIDR or namespace selector"));
+  for (const [key, value] of Object.entries(otlpNamespaceLabels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`$.observability.otlpEgressNamespaceLabels.${key}`, "must be a non-empty label"));
   for (const [key, value] of Object.entries(otlpPodLabels)) if (!key || typeof value !== "string" || !value) errors.push(problem(`$.observability.otlpEgressPodLabels.${key}`, "must be a non-empty label"));
 
   const resources = requireRecord(config.resources, "$.resources", errors);
@@ -146,7 +180,7 @@ export function validateConfiguration(input) {
     if (!isRecord(value)) return;
     for (const [key, child] of Object.entries(value)) {
       const childPath = `${path}.${key}`;
-      if (secretValueKey.test(key) && !/(?:Secret|Key)$/.test(key)) errors.push(problem(childPath, "inline secret values are forbidden; configure a Secret name and key"));
+      if (secretValueKey.test(key) && !isSecretReferenceField(key, path)) errors.push(problem(childPath, "inline secret values are forbidden; configure a Secret name and key"));
       if (isRecord(child)) rejectInlineSecrets(child, childPath);
     }
   }
@@ -167,7 +201,7 @@ export function stableJson(value) {
 export function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, secretValueKey.test(key) && !/(?:Secret|Key)$/.test(key) ? "[REDACTED]" : redact(child)]));
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, secretValueKey.test(key) && !isSecretReferenceField(key) ? "[REDACTED]" : redact(child)]));
 }
 
 export function inlineSecretPaths(value, path = "$") {
@@ -175,7 +209,7 @@ export function inlineSecretPaths(value, path = "$") {
   const paths = [];
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
-    if (secretValueKey.test(key) && !/(?:Secret|Key)$/.test(key) && child !== "" && child !== null && child !== undefined) paths.push(childPath);
+    if (secretValueKey.test(key) && !isSecretReferenceField(key, path) && child !== "" && child !== null && child !== undefined) paths.push(childPath);
     if (isRecord(child)) paths.push(...inlineSecretPaths(child, childPath));
     if (Array.isArray(child)) child.forEach((item, index) => { if (isRecord(item)) paths.push(...inlineSecretPaths(item, `${childPath}[${index}]`)); });
   }
@@ -200,7 +234,7 @@ export async function loadContract(repositoryRoot, configPath, requestedProfile)
   return { config, profile, configPath: absoluteConfig };
 }
 
-function releaseNames(config) {
+export function releaseNames(config) {
   const application = config.naming.suffix ? `realtime-${config.naming.suffix}` : "realtime";
   const release = `${config.environment.name}-${application}`;
   const redisRelease = `${release}-redis`;
@@ -233,6 +267,7 @@ export function renderValues(config, profile) {
         egressNamespaceSelector: { matchLabels: config.observability.otlpEgressNamespaceLabels },
         egressPodSelector: { matchLabels: config.observability.otlpEgressPodLabels },
         egressPorts: config.observability.otlpEgressPorts,
+        headersSecret: { name: config.observability.otlpHeadersSecret, key: config.observability.otlpHeadersKey },
       },
     },
     podDisruptionBudget: profile.gateway.podDisruptionBudget,
@@ -250,8 +285,12 @@ export function renderValues(config, profile) {
       instancePrefix: config.redis.instancePrefix,
     },
     networkPolicy: {
+      allowExternalRedisEgress: config.redis.mode === "external",
+      externalRedisCidrs: config.redis.externalEgressCidrs,
       ingressNamespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": config.networking.traefikNamespace } },
       ingressPodSelector: { matchLabels: config.networking.traefikPodLabels },
+      monitoringNamespaceSelector: { matchLabels: config.observability.monitoringNamespaceLabels },
+      monitoringPodSelector: { matchLabels: config.observability.monitoringPodLabels },
     },
     topologySpreadConstraints: { enabled: profile.gateway.topologySpread, zoneWhenUnsatisfiable: profile.gateway.zoneWhenUnsatisfiable },
     topology: config.topology,

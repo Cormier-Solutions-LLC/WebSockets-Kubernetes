@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, stableJson,
+  actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson,
 } from "./lib/bootstrap-contract.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -19,7 +19,7 @@ function parse(arguments_) {
     if (argument === "--dry-run") result.dryRun = true;
     else if (argument === "--confirm-topology-change") result.confirmTopologyChange = true;
     else if (argument === "--force") result.force = true;
-    else if (["--config", "--profile", "--timeout-seconds", "--backup"].includes(argument)) {
+    else if (["--config", "--profile", "--timeout-seconds", "--backup", "--name-suffix"].includes(argument)) {
       const value = arguments_[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value.`);
       result[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
@@ -28,6 +28,7 @@ function parse(arguments_) {
   if (!actions.includes(result.action)) throw new Error(`Action must be one of: ${actions.join(", ")}.`);
   result.timeoutSeconds = Number(result.timeoutSeconds);
   if (!Number.isInteger(result.timeoutSeconds) || result.timeoutSeconds < 60 || result.timeoutSeconds > 1800) throw new Error("--timeout-seconds must be an integer from 60 through 1800.");
+  if (result.nameSuffix !== undefined && !/^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$/.test(result.nameSuffix)) throw new Error("--name-suffix must be a DNS-label suffix from 1 through 27 characters.");
   return result;
 }
 
@@ -84,6 +85,12 @@ async function assertTarget(plan, config, options, mutation) {
   await command("kubectl", ["get", "namespace", config.networking.metalLbNamespace, "--request-timeout=15s"], "Validate MetalLB namespace", options);
   if (config.ingress.enabled) await command("kubectl", ["get", "secret", config.ingress.tlsSecretName, "--namespace", plan.target.namespace, "--request-timeout=15s"], "Validate ingress TLS Secret reference", options);
   if (config.observability.serviceMonitor) await command("kubectl", ["get", "customresourcedefinition", "servicemonitors.monitoring.coreos.com", "--request-timeout=15s"], "Validate ServiceMonitor support", options);
+  if (config.observability.otlpHeadersSecret) {
+    const otlpSecret = await command("kubectl", ["get", "secret", config.observability.otlpHeadersSecret, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate OTLP headers Secret reference", { ...options, capture: true });
+    if (!otlpSecret) throw new Error(`OTLP headers Secret '${config.observability.otlpHeadersSecret}' does not exist in '${plan.target.namespace}'.`);
+    const otlpKeys = await command("kubectl", ["get", "secret", config.observability.otlpHeadersSecret, "--namespace", plan.target.namespace, "--output", "go-template={{range $key, $_ := .data}}{{$key}}{{\"\\n\"}}{{end}}"], "Validate OTLP headers Secret key", { ...options, capture: true });
+    if (!new Set(otlpKeys.split(/\r?\n/).filter(Boolean)).has(config.observability.otlpHeadersKey)) throw new Error(`OTLP headers Secret '${config.observability.otlpHeadersSecret}' is missing configured key '${config.observability.otlpHeadersKey}'.`);
+  }
   if (config.topology === "ha") {
     const nodeDocument = await command("kubectl", ["get", "nodes", "--output", "json"], "Validate schedulable failure-domain capacity", { ...options, capture: true });
     const nodes = JSON.parse(nodeDocument).items.filter(node => !node.spec?.unschedulable && node.status?.conditions?.some(condition => condition.type === "Ready" && condition.status === "True"));
@@ -133,7 +140,13 @@ async function saveState(plan, options) {
   return directory;
 }
 
-async function installedTopology(planTarget, options) {
+function topologyFromValues(values, release) {
+  if (["ha", "non-ha"].includes(values.topology)) return values.topology;
+  if (Number.isInteger(values.replicaCount)) return values.replicaCount > 1 ? "ha" : "non-ha";
+  throw new Error(`Release '${release}' does not expose a supported topology value.`);
+}
+
+async function installedReleaseState(planTarget, options) {
   const context = await currentContext(options);
   if (context !== planTarget.context) throw new Error(`Target mismatch: expected Kubernetes context '${planTarget.context}', found '${context}'.`);
   const releasesDocument = await command("helm", ["list", "--namespace", planTarget.namespace, "--output", "json"], "Inspect installed releases for topology", { ...options, capture: true });
@@ -141,9 +154,38 @@ async function installedTopology(planTarget, options) {
   if (!Array.isArray(releases) || !releases.some(release => release?.name === planTarget.release)) return undefined;
   const valuesDocument = await command("helm", ["get", "values", planTarget.release, "--namespace", planTarget.namespace, "--all", "--output", "json"], "Read installed gateway topology", { ...options, capture: true });
   const values = JSON.parse(valuesDocument);
-  if (["ha", "non-ha"].includes(values.topology)) return values.topology;
-  if (Number.isInteger(values.replicaCount)) return values.replicaCount > 1 ? "ha" : "non-ha";
-  throw new Error(`Installed release '${planTarget.release}' does not expose a supported topology value.`);
+  return { topology: topologyFromValues(values, planTarget.release), redisMode: values.redis?.mode };
+}
+
+async function readRollbackSnapshot(planTarget, options) {
+  const backup = options.backup ? resolve(options.backup) : undefined;
+  if (!backup) throw new Error("rollback requires --backup pointing to a captured backup directory.");
+  assertPathInside(options.backupRoot, backup, "rollback source");
+  const savedPlan = await readJson(resolve(backup, "plan.json"));
+  if (savedPlan.target.context !== planTarget.context || savedPlan.target.namespace !== planTarget.namespace || savedPlan.target.release !== planTarget.release) throw new Error("Backup target does not match the requested context, namespace, and release.");
+  const releases = await readJson(resolve(backup, "releases.json"));
+  if (!Array.isArray(releases)) throw new Error("Backup release inventory is invalid.");
+  const installed = new Set(releases.map(release => release?.name).filter(Boolean));
+  if (!installed.has(planTarget.release)) return { gatewayPresent: false, releases };
+  const valuesPath = resolve(backup, `${planTarget.release}.values.json`);
+  if (!await fileExists(valuesPath)) throw new Error(`Backup inventory includes '${planTarget.release}' but its values snapshot is missing.`);
+  const values = await readJson(valuesPath);
+  return { gatewayPresent: true, releases, topology: topologyFromValues(values, planTarget.release), redisMode: values.redis?.mode ?? (installed.has(planTarget.redisRelease) ? "managed" : "external") };
+}
+
+async function writeNamingManifest(config) {
+  const names = releaseNames(config);
+  const [containerRegistry, ...repositoryParts] = config.image.repository.split("/");
+  await atomicWrite(resolve(repositoryRoot, ".bootstrap", "naming.json"), stableJson({
+    brand: "Cormier",
+    application: names.application,
+    serviceName: `cormier-${names.application}-gateway`,
+    containerRegistry,
+    containerRepository: repositoryParts.join("/"),
+    imageRepository: config.image.repository,
+    redisInstancePrefix: config.redis.instancePrefix,
+    kubernetesApplication: names.application,
+  }));
 }
 
 function gatewayUpgradeArguments(plan, options, action = "upgrade") {
@@ -186,7 +228,13 @@ async function main() {
   const options = parse(process.argv.slice(2));
   options.action = options.action;
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error(`Configuration is invalid: Node.js 22 or later is required; detected ${process.version}.`);
-  const { config, profile } = await loadContract(repositoryRoot, options.config, options.profile);
+  let { config, profile } = await loadContract(repositoryRoot, options.config, options.profile);
+  if (options.nameSuffix !== undefined) {
+    config = structuredClone(config);
+    config.naming.suffix = options.nameSuffix;
+    config.redis.instancePrefix = `cormier:realtime:${options.nameSuffix}`;
+  }
+  await writeNamingManifest(config);
   options.generatedRoot = resolve(repositoryRoot, config.paths.generatedDirectory);
   options.backupRoot = resolve(repositoryRoot, config.paths.backupDirectory);
   const logRoot = resolve(repositoryRoot, config.paths.logDirectory);
@@ -210,8 +258,18 @@ async function main() {
     const statePath = resolve(targetRoot, "state.json");
     const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
     const provisionalPlan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology: priorState?.topology });
+    const rollbackSnapshot = options.action === "rollback" ? await readRollbackSnapshot(provisionalPlan.target, options) : undefined;
+    if (rollbackSnapshot?.gatewayPresent) {
+      config = structuredClone(config);
+      config.topology = rollbackSnapshot.topology;
+      config.redis.mode = rollbackSnapshot.redisMode;
+      profile = await readJson(resolve(repositoryRoot, "bootstrap", "profiles", `${config.topology}.json`));
+      if (config.topology === "ha" && config.kubernetes.failureDomains < profile.minimumFailureDomains) throw new Error(`Configuration is invalid: rollback to HA requires at least ${profile.minimumFailureDomains} configured failure domains.`);
+    }
     const clusterAware = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
-    const previousTopology = clusterAware ? await installedTopology(provisionalPlan.target, options) : priorState?.topology;
+    const installedState = clusterAware ? await installedReleaseState(provisionalPlan.target, options) : undefined;
+    if (["install", "update", "recover"].includes(options.action) && installedState?.redisMode && installedState.redisMode !== config.redis.mode) throw new Error(`Redis mode conversion from '${installedState.redisMode}' to '${config.redis.mode}' requires an explicit migration outside this bootstrap action.`);
+    const previousTopology = installedState?.topology ?? (clusterAware ? undefined : priorState?.topology);
     const plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
@@ -254,9 +312,10 @@ async function main() {
     else if (options.action === "rollback") await rollback(plan, options);
     else if (options.action === "teardown") {
       await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
-      if (config.redis.mode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
+      if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
-    if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 1, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
+    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false) await rm(statePath, { force: true });
+    else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 1, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
     emit("pass", options.action, "Lifecycle action completed.", {
       backup: backup ?? null,
       profile: config.topology,
@@ -272,6 +331,6 @@ main().catch(async error => {
   emit("error", "failure", error.message);
   try { await flushLog(); } catch (logError) { process.stderr.write(`Unable to write lifecycle log: ${logError.message}\n`); }
   if (/^(?:Action must|Unknown argument|--.+ requires|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
-  else if (/requires --|forbidden for production|Target mismatch|target lock/.test(error.message)) process.exitCode = 3;
+  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|target lock/.test(error.message)) process.exitCode = 3;
   else process.exitCode = 1;
 });

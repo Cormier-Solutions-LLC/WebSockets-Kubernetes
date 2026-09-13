@@ -10,17 +10,17 @@ Copy `bootstrap/config.example.json` outside source control, replace every examp
 export CORMIER_BOOTSTRAP_CONFIG=/secure/config/realtime-dev.json
 bash ./scripts/realtime-bootstrap.sh plan --profile non-ha
 bash ./scripts/realtime-bootstrap.sh prerequisites --profile non-ha
-bash ./scripts/realtime-bootstrap.sh install --profile non-ha
+bash ./scripts/realtime-bootstrap.sh install --profile non-ha --name-suffix team-a
 ```
 
 ```powershell
 $env:CORMIER_BOOTSTRAP_CONFIG = 'C:\secure\config\realtime-dev.json'
 ./scripts/Realtime-Bootstrap.ps1 -Action plan -Profile non-ha
 ./scripts/Realtime-Bootstrap.ps1 -Action prerequisites -Profile non-ha
-./scripts/Realtime-Bootstrap.ps1 -Action install -Profile non-ha
+./scripts/Realtime-Bootstrap.ps1 -Action install -Profile non-ha -NameSuffix team-a
 ```
 
-`--config`/`-Config` takes precedence over `CORMIER_BOOTSTRAP_CONFIG`. The actions are `prerequisites`, `plan`, `bootstrap`, `backup`, `install`, `update`, `validate`, `rollback`, `recover`, and `teardown`. `bootstrap` performs locked .NET restore and a Release build; `backup` captures the current target without changing it. Bash flags use kebab case; PowerShell parameters use normal PowerShell casing. `--dry-run`/`-DryRun`, the timeout, topology confirmation, backup path, and force switch have identical meaning.
+`--config`/`-Config` takes precedence over `CORMIER_BOOTSTRAP_CONFIG`. `--name-suffix`/`-NameSuffix` overrides the configured suffix, derives the release and Redis instance identities together, and writes the ignored `.bootstrap/naming.json` manifest consumed by other automation. The actions are `prerequisites`, `plan`, `bootstrap`, `backup`, `install`, `update`, `validate`, `rollback`, `recover`, and `teardown`. `bootstrap` performs locked .NET restore and a Release build; `backup` captures the current target without changing it. Bash flags use kebab case; PowerShell parameters use normal PowerShell casing. `--dry-run`/`-DryRun`, the timeout, topology confirmation, backup path, and force switch have identical meaning.
 
 ## Topology decision
 
@@ -32,11 +32,11 @@ The profile is explicit in configuration and is passed into the application as `
 
 ## Plans, updates, and recovery
 
-Every invocation validates the complete configuration before contacting a cluster and writes a secret-redacted, stable-key-order plan and rendered values beneath ignored `.bootstrap/lifecycle`. Configure the ingress origins, Traefik pod labels, optional immutable image digest, external Redis TLS mode, and any OTLP egress CIDRs or workload selectors explicitly. JSON-line logs use the configured ignored log directory; validated matching logs older than seven days move to its `Archive` directory. Review `plan.json`, `values.json`, the target context/namespace, availability guarantees, change classification, and SHA-256 before mutation.
+Every invocation validates the complete configuration before contacting a cluster and writes a secret-redacted, stable-key-order plan and rendered values beneath ignored `.bootstrap/lifecycle`. Configure the ingress origins, Traefik pod labels, optional immutable image digest, external Redis TLS and egress CIDRs, monitoring namespace/pod selectors, and any OTLP egress CIDRs or workload selectors explicitly. Authenticated OTLP endpoints use the configured existing headers Secret and key; URL userinfo is rejected. JSON-line logs use the configured ignored log directory; validated matching logs older than seven days move to its `Archive` directory. Review `plan.json`, `values.json`, the target context/namespace, availability guarantees, change classification, and SHA-256 before mutation.
 
 Install, update, recover, and rollback use an exclusive target, bounded Helm/Kubernetes waits, atomic Helm upgrades, pre-change release-value backups beneath ignored `.backups/bootstrap`, and post-rollout health verification. Backups fail closed and remove the partial snapshot if Helm returns an inline password, token, secret, credential, private key, authorization value, or cookie. Repeating install/update is supported. Existing Kubernetes Secrets are referenced and verified but never created or read.
 
-For cluster-changing actions, the installed gateway release is the authoritative source of the prior topology; ignored local state is only an offline planning aid. An installed profile that differs from the requested profile classifies the operation as `topology-conversion`, including on a fresh checkout. Run `update --dry-run` against the intended cluster, review capacity and downtime implications, then rerun with `--confirm-topology-change` or `-ConfirmTopologyChange`. Storage is never deleted or silently resized. Use `rollback --backup <reported-directory>` (or `-Backup`) to restore captured release values and remove releases that did not exist when that snapshot was taken. `recover` reapplies desired state and verifies rollout health.
+For cluster-changing actions, the installed gateway release is the authoritative source of the prior topology; ignored local state is only an offline planning aid. An installed profile that differs from the requested profile classifies the operation as `topology-conversion`, including on a fresh checkout. Rollback compares the installed topology with the topology stored in the selected backup. Run `update --dry-run` or `rollback --dry-run --backup <directory>` against the intended cluster, review capacity and downtime implications, then rerun with `--confirm-topology-change` or `-ConfirmTopologyChange`. Storage is never deleted or silently resized. Use `rollback --backup <reported-directory>` (or `-Backup`) to restore captured release values and remove releases that did not exist when that snapshot was taken. Direct managed/external Redis mode conversion is rejected and requires an explicit operator-managed data migration. `recover` reapplies desired state and verifies rollout health.
 
 `teardown` requires `--force`/`-Force`, refuses production configurations, and removes only the configured gateway and managed-Redis releases. Namespace and persistent-volume deletion are deliberately outside this command.
 

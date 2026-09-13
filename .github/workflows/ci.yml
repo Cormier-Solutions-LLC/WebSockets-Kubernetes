@@ -72,6 +72,8 @@ jobs:
           grep --quiet 'Gateway__Topology: "ha"' /tmp/ha.yaml
           grep --quiet 'Redis__Endpoint: "dev-realtime-redis:26379"' /tmp/ha.yaml
           grep --quiet 'Redis__SentinelPassword' /tmp/ha.yaml
+          grep --quiet 'port: 6379' /tmp/ha.yaml
+          grep --quiet 'port: 26379' /tmp/ha.yaml
       - name: Helm lint, schema, and render validation
         run: |
           jq --exit-status '.templating.list | map(.name) == ["environment","cluster","namespace","instance","pod"]' helm/realtime-gateway/dashboards/realtime-gateway.json

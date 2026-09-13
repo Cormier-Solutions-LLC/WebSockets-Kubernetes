@@ -7,6 +7,8 @@
   Path to the versioned JSON configuration. CORMIER_BOOTSTRAP_CONFIG is the shared environment-variable alternative.
 .PARAMETER Topology
   Optional assertion that the configuration selects ha or non-ha. Profile is a compatibility alias.
+.PARAMETER NameSuffix
+  Optional DNS-label suffix used to derive the deployable instance naming contract.
 #>
 [CmdletBinding()]
 param(
@@ -16,6 +18,8 @@ param(
     [string]$Config,
     [Alias('Profile')]
     [ValidateSet('ha', 'non-ha')][string]$Topology,
+    [ValidatePattern('^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$')]
+    [string]$NameSuffix,
     [ValidateRange(60, 1800)][int]$TimeoutSeconds = 300,
     [string]$Backup,
     [switch]$DryRun,
@@ -26,9 +30,17 @@ param(
 $arguments = @((Join-Path $PSScriptRoot 'realtime-bootstrap.mjs'), $Action, '--timeout-seconds', [string]$TimeoutSeconds)
 if ($Config) { $arguments += @('--config', $Config) }
 if ($Topology) { $arguments += @('--profile', $Topology) }
+if ($NameSuffix) { $arguments += @('--name-suffix', $NameSuffix) }
 if ($Backup) { $arguments += @('--backup', $Backup) }
 if ($DryRun) { $arguments += '--dry-run' }
 if ($ConfirmTopologyChange) { $arguments += '--confirm-topology-change' }
 if ($Force) { $arguments += '--force' }
-& node @arguments
-exit $LASTEXITCODE
+$node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
+if (-not $node) {
+    Write-Error 'Node.js 22 or later is required but node was not found on PATH.'
+    exit 1
+}
+& $node.Source @arguments
+$nodeExitCode = $LASTEXITCODE
+if ($null -eq $nodeExitCode) { exit 1 }
+exit $nodeExitCode

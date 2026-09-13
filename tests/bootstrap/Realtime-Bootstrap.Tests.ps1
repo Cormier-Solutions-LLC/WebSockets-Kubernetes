@@ -25,4 +25,21 @@ Describe 'Realtime-Bootstrap PowerShell entry point' {
         $null = & pwsh -NoLogo -NoProfile -File $script:EntryPoint -Action plan -Config $script:Config -Profile ha
         $LASTEXITCODE | Should -Be 2
     }
+
+    It 'exposes the shared NameSuffix contract' {
+        $content = Get-Content $script:EntryPoint -Raw
+        $content | Should -Match '\[string\]\$NameSuffix'
+        $content | Should -Match "'--name-suffix'"
+    }
+
+    It 'returns failure deterministically when Node is unavailable' {
+        $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
+        $priorPath = $env:PATH
+        try {
+            $env:PATH = [IO.Path]::GetTempPath()
+            $null = & $pwsh -NoLogo -NoProfile -File $script:EntryPoint -Action prerequisites 2>$null
+            $LASTEXITCODE | Should -Be 1
+        }
+        finally { $env:PATH = $priorPath }
+    }
 }

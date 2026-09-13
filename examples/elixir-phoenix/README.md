@@ -6,9 +6,9 @@ This non-production adapter demonstrates a supervised Phoenix front end for Corm
 
 - Elixir 1.20.4 and Erlang/OTP 29.0.6
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
+- Generated `sdk/typescript/dist` and `examples/shared-web/dist` assets from the same build
 
 For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
-- Generated `sdk/typescript/dist` assets
 
 Supply every `.env.example` value externally; the application does not load the fixture. From this directory run `mix deps.get && mix run --no-halt`. The repeatable gate is:
 
@@ -19,7 +19,7 @@ mix test --no-start
 mix hex.audit
 ```
 
-Build/run the multi-architecture, digest-pinned release container from the repository root:
+Build and run the digest-pinned release container for the local platform from the repository root. Use an approved `docker buildx build --platform ...` release process when producing a multi-architecture image index:
 
 ```text
 docker build -f examples/elixir-phoenix/Dockerfile -t cormier-elixir-phoenix:local .

@@ -47,6 +47,7 @@
     "tlsSecretName": "dev-realtime-tls"
   },
   "observability": {
+    "cluster": "kind-example",
     "serviceMonitor": true,
     "monitoringNamespaceLabels": { "kubernetes.io/metadata.name": "monitoring" },
     "monitoringPodLabels": { "app.kubernetes.io/name": "prometheus" },

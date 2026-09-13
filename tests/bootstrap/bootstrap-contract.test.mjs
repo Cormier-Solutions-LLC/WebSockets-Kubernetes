@@ -37,6 +37,7 @@ test("both explicit topology profiles validate and render their availability con
     podDisruptionBudget: { enabled: false, minAvailable: 0 },
     topologySpreadConstraints: { enabled: false, zoneWhenUnsatisfiable: "ScheduleAnyway" },
   });
+  assert.deepEqual(renderValues(nonHa, profiles["non-ha"]).autoscaling, { enabled: false, minReplicas: 1, maxReplicas: 1 });
   const haValues = renderValues(ha, profiles.ha);
   assert.equal(haValues.replicaCount, 3);
   assert.equal(haValues.autoscaling.minReplicas, 3);
@@ -64,6 +65,9 @@ test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from conf
   assert.deepEqual(values.networkPolicy.externalRedisCidrs, config.redis.externalEgressCidrs);
   assert.deepEqual(values.gateway.allowedOrigins, config.ingress.allowedOrigins);
   assert.deepEqual(values.observability.otlp.egressCidrs, config.observability.otlpEgressCidrs);
+  assert.equal(values.observability.cluster, config.observability.cluster);
+  assert.deepEqual(values.observability.otlp.egressNamespaceSelector, {});
+  assert.deepEqual(values.observability.otlp.egressPodSelector, {});
   assert.deepEqual(values.observability.otlp.headersSecret, { name: "otel-headers", key: "headers" });
   assert.deepEqual(values.networkPolicy.monitoringNamespaceSelector.matchLabels, config.observability.monitoringNamespaceLabels);
 });
@@ -162,6 +166,9 @@ test("ServiceMonitor selectors and external Redis egress boundaries are explicit
   config.redis.mode = "external";
   config.redis.externalEndpoint = "redis.example.test:6379";
   assert(validateConfiguration(config).some(item => item.path === "$.redis.externalEgressCidrs"));
+  config.redis.externalEgressCidrs = ["192.0.2.50/32"];
+  config.redis.externalEndpoint = "redis.example.test:99999";
+  assert(validateConfiguration(config).some(item => item.path === "$.redis.externalEndpoint" && item.message.includes("65535")));
 });
 
 test("requested shell profile must match the versioned configuration", async () => {
@@ -227,7 +234,7 @@ if [[ -n "\${BOOTSTRAP_FAKE_LOG:-}" ]]; then printf '%s\\n' "$*" >> "$BOOTSTRAP_
 if [[ "\${BOOTSTRAP_FAKE_FAIL:-}" == 'redis' && "$*" == *"$BOOTSTRAP_FAKE_REDIS_RELEASE"* && "\${1:-}" == 'upgrade' ]]; then printf '%s\\n' 'injected Redis failure' >&2; exit 9; fi
 case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
-  list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s"},{"name":"%s"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE"; fi ;;
+  list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0"},{"name":"%s","chart":"redis-%s"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
   get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
   lint|template|upgrade|uninstall) printf '%s\\n' 'ok' ;;
   *) printf 'unsupported fake helm command: %s\\n' "\${1:-}" >&2; exit 64 ;;
@@ -236,6 +243,7 @@ esac
   const kubectl = `#!/usr/bin/env bash
 set -euo pipefail
 joined="$*"
+if [[ -n "\${BOOTSTRAP_FAKE_LOG:-}" ]]; then printf 'kubectl %s\\n' "$*" >> "$BOOTSTRAP_FAKE_LOG"; fi
 if [[ "$joined" == 'config current-context' ]]; then printf '%s\\n' 'kind-example'
 elif [[ "$joined" == *'cluster-info'* && "\${BOOTSTRAP_FAKE_FAIL:-}" == 'cluster' ]]; then printf '%s\\n' 'injected Kubernetes network failure' >&2; exit 9
 elif [[ "$joined" == *'get nodes --output json'* ]]; then
@@ -360,6 +368,8 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     assert.match(log, /auth\.acl\.userSecret=dev-realtime-redis/);
     assert.match(log, /auth\.existingSecretPasswordKey=redis-password/);
     assert.match(log, /auth\.acl\.users\[0\]\.username=realtime/);
+    assert.match(log, /master\.pdb\.create=false/);
+    assert.match(log, /replica\.pdb\.create=false/);
     assert.match(log, new RegExp(`uninstall ${release}-redis .*--ignore-not-found`));
     assert.match(log, new RegExp(`uninstall ${release} .*--ignore-not-found`));
   } finally {
@@ -424,7 +434,7 @@ test("rollback classifies conversion from installed topology to backup topology"
   const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/fixture`);
   await mkdir(backup, { recursive: true });
   await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release } }));
-  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release }, { name: `${release}-redis` }]));
+  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0" }, { name: `${release}-redis`, chart: "redis-23.1.1" }]));
   await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "ha", replicaCount: 3, redis: { mode: "managed" } }));
   await writeFile(resolve(backup, `${release}-redis.values.json`), stableJson({ architecture: "replication" }));
   try {
@@ -432,6 +442,60 @@ test("rollback classifies conversion from installed topology to backup topology"
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+  }
+});
+
+test("rollback rejects cross-mode restoration and restores the captured Redis chart version", { timeout: 30_000 }, async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-rollback-version-tools-"));
+  await fakeClusterTools(fakeBin);
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-rollback-version-config-"));
+  const config = configuration();
+  config.naming.suffix = "rollback-version";
+  const configPath = resolve(directory, "config.json");
+  const release = "dev-realtime-rollback-version";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/fixture`);
+  const operationLog = resolve(directory, "operations.log");
+  await writeFile(configPath, stableJson(config));
+  await mkdir(backup, { recursive: true });
+  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release } }));
+  await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0" }, { name: `${release}-redis`, chart: "redis-22.3.4" }]));
+  await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "non-ha", redis: { mode: "managed" } }));
+  await writeFile(resolve(backup, `${release}-redis.values.json`), stableJson({ architecture: "standalone" }));
+  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LOG: operationLog };
+  try {
+    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
+    assert.match(await readFile(operationLog, "utf8"), new RegExp(`upgrade --install ${release}-redis .*--version 22\\.3\\.4`));
+    await writeFile(resolve(backup, `${release}.values.json`), stableJson({ topology: "non-ha", redis: { mode: "external" } }));
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment }), error => error.code === 3 && /Redis mode rollback conversion.*explicit migration/.test(error.stdout));
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+  }
+});
+
+test("teardown skips desired-state prerequisites while retaining target and deletion checks", { timeout: 30_000 }, async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-teardown-tools-"));
+  await fakeClusterTools(fakeBin);
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-teardown-config-"));
+  const config = configuration();
+  config.naming.suffix = "teardown-preflight";
+  const configPath = resolve(directory, "config.json");
+  const operationLog = resolve(directory, "operations.log");
+  const release = "dev-realtime-teardown-preflight";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  await writeFile(configPath, stableJson(config));
+  try {
+    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "teardown", "--config", configPath, "--force"], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_FAIL: "credential", BOOTSTRAP_FAKE_LOG: operationLog } });
+    const log = await readFile(operationLog, "utf8");
+    assert.match(log, /kubectl auth can-i delete deployments\.apps/);
+    assert.doesNotMatch(log, /kubectl get (?:secret|storageclass|nodes)/);
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(targetBackups, { recursive: true, force: true });
   }
 });
 

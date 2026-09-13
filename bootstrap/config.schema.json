@@ -113,8 +113,9 @@
     "observability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"],
+      "required": ["cluster", "serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"],
       "properties": {
+        "cluster": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "minLength": 1 },
         "serviceMonitor": { "type": "boolean" },
         "monitoringNamespaceLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
         "monitoringPodLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },

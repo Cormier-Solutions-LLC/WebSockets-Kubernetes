@@ -47,10 +47,15 @@
     {
       "if": { "properties": { "topology": { "const": "non-ha" } }, "required": ["topology"] },
       "then": {
+        "required": ["autoscaling"],
         "properties": {
           "replicaCount": { "const": 1 },
           "podDisruptionBudget": { "properties": { "enabled": { "const": false } } },
-          "topologySpreadConstraints": { "properties": { "enabled": { "const": false } } }
+          "topologySpreadConstraints": { "properties": { "enabled": { "const": false } } },
+          "autoscaling": {
+            "required": ["enabled", "minReplicas", "maxReplicas"],
+            "properties": { "enabled": { "const": false }, "minReplicas": { "const": 1 }, "maxReplicas": { "const": 1 } }
+          }
         }
       }
     }

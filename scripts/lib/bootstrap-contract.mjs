@@ -107,6 +107,10 @@ export function validateConfiguration(input) {
   if (typeof redis.tls !== "boolean") errors.push(problem("$.redis.tls", "must be boolean"));
   if (redis.mode === "managed" && redis.tls === true) errors.push(problem("$.redis.tls", "managed Redis TLS requires certificate configuration and is not supported by this contract; use false or an external TLS endpoint"));
   if (redis.mode === "external" && !/^[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$/.test(redis.externalEndpoint)) errors.push(problem("$.redis.externalEndpoint", "must be a host and port supplied by configuration"));
+  if (redis.mode === "external") {
+    const port = Number(redis.externalEndpoint.split(":").at(-1));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push(problem("$.redis.externalEndpoint", "must use a TCP port from 1 through 65535"));
+  }
   const externalEgressCidrs = Array.isArray(redis.externalEgressCidrs) ? redis.externalEgressCidrs : [];
   if (!Array.isArray(redis.externalEgressCidrs) || externalEgressCidrs.some(cidr => !isCidr(cidr))) errors.push(problem("$.redis.externalEgressCidrs", "must contain valid IPv4 or IPv6 CIDRs"));
   if (redis.mode === "external" && externalEgressCidrs.length === 0) errors.push(problem("$.redis.externalEgressCidrs", "external Redis requires at least one explicit egress CIDR"));
@@ -127,7 +131,8 @@ export function validateConfiguration(input) {
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsLabel, !ingress.enabled);
 
   const observability = requireRecord(config.observability, "$.observability", errors);
-  requireKeys(observability, "$.observability", ["serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);
+  requireKeys(observability, "$.observability", ["cluster", "serviceMonitor", "monitoringNamespaceLabels", "monitoringPodLabels", "otlpEndpoint", "otlpHeadersSecret", "otlpHeadersKey", "otlpEgressCidrs", "otlpEgressNamespaceLabels", "otlpEgressPodLabels", "otlpEgressPorts"], errors);
+  requireString(observability.cluster, "$.observability.cluster", errors, /^[A-Za-z0-9._-]+$/);
   if (typeof observability.serviceMonitor !== "boolean") errors.push(problem("$.observability.serviceMonitor", "must be boolean"));
   requireString(observability.otlpEndpoint, "$.observability.otlpEndpoint", errors, /^https?:\/\//, true);
   if (typeof observability.otlpEndpoint === "string" && observability.otlpEndpoint) {
@@ -252,6 +257,7 @@ export function renderValues(config, profile) {
     image: config.image,
     ingressRoute: { enabled: config.ingress.enabled, entryPoint: config.ingress.entryPoint, host: config.ingress.host, path: "/realtime/ws", tlsSecretName: config.ingress.tlsSecretName },
     observability: {
+      cluster: config.observability.cluster,
       environment: config.environment.name,
       platformMetrics: {
         metalLbAdvertisementMode: config.networking.advertisementMode,
@@ -264,8 +270,8 @@ export function renderValues(config, profile) {
         enabled: Boolean(config.observability.otlpEndpoint),
         endpoint: config.observability.otlpEndpoint,
         egressCidrs: config.observability.otlpEgressCidrs,
-        egressNamespaceSelector: { matchLabels: config.observability.otlpEgressNamespaceLabels },
-        egressPodSelector: { matchLabels: config.observability.otlpEgressPodLabels },
+        egressNamespaceSelector: Object.keys(config.observability.otlpEgressNamespaceLabels).length > 0 ? { matchLabels: config.observability.otlpEgressNamespaceLabels } : {},
+        egressPodSelector: Object.keys(config.observability.otlpEgressPodLabels).length > 0 ? { matchLabels: config.observability.otlpEgressPodLabels } : {},
         egressPorts: config.observability.otlpEgressPorts,
         headersSecret: { name: config.observability.otlpHeadersSecret, key: config.observability.otlpHeadersKey },
       },

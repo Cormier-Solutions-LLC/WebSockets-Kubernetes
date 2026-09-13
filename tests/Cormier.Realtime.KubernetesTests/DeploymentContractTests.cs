@@ -47,6 +47,10 @@ public sealed class DeploymentContractTests
         Assert.Equal(3, topologyRules["ha"].GetProperty("replicaCount").GetProperty("minimum").GetInt32());
         Assert.Equal(0, topologyRules["ha"].GetProperty("deploymentStrategy").GetProperty("properties").GetProperty("maxUnavailable").GetProperty("const").GetInt32());
         Assert.Equal(1, topologyRules["non-ha"].GetProperty("replicaCount").GetProperty("const").GetInt32());
+        var nonHaAutoscaling = topologyRules["non-ha"].GetProperty("autoscaling").GetProperty("properties");
+        Assert.False(nonHaAutoscaling.GetProperty("enabled").GetProperty("const").GetBoolean());
+        Assert.Equal(1, nonHaAutoscaling.GetProperty("minReplicas").GetProperty("const").GetInt32());
+        Assert.Equal(1, nonHaAutoscaling.GetProperty("maxReplicas").GetProperty("const").GetInt32());
         Assert.Contains("Gateway__Topology: {{ .Values.topology", Read("helm/realtime-gateway/templates/configmap.yaml"), StringComparison.Ordinal);
     }
 

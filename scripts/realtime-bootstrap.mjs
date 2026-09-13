@@ -111,6 +111,16 @@ async function assertTarget(plan, config, options, mutation) {
   }
 }
 
+async function assertTeardownTarget(plan, options) {
+  const context = await currentContext(options);
+  if (context !== plan.target.context) throw new Error(`Target mismatch: expected Kubernetes context '${plan.target.context}', found '${context}'.`);
+  await command("kubectl", ["cluster-info", "--request-timeout=15s"], "Reach Kubernetes API", options);
+  const allowed = await command("kubectl", ["auth", "can-i", "delete", "deployments.apps", "--namespace", plan.target.namespace], "Validate teardown permission", { ...options, capture: true });
+  if (allowed !== "yes") throw new Error(`Missing deployment deletion permission in '${plan.target.namespace}'.`);
+  const releasesDocument = await command("helm", ["list", "--namespace", plan.target.namespace, "--output", "json"], "Inventory teardown releases", { ...options, capture: true });
+  if (!Array.isArray(JSON.parse(releasesDocument))) throw new Error("Helm release inventory was not a JSON array.");
+}
+
 async function saveState(plan, options) {
   const stamp = new Date().toISOString().replaceAll(":", "-");
   const directory = resolve(options.backupRoot, plan.target.release, stamp);
@@ -151,10 +161,11 @@ async function installedReleaseState(planTarget, options) {
   if (context !== planTarget.context) throw new Error(`Target mismatch: expected Kubernetes context '${planTarget.context}', found '${context}'.`);
   const releasesDocument = await command("helm", ["list", "--namespace", planTarget.namespace, "--output", "json"], "Inspect installed releases for topology", { ...options, capture: true });
   const releases = JSON.parse(releasesDocument);
-  if (!Array.isArray(releases) || !releases.some(release => release?.name === planTarget.release)) return undefined;
+  if (!Array.isArray(releases)) throw new Error("Helm release inventory was not a JSON array.");
+  if (!releases.some(release => release?.name === planTarget.release)) return releases.some(release => release?.name === planTarget.redisRelease) ? { topology: undefined, redisMode: "managed" } : undefined;
   const valuesDocument = await command("helm", ["get", "values", planTarget.release, "--namespace", planTarget.namespace, "--all", "--output", "json"], "Read installed gateway topology", { ...options, capture: true });
   const values = JSON.parse(valuesDocument);
-  return { topology: topologyFromValues(values, planTarget.release), redisMode: values.redis?.mode };
+  return { topology: topologyFromValues(values, planTarget.release), redisMode: values.redis?.mode ?? (releases.some(release => release?.name === planTarget.redisRelease) ? "managed" : "external") };
 }
 
 async function readRollbackSnapshot(planTarget, options) {
@@ -194,11 +205,18 @@ function gatewayUpgradeArguments(plan, options, action = "upgrade") {
 
 async function apply(plan, config, profile, options) {
   if (config.redis.mode === "managed") {
-    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, "oci://registry-1.docker.io/bitnamicharts/redis", "--version", "23.1.1", "--namespace", plan.target.namespace, "--create-namespace", "--values", "cluster/redis/managed-values.yaml", "--set", `architecture=${profile.redis.managedArchitecture}`, "--set", `replica.replicaCount=${profile.redis.replicas}`, "--set", `sentinel.enabled=${profile.redis.sentinel}`, "--set", `auth.sentinel=${profile.redis.sentinel}`, "--set", `global.storageClass=${config.kubernetes.storageClass}`, "--set", "master.persistence.enabled=true", "--set", `master.persistence.size=${config.resources.redisStorage}`, "--set", "replica.persistence.enabled=true", "--set", `replica.persistence.size=${config.resources.redisStorage}`, "--set", `auth.existingSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.existingSecretPasswordKey=${config.redis.adminCredentialKey}`, "--set", `auth.acl.userSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.acl.users[0].username=${config.redis.username}`, "--set-string", `auth.acl.users[0].keys=~${config.redis.instancePrefix}:*`, "--set-string", `auth.acl.users[0].channels=&${config.redis.instancePrefix}:*`, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
+    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, "oci://registry-1.docker.io/bitnamicharts/redis", "--version", "23.1.1", "--namespace", plan.target.namespace, "--create-namespace", "--values", "cluster/redis/managed-values.yaml", "--set", `architecture=${profile.redis.managedArchitecture}`, "--set", `replica.replicaCount=${profile.redis.replicas}`, "--set", `sentinel.enabled=${profile.redis.sentinel}`, "--set", `auth.sentinel=${profile.redis.sentinel}`, "--set", `master.pdb.create=${profile.redis.sentinel}`, "--set", `replica.pdb.create=${profile.redis.sentinel}`, "--set", `global.storageClass=${config.kubernetes.storageClass}`, "--set", "master.persistence.enabled=true", "--set", `master.persistence.size=${config.resources.redisStorage}`, "--set", "replica.persistence.enabled=true", "--set", `replica.persistence.size=${config.resources.redisStorage}`, "--set", `auth.existingSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.existingSecretPasswordKey=${config.redis.adminCredentialKey}`, "--set", `auth.acl.userSecret=${config.redis.credentialsSecret}`, "--set-string", `auth.acl.users[0].username=${config.redis.username}`, "--set-string", `auth.acl.users[0].keys=~${config.redis.instancePrefix}:*`, "--set-string", `auth.acl.users[0].channels=&${config.redis.instancePrefix}:*`, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
     await command("helm", redisArgs, "Install or update managed Redis", options);
   }
   await command("helm", gatewayUpgradeArguments(plan, options), "Install or update realtime gateway", options);
   await command("kubectl", ["rollout", "status", `deployment/${plan.target.release}`, "--namespace", plan.target.namespace, `--timeout=${options.timeoutSeconds}s`], "Verify gateway rollout", options);
+}
+
+function capturedRedisChartVersion(releaseInventory, release) {
+  const chart = releaseInventory.find(item => item?.name === release)?.chart;
+  const match = typeof chart === "string" ? /^redis-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(chart) : undefined;
+  if (!match) throw new Error(`Backup inventory for '${release}' does not contain a supported Redis chart version.`);
+  return match[1];
 }
 
 async function rollback(plan, options) {
@@ -217,7 +235,7 @@ async function rollback(plan, options) {
     } else if (await fileExists(valuesPath)) {
       const chart = release === plan.target.release ? "helm/realtime-gateway" : "oci://registry-1.docker.io/bitnamicharts/redis";
       const arguments_ = ["upgrade", "--install", release, chart];
-      if (release !== plan.target.release) arguments_.push("--version", "23.1.1");
+      if (release !== plan.target.release) arguments_.push("--version", capturedRedisChartVersion(releaseInventory, release));
       arguments_.push("--namespace", plan.target.namespace, "--values", valuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
       await command("helm", arguments_, `Restore ${release}`, options);
     } else throw new Error(`Backup inventory includes '${release}' but its values snapshot is missing.`);
@@ -269,6 +287,7 @@ async function main() {
     const clusterAware = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
     const installedState = clusterAware ? await installedReleaseState(provisionalPlan.target, options) : undefined;
     if (["install", "update", "recover"].includes(options.action) && installedState?.redisMode && installedState.redisMode !== config.redis.mode) throw new Error(`Redis mode conversion from '${installedState.redisMode}' to '${config.redis.mode}' requires an explicit migration outside this bootstrap action.`);
+    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent && installedState?.redisMode && installedState.redisMode !== rollbackSnapshot.redisMode) throw new Error(`Redis mode rollback conversion from '${installedState.redisMode}' to '${rollbackSnapshot.redisMode}' requires an explicit migration outside this bootstrap action.`);
     const previousTopology = installedState?.topology ?? (clusterAware ? undefined : priorState?.topology);
     const plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
     options.valuesPath = resolve(targetRoot, "values.json");
@@ -305,7 +324,8 @@ async function main() {
       return;
     }
     let backup;
-    await assertTarget(plan, config, options, mutation);
+    if (options.action === "teardown") await assertTeardownTarget(plan, options);
+    else await assertTarget(plan, config, options, mutation);
     if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, options);
     if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, profile, options);
     else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath], "Render gateway manifests", options);

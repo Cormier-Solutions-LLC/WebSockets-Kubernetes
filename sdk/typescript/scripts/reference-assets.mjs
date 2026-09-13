@@ -950,6 +950,15 @@ export function applySelectorMappings({ css, html, javascript }, selectorManglin
       if (source === target || targets.has(target) || sources.has(target)) {
         throw new Error(`${kind} selector mapping ${source} -> ${target} is ambiguous.`);
       }
+      const probe = "__cormier_selector_target_probe__";
+      const targetExists = kind === "id"
+        ? replaceSelector(css, "#", target, probe) !== css
+          || replaceHtmlSelectorReferences(html, { [target]: probe }, {}) !== html
+        : replaceSelector(css, ".", target, probe) !== css
+          || replaceHtmlSelectorReferences(html, {}, { [target]: probe }) !== html;
+      if (targetExists) {
+        throw new Error(`${kind} selector mapping ${source} -> ${target} collides with an existing asset identity.`);
+      }
       targets.add(target);
     }
   }

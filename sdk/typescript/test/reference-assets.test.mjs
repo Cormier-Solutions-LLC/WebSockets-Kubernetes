@@ -76,6 +76,17 @@ test("selector mappings reject collisions and mapping chains", () => {
   }), /ambiguous/u);
 });
 
+test("selector mappings reject targets already present in source assets", () => {
+  assert.throws(() => applySelectorMappings({ css: "#private #public {}",
+    html: '<div id="private"></div><div id="public"></div>', javascript: "" }, {
+    enabled: true, ids: { private: "public" }, classes: {}, safelist: [],
+  }), /existing asset identity/u);
+  assert.throws(() => applySelectorMappings({ css: ".internal .public {}",
+    html: '<div class="internal public"></div>', javascript: "" }, {
+    enabled: true, ids: {}, classes: { internal: "public" }, safelist: [],
+  }), /existing asset identity/u);
+});
+
 test("selector mappings preserve identifiers that only share a prefix", () => {
   const result = applySelectorMappings({
     css: ".internal .internal-panel #private #private-value {}",

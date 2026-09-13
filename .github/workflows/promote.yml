@@ -95,6 +95,7 @@ jobs:
           if ($manifest.schemaVersion -ne 1 -or $manifest.sourceCommit -ne $env:EXPECTED_COMMIT) { throw 'Release evidence does not match the requested tested commit.' }
           if ($manifest.digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Release evidence has an invalid immutable digest.' }
           if ($manifest.image -notmatch '^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$') { throw 'Release evidence has an invalid image repository.' }
+          if ($manifest.credentialProvider -notmatch '^(github|harbor|dockerhub|generic)$') { throw 'Release evidence has an invalid credential provider.' }
           if ($manifest.archiveSha256 -notmatch '^[a-f0-9]{64}$' -or $manifest.ciRunId -lt 1) { throw 'Release evidence is incomplete.' }
           $ciRun = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($manifest.ciRunId)" | ConvertFrom-Json
           if ($ciRun.path -ne '.github/workflows/ci.yml' -or $ciRun.event -ne 'push' -or $ciRun.head_branch -ne 'main' -or $ciRun.conclusion -ne 'success' -or $ciRun.head_sha -ne $env:EXPECTED_COMMIT) {
@@ -105,11 +106,12 @@ jobs:
           "digest=$($manifest.digest)" >> $env:GITHUB_OUTPUT
           "repository=$($manifest.image)" >> $env:GITHUB_OUTPUT
           "registry=$($manifest.image.Split('/')[0])" >> $env:GITHUB_OUTPUT
+          "credential_provider=$($manifest.credentialProvider)" >> $env:GITHUB_OUTPUT
       - uses: docker/login-action@v3
         with:
           registry: ${{ steps.artifact.outputs.registry }}
-          username: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
-          password: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
+          username: ${{ steps.artifact.outputs.credential_provider == 'github' && github.actor || steps.artifact.outputs.credential_provider == 'harbor' && secrets.HARBOR_PUBLISH_USERNAME || steps.artifact.outputs.credential_provider == 'dockerhub' && secrets.DOCKERHUB_USERNAME || steps.artifact.outputs.credential_provider == 'generic' && secrets.REGISTRY_USERNAME || '' }}
+          password: ${{ steps.artifact.outputs.credential_provider == 'github' && github.token || steps.artifact.outputs.credential_provider == 'harbor' && secrets.HARBOR_PUBLISH_TOKEN || steps.artifact.outputs.credential_provider == 'dockerhub' && secrets.DOCKERHUB_TOKEN || steps.artifact.outputs.credential_provider == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
       - name: Verify published manifest exists
         run: docker buildx imagetools inspect "${{ steps.artifact.outputs.repository }}@${{ steps.artifact.outputs.digest }}" >/dev/null
       - name: Render the exact promotion bundle

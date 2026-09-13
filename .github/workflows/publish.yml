@@ -32,12 +32,12 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
       - name: Validate configured image coordinates
         env:
-          REGISTRY_USERNAME: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
-          REGISTRY_PASSWORD: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
+          REGISTRY_USERNAME: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && github.actor || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_PUBLISH_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
+          REGISTRY_PASSWORD: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && github.token || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_PUBLISH_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
         run: |
           test -n "$CONTAINER_REGISTRY"
           test -n "$IMAGE_REPOSITORY"
-          printf '%s' "$REGISTRY_CREDENTIAL_PROVIDER" | grep --quiet --extended-regexp '^(harbor|dockerhub|generic)$'
+          printf '%s' "$REGISTRY_CREDENTIAL_PROVIDER" | grep --quiet --extended-regexp '^(github|harbor|dockerhub|generic)$'
           test -n "$REGISTRY_USERNAME"
           test -n "$REGISTRY_PASSWORD"
           printf '%s' "$CONTAINER_REGISTRY" | grep --quiet --extended-regexp '^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$'
@@ -45,8 +45,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.CONTAINER_REGISTRY }}
-          username: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
-          password: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
+          username: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && github.actor || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_PUBLISH_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_USERNAME || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_USERNAME || '' }}
+          password: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER == 'github' && github.token || vars.REGISTRY_CREDENTIAL_PROVIDER == 'harbor' && secrets.HARBOR_PUBLISH_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'dockerhub' && secrets.DOCKERHUB_TOKEN || vars.REGISTRY_CREDENTIAL_PROVIDER == 'generic' && secrets.REGISTRY_PASSWORD || '' }}
       - name: Push the tested OCI archive without rebuilding
         id: publish
         env:
@@ -62,7 +62,7 @@ jobs:
           digest=$(docker buildx imagetools inspect "$target_ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
           test -n "$digest"
           archive_sha=$(sha256sum artifacts/cormier-realtime-gateway.tar.gz | cut -d' ' -f1)
-          printf '{"schemaVersion":1,"sourceCommit":"%s","image":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
+          printf '{"schemaVersion":1,"sourceCommit":"%s","image":"%s","credentialProvider":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$REGISTRY_CREDENTIAL_PROVIDER" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:

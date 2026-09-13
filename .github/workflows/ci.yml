@@ -855,4 +855,3 @@ jobs:
         if: always() && matrix.shell == 'pwsh'
         shell: pwsh
         run: ./scripts/FullCircle.ps1 -Action cleanup -Profile '${{ matrix.profile }}'
-

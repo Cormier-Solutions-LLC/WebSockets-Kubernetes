@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pipelineVersion": "1.0.0",
+  "pipelineVersion": "1.1.0",
   "package": "@cormier/realtime",
   "version": "0.1.0",
   "defaults": {
@@ -24,24 +24,24 @@
       "files": [
         {
           "path": "readable/app.css",
-          "bytes": 438,
-          "gzipBytes": 297,
-          "sha256": "c715183d4e66c922be43a535c2880ff3ab1e591cfb91316b1efc4c6ba3e43837",
-          "integrity": "sha384-5MMWw51CHsOaTLpLM0Imw1zLBCzidbSNn8rTopESwxFTvfC351JQGNpAO8ETz84A"
+          "bytes": 435,
+          "gzipBytes": 294,
+          "sha256": "1fa80c5e8f9e642c26b717e496c9fb4f5ace10627f6e9d5621fcabdbc6a9f9df",
+          "integrity": "sha384-z466FB2fyJDVP/f10Hj6g64MlPJtn4lLfaiw23VqIRapq78UNw880NpfgNB8Rgy4"
         },
         {
           "path": "readable/app.js",
-          "bytes": 3629,
-          "gzipBytes": 1240,
-          "sha256": "86945d8cbe2956d4eac175a436db1fcaef187c680adf6077a797fa2d00828814",
-          "integrity": "sha384-B0sD9NBYNp6596nN1QJtKPrV/Y2FbOsSK/27SnL6iDPEMTbZrjcqABRYEkVEQIzk"
+          "bytes": 3577,
+          "gzipBytes": 1230,
+          "sha256": "14df044dd1397a7b46fbbd06a8881f7326ca00786d280ee939cf0d4ade635e48",
+          "integrity": "sha384-dHmYeShxKhIf1MU/VoAvzZXzc44ot7i2/cvIDrCMckH4L6ngsmkH7BmpeYX+no/L"
         },
         {
           "path": "readable/index.html",
-          "bytes": 1807,
-          "gzipBytes": 868,
-          "sha256": "8cc8c2a62bfd7136e8d1d055e7fff08f53e0a7c915ab4e758674080efc929676",
-          "integrity": "sha384-X47UWITTFzp4UojfblP2Mke0t0ECDiN8yuTRx7Sre5MkAUkDX5zgEvPSOMGQxS9Q"
+          "bytes": 1776,
+          "gzipBytes": 857,
+          "sha256": "838ced653e30e3bc36d8c2e894b53014e998fdb9ad6d1ec45a4adf5c20461526",
+          "integrity": "sha384-k5blv5Fjr8FJC0TctWFEER35Yo+yzFuGFqbEP3nKX3GgAoWU3p2RWzc2PIrf2d+x"
         }
       ],
       "sdk": {
@@ -74,18 +74,18 @@
           "integrity": "sha384-ETxayxN6+dPS3ltdhQM81VgwTtayIYrYTzCPWJ4u6Nv0VKZML1hGsQ94Bq4nPOVj"
         },
         {
-          "path": "optimized/app.css.map",
-          "bytes": 593,
-          "gzipBytes": 394,
-          "sha256": "35f3a1585d61a3f96794a33a4bec06d920b4ad842769ad21400cd1330a046f56",
-          "integrity": "sha384-Q8YlX2N0EBFqW9S2hqbpUaIMel7xYIz7dPPn2dZxVk6KpT7qwAnjQ32RYnyVgcQD"
+          "path": "source-maps/optimized/app.css.map",
+          "bytes": 601,
+          "gzipBytes": 403,
+          "sha256": "46b0914c8c2c5ac40b5c6679d096a9537abb90ae7a3e4799361f0079886c4261",
+          "integrity": "sha384-bKTH+ylOOY2AtwAI5vjGU9PNCDNH9OC0CSHV7imSqlk+UL2n4jblKpSUDFt3HTzW"
         },
         {
-          "path": "optimized/app.js.map",
-          "bytes": 6801,
-          "gzipBytes": 2320,
-          "sha256": "fefbbbbd5369653d327a681c627aae03327c72bd62ad8179cfba3b54983da5ef",
-          "integrity": "sha384-ba1Vb/OVvSm8lVRZLGe3mDninHkmipxlB1Zxx9rp3m/WaOTxFIEzz6JPktaSu8xk"
+          "path": "source-maps/optimized/app.js.map",
+          "bytes": 6687,
+          "gzipBytes": 2330,
+          "sha256": "0d920b661f3c413eb34e33a920b9a5cd1e976e23f850cc854b92852dcae0667e",
+          "integrity": "sha384-hkAHOGBEGlLQDjLkrRLDoaBSaClLecqwIZW54YLsL3RpkGamVWSmiK1fcU/W4up+"
         }
       ],
       "sdk": {
@@ -96,6 +96,7 @@
     }
   },
   "tools": {
+    "acorn": "8.18.0",
     "esbuild": "0.28.2",
     "htmlMinifierTerser": "7.2.0",
     "javascriptObfuscator": "5.7.0",

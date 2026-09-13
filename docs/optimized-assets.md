@@ -7,8 +7,8 @@ The ten reference web stacks consume one generated asset set from `examples/shar
 | Use | Directory | JavaScript | Source maps |
 | --- | --- | --- | --- |
 | Development and support | `dist/readable` | Readable application and SDK IIFE | SDK maps remain available |
-| Production | `dist/optimized` | Minified application and SDK IIFE | Generated, but not published by the reference routes |
-| Explicit hardening experiment | `dist/obfuscated` | Deterministically minified and obfuscated application JavaScript | Generated, but not published by the reference routes |
+| Production | `dist/optimized` | Minified application and SDK IIFE | Stored under `dist/source-maps/optimized`, outside the served root |
+| Explicit hardening experiment | `dist/obfuscated` | Deterministically minified and obfuscated application JavaScript | Stored under `dist/source-maps/obfuscated`, outside the served root |
 
 Production containers set `SHARED_ASSET_ROOT` to `/app/shared-web/optimized`. Local non-Release .NET development continues to use the canonical readable source. The asset root remains configuration so an operator can select the readable profile for diagnosis or rollback without changing application code.
 
@@ -34,12 +34,14 @@ Selector mangling is disabled by default in `sdk/typescript/asset-pipeline.confi
 
 ## Source maps and support
 
-Optimized source maps use source-relative names and are checked for source-machine paths. They are retained in the generated profile for authorized debugging and artifact correlation, but reference adapters expose only `index.html`, `app.css`, and `app.js`; maps are not published by default. Treat maps as release artifacts from the same build and do not mix them across versions.
+Optimized source maps use source-relative names and are checked for source-machine paths. They are retained under the sibling `dist/source-maps` tree for authorized debugging and artifact correlation, outside each configured profile root; reference adapters expose only `index.html`, `app.css`, and `app.js`. Treat maps as release artifacts from the same build and do not mix them across versions.
 
 For a production-only failure, reproduce against `dist/readable` with the same SDK and gateway versions. Compare the manifest hashes and browser console before changing minifier options. Do not publish source maps merely to diagnose a public deployment; retrieve the matching build artifact through the authorized release channel.
 
 ## Update, migration, and rollback
 
 Update one pinned optimization dependency at a time, run `npm run check`, then run the full adapter browser matrix. Review output size, CSP/SRI behavior, selector mappings, accessibility, and readable/optimized behavior parity. A pipeline, profile, or mapping contract change requires a `pipelineVersion` update and migration notes.
+
+Pipeline 1.1.0 moves optimized and obfuscated application source maps from their served profile directories to `dist/source-maps/<profile>`. Artifact consumers upgrading from 1.0.0 must read map paths from `asset-manifest.json` instead of assuming that maps sit beside the generated CSS and JavaScript. Deployments should continue serving only the selected profile directory; support tooling may retain the sibling source-map tree in an access-controlled build artifact.
 
 To roll back an asset regression, deploy the prior immutable asset set or point `SHARED_ASSET_ROOT` at the matching readable profile. Roll back the SDK and reference assets together because SRI values bind each page to exact bytes. Disable optional obfuscation by returning to `npm run build`; it is never required for compatibility.

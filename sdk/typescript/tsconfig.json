@@ -10,6 +10,7 @@
     "useUnknownInCatchVariables": true,
     "declaration": true,
     "declarationMap": true,
+    "newLine": "lf",
     "sourceMap": true,
     "outDir": "dist/types",
     "rootDir": "src",

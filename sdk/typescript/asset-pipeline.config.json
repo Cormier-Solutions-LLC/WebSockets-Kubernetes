@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pipelineVersion": "1.0.0",
+  "pipelineVersion": "1.1.0",
   "sourceDirectory": "../../examples/shared-web/wwwroot",
   "outputDirectory": "../../examples/shared-web/dist",
   "legalNotice": "Cormier.Realtime reference assets | MIT",

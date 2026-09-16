@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- Current operational clarification: the WebSocket drain deadline is 15 seconds and the forced-exit timer is 16 seconds. `/health` checks Redis only; Express middleware (including the process-local limiter) does not process WebSocket upgrades, so gateway authentication, Origin checks and connection limits remain essential.
+- Build the SDK and shared UI together before packaging; see [README.md](README.md) and [UPDATE.md](UPDATE.md) for asset generation, container networking and rollback. The initial release entry below is preserved.
 
 ## 0.1.0
 

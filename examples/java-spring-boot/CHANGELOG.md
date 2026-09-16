@@ -5,6 +5,10 @@ Operator-visible changes to the Java/Spring Boot reference application are recor
 ## Unreleased
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- Build both generated asset trees with `npm --prefix sdk/typescript ci` and `npm --prefix sdk/typescript run build` from the repository root before building an image. The container defaults to `/app/shared-web/optimized`; `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the readable UI without changing adapter or SDK versions.
+- Current operational scope: `/health` checks Redis only, while `/actuator/health` is the separate Spring health endpoint. Verify ticket and WebSocket traffic separately. The configured 15-second graceful-shutdown timeout applies per shutdown phase, not to the entire process lifetime.
+
+See [README.md](README.md) for current setup and [UPDATE.md](UPDATE.md) for coordinated update and rollback checks. The released entry below is retained as historical context.
 
 ## 0.1.0 - 2026-09-11
 

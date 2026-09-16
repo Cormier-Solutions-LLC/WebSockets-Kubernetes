@@ -4,10 +4,10 @@ This small, non-production adapter demonstrates a Spring Boot front end for Corm
 
 ## Prerequisites and local run
 
-- Java 25 (the Maven build enforces the configured release)
+- Java 25 (the Maven compiler release is configured in `pom.xml`)
 - Redis 7.4 or a compatible configured service
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis instance/session prefixes
-- The generated `sdk/typescript/dist` assets (`npm ci && npm run build` in `sdk/typescript`)
+- Node.js 22+ and npm; generate `sdk/typescript/dist` and `examples/shared-web/dist` with `npm ci` followed by `npm run build` in `sdk/typescript`, before Maven tests or container builds.
 
 Ticket and WebSocket routes forward the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single trusted forwarding hop; never trust a public or broader network range.
 
@@ -36,7 +36,7 @@ docker build -f examples/java-spring-boot/Dockerfile -t cormier-java-spring:loca
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15200:15200 --env-file examples/java-spring-boot/.env.example --env GATEWAY_URL=http://host.docker.internal:15201 --env REDIS_URL=redis://host.docker.internal:16379 cormier-java-spring:local
 ```
 
-Configuration-property validation fails startup with a nonzero exit when an origin, topology, identifier, TTL, or allowlist is unsafe. The ticket route has a 15-second response timeout without imposing that deadline on long-lived WebSockets, and Spring Boot graceful shutdown has a 15-second bound. `/health` returns 200 only when Redis is reachable. Errors expose generic codes while logs contain exception classes rather than request data, cookies, session identifiers, tickets, credentials, or endpoints.
+Configuration-property validation fails startup with a nonzero exit when an origin, topology, identifier, TTL, or allowlist is unsafe. The ticket route has a 15-second response timeout without imposing that deadline on long-lived WebSockets, and Spring Boot graceful shutdown has a 15-second timeout per shutdown phase. The custom `/health` returns 200 when its Redis key-existence command succeeds, regardless of whether the probe key exists, and 503 on failure. It does not probe the gateway; `/actuator/health` is a separate endpoint. The controller exception handler exposes generic dependency errors and logs exception class names. This does not guarantee redaction of all framework/startup logging; keep debug and request logging disabled and inspect deployment logs before sharing.
 
 ## Feature matrix
 
@@ -47,7 +47,7 @@ Configuration-property validation fails startup with a nonzero exit when an orig
 | WebSocket connection | Available | Spring Cloud Gateway forwards upgrade traffic and the gateway validates Origin/ticket |
 | Connect, subscribe, publish, receive, reconnect | Available | Canonical browser client and shared UI |
 | Expired session/ticket and rejected Origin | Available | Redis TTL/session lookup and gateway policy enforce rejection |
-| Health and redacted diagnostics | Available | Actuator-compatible dependency-aware health behavior; no network identities returned |
+| Health and redacted diagnostics | Available | Custom Redis health plus separate Actuator health; diagnostics expose instance/topology |
 | Logout | Available | Redis session and cookie are removed |
 | HA/session replication | External | Redis supports shared identity records; deployment topology remains operator-owned |
 | Identity provider, rate limiting, CSRF tokens, authorization policy | Omitted | Required production controls belong to the adopting application |
@@ -57,12 +57,12 @@ This is a teaching adapter, not a production identity system or general-purpose 
 
 ## Supported versions and footprint
 
-| Component | Tested version | Status |
+| Component | Repository pin / compatibility | Status |
 | --- | --- | --- |
 | Java | 25 | Supported example runtime |
 | Maven wrapper | 3.9.12 | Pinned build tool with distribution checksum |
 | Spring Boot | 4.1.1 | Supported example framework |
-| Spring Cloud / Gateway | 2025.1.3 / 5.0.3 | Supported forwarding layer |
+| Spring Cloud / Gateway | BOM 2025.1.3 / BOM-managed Gateway | Resolve the effective dependency tree for the exact Gateway version |
 | Cormier.Realtime browser SDK | 0.1.0 | Canonical generated shared JavaScript |
 | Cormier.Realtime protocol | 1.0 | Supported wire protocol |
 | Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
@@ -75,4 +75,6 @@ The adapter has four stack-specific production Java files and 342 nonblank lines
 
 For a non-sensitive defect, open a repository issue with Java, Maven, Spring Boot/Cloud, SDK/protocol, gateway, Redis, and container versions; topology; failing route/scenario; health response; minimal reproduction; and redacted structural logs. Never include credentials, Redis URLs, cookies, session IDs, tickets, tenant/user data, private origins, or network addresses. Use the repository security policy for suspected vulnerabilities.
 
-See [UPDATE.md](UPDATE.md) for the tested update, deprecation, verification, and rollback flow and [CHANGELOG.md](CHANGELOG.md) for operator-visible changes.
+See [UPDATE.md](UPDATE.md) for the update, deprecation, verification, and rollback procedure and [CHANGELOG.md](CHANGELOG.md) for operator-visible changes.
+
+Local asset paths are relative to the example directory. Containers select /app/shared-web/optimized; set `SHARED_ASSET_ROOT=/app/shared-web/readable` for the readable UI profile. `TOPOLOGY` is diagnostic metadata and does not create replicas or provision Redis.

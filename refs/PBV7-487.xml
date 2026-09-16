@@ -92,9 +92,9 @@ Parent Epic: &lt;a href=&quot;https://propago.atlassian.net/browse/PBV7-484&quot
                 <type id="7" iconUrl="https://propago.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/11015?size=medium">Story</type>
                             <parent id="76506">PBV7-484</parent>
                                     <priority id="3" iconUrl="https://propago.atlassian.net/images/icons/priorities/major_new.svg">Major</priority>
-                        <status id="1" iconUrl="https://propago.atlassian.net/images/icons/statuses/open.png" description="The issue is open and ready for the assignee to start work on it.">Open</status>
-                    <statusCategory id="2" key="new" colorName="blue-gray"/>
-                                    <resolution id="-1">Unresolved</resolution>
+                        <status id="1" iconUrl="https://propago.atlassian.net/images/icons/statuses/open.png" description="The issue is considered complete in this repository tracking export.">Done</status>
+                    <statusCategory id="2" key="done" colorName="green"/>
+                                    <resolution id="10000">Done</resolution>
                                                         <assignee accountid="-1">Unassigned</assignee>
                                                                 <reporter accountid="557058:b0c0151a-85fd-4ec9-b140-1e9af6f12c9f">Andrew Cormier</reporter>
                                     <labels>

@@ -5,6 +5,8 @@ Operator-visible features, fixes, security/configuration changes, breaking behav
 ## Unreleased
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- Current build prerequisite: generate both `sdk/typescript/dist` and `examples/shared-web/dist` through the SDK build before testing or packaging. Containers select the optimized UI; `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the readable profile with the same SDK.
+- Operational clarification: `/health` checks Redis, not the gateway. Ktor's configured stop bound covers the server stop call; HTTP-client and Redis cleanup follow it. See [README.md](README.md) and [UPDATE.md](UPDATE.md) for current setup and qualification steps; the released entry below is retained.
 
 ## 0.1.0 - 2026-09-11
 

@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- Build prerequisite: with Node.js 22+, run `npm --prefix sdk/typescript ci` and `npm --prefix sdk/typescript run build` from the repository root to generate both `sdk/typescript/dist` and `examples/shared-web/dist` before image construction. `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the container's readable UI profile with the same SDK.
+- Current operational clarification: `/health` checks Redis, not gateway reachability. The documented `python -m reference_app` launcher supplies Uvicorn's 64 KiB WebSocket limit and 15-second graceful-shutdown setting; an alternative ASGI launch must configure equivalent limits explicitly. See [README.md](README.md) and [UPDATE.md](UPDATE.md). The initial release entry below is retained.
 
 ## 0.1.0
 

@@ -1,5 +1,24 @@
 # SCRIPT-STANDARDS.md
 
+> **Repository context (documentation audit):** This file preserves the imported
+> Scripts Standard 4.2 reference below, including its historical product names,
+> example networks and `Supersedes` metadata. Those values are not current
+> Cormier.Realtime deployment defaults or proof of implemented script behavior.
+> The referenced 4.1 predecessor is provenance metadata, not a bundled file.
+> Current product naming and configuration boundaries are in [AGENTS.md](../AGENTS.md);
+> supported entry points, prerequisites and examples are in [scripts/README.md](../scripts/README.md)
+> and [the bootstrap guide](../docs/bootstrap.md).
+>
+> In this repository, supply network identities and trust boundaries through
+> configuration. Do not import the historical private CIDRs as a TLS bypass
+> allowlist: edge validation uses certificate/name validation and configurable
+> CA trust as documented in [the cluster guide](../cluster/README.md).
+> Repository PowerShell entry points require PowerShell 7+, with 7.4+ for the
+> authenticated edge transport; the generic Windows PowerShell 5.1 guidance
+> below does not override those explicit script requirements. Normative changes
+> to the standard require a new version under its revisioning rules. This note
+> clarifies the snapshot's context without changing its versioned rules.
+
 Standards-Version: 4.2  
 Standards-Origin: Project  
 Supersedes: scripts-standard-v4.1.md  

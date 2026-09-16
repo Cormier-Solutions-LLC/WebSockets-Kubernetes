@@ -16,6 +16,7 @@
 ### Known limitations
 
 - Example identities and authorization are non-production; TLS, durable Redis/gateway operation, orchestration, rate limiting, and production CSRF/abuse controls remain external.
+- Dependency setup and HTTP requests have timeouts, but established WebSocket relays have no per-message deadline; gateway heartbeat and idle policy remain relevant. `/health` checks Redis, not gateway reachability.
 
 ### Changed, fixed, deprecated, removed
 
@@ -25,4 +26,4 @@
 
 ### Operator action
 
-- Supply all required configuration and compatible Redis/gateway/SDK assets, then follow `UPDATE.md`. No migration is required for the initial version.
+- Supply all required configuration and compatible Redis/gateway/SDK assets, then follow [UPDATE.md](UPDATE.md). Container builds require both `sdk/typescript/dist` and `examples/shared-web/dist`; the SDK build generates both. No data migration is specified for the initial version.

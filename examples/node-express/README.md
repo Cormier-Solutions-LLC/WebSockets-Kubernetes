@@ -4,10 +4,10 @@ This small adapter demonstrates a non-production Node.js/Express front end for C
 
 ## Prerequisites and local run
 
-- Node.js 24.20.0 and npm 11 or 12 (the package rejects other Node major versions)
+- Node.js 24.x (`package.json` declares `>=24.0.0 <25`; the container pins 24.20.0) and npm. The engine declaration alone is not a runtime rejection.
 - Redis 7.4 or a compatible configured service
 - A running Cormier.Realtime 0.1.x gateway configured to trust `PUBLIC_ORIGIN` and use the same Redis instance/session prefixes
-- The generated `sdk/typescript/dist` assets (`npm ci && npm run build` in `sdk/typescript`)
+- Generated SDK and shared UI assets: run `npm ci` then `npm run build` in `sdk/typescript` to produce `sdk/typescript/dist` and `examples/shared-web/dist`.
 
 From `examples/node-express`, copy `.env.example` into your environment, replace `SESSION_SECRET`, and adjust every endpoint and port for the target environment. The file is an example fixture; the application does not read `.env` files or contain network defaults.
 
@@ -30,16 +30,16 @@ $env:ALLOWED_USERS = "user-a,user-b"
 npm start
 ```
 
-Startup validates all configuration and exits nonzero on a missing or invalid value or unavailable Redis. `TRUST_PROXY_HOPS` must match the exact number of trusted TLS-terminating proxies (`0` for direct traffic); ticket proxy requests are bounded to ten seconds. Logs are one-line structural JSON and intentionally omit endpoints, credentials, cookies, tickets, and session identifiers. `/health` returns 200 only while Redis is ready. Shutdown on `SIGINT` or `SIGTERM` stops accepting work, closes the proxy and Redis client, and has a 15-second failure bound.
+Startup validates all configuration and exits nonzero on a missing or invalid value or unavailable Redis. `TRUST_PROXY_HOPS` must match the exact number of trusted TLS-terminating proxies (`0` for direct traffic); ticket proxy requests are bounded to ten seconds. Lifecycle and proxy handlers emit structural JSON; Express application handlers log structural objects through the default console logger. They intentionally omit sensitive values, but do not assume all framework logs are redacted. `/health` checks Redis readiness and PING, returning 200 or 503; the global request limiter can also return 429. It does not probe the gateway. Shutdown on `SIGINT` or `SIGTERM` stops accepting work, closes the proxy and Redis client, and allows 15 seconds for WebSocket drain, with a forced-exit timer at 16 seconds.
 
 Run the repeatable checks with `npm ci && npm run check`. Run the container from the repository root so the canonical assets are in scope:
 
 ```text
 docker build -f examples/node-express/Dockerfile -t cormier-node-express:local .
-docker run --rm --env-file examples/node-express/.env.example cormier-node-express:local
+docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15100:15100 --env-file examples/node-express/.env.example --env SESSION_SECRET --env GATEWAY_URL=http://host.docker.internal:15101 --env REDIS_URL=redis://host.docker.internal:16379 cormier-node-express:local
 ```
 
-Replace every fixture value before a real deployment. Do not bake the environment file or a secret into the image.
+Set `SESSION_SECRET` in the invoking shell before the container command; `--env SESSION_SECRET` passes that runtime value. The mapped ports are local fixture values and must match your gateway, Redis and public origin. Replace every fixture value before a real deployment. Do not bake the environment file or a secret into the image.
 
 ## Feature matrix
 
@@ -61,7 +61,7 @@ This is a teaching adapter, not a production identity system or reverse proxy. `
 
 ## Supported versions and footprint
 
-| Component | Tested version | Status |
+| Component | Repository pin / compatibility | Status |
 | --- | --- | --- |
 | Node.js | 24.20.0 | Supported example runtime |
 | Express | 5.2.1 | Supported example framework |
@@ -78,4 +78,8 @@ The stack-specific runtime is six source files and 577 nonblank lines before tes
 
 For non-sensitive example defects, open a repository issue and include the Node, npm, Express, SDK/protocol, gateway, Redis, and container versions; topology; failing route/scenario; health response; minimal reproduction; and redacted structural logs. Never include secrets, Redis URLs, cookies, session IDs, tickets, tenant/user data, private origins, or network addresses. Follow the repository security policy for suspected vulnerabilities rather than placing sensitive details in a public issue.
 
-See [UPDATE.md](UPDATE.md) for the tested update, deprecation, verification, and rollback flow and [CHANGELOG.md](CHANGELOG.md) for operator-visible changes.
+See [UPDATE.md](UPDATE.md) for the update, deprecation, verification, and rollback procedure and [CHANGELOG.md](CHANGELOG.md) for operator-visible changes.
+
+The limiter permits 120 HTTP requests per 60-second window per client key; login JSON is limited to 8 KiB. Upgrade traffic bypasses Express middleware, retains the browser Origin for gateway validation, and has a ten-second upstream handshake timeout. Configure the gateway's `Proxy:TrustedNetworks` narrowly for the adapter hop that supplies `X-Forwarded-Proto`. Numeric `TRUST_PROXY_HOPS` is safe only when every ingress path has that trusted hop count and direct access is prevented.
+
+Containers use `/app/shared-web/optimized`; `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the readable UI. `TOPOLOGY=ha` only changes diagnostics and does not replace the process-local session store.

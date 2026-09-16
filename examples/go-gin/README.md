@@ -6,9 +6,9 @@ This non-production adapter demonstrates a Gin front end for Cormier.Realtime. E
 
 - Go 1.27.1
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
+- Node.js 22 or later and npm to regenerate the canonical SDK and shared UI assets. From the repository root, run `npm --prefix sdk/typescript ci` followed by `npm --prefix sdk/typescript run build`. This produces both `sdk/typescript/dist` and `examples/shared-web/dist` required by the container.
 
 For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
-- Generated `sdk/typescript/dist` assets
 
 Supply every `.env.example` value externally; the application does not load the fixture. From `examples/go-gin`, run `go run -mod=readonly .`. Run the repeatable gate with:
 
@@ -25,7 +25,9 @@ docker build -f examples/go-gin/Dockerfile -t cormier-go-gin:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 --env-file examples/go-gin/.env.example --env GATEWAY_URL=http://host.docker.internal:15501 --env REDIS_URL=redis://host.docker.internal:16379 cormier-go-gin:local
 ```
 
-Configuration fails before binding on unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists. Redis, HTTP, and WebSocket operations have 5–15 second bounds. Both WebSocket relay directions use the gateway's 64 KiB message boundary; HTTP headers and bodies are also bounded. SIGINT/SIGTERM initiates graceful shutdown with a 15-second deadline. Logs contain structural event names and never dependency error text or configured endpoints.
+Configuration fails before binding on unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists. Redis operations use five-second contexts and outbound ticket requests use a 15-second HTTP timeout; WebSocket dialing has a 15-second deadline. Established relays have no per-message deadline. Both relay directions enforce a 64 KiB message limit, so keep the gateway limit compatible. Login/ticket request bodies and ticket responses are limited to 64 KiB. SIGINT/SIGTERM initiates graceful shutdown with a shared 15-second deadline for HTTP and WebSockets. Logs contain structural event names and omit dependency error text and configured endpoints.
+
+`/health` returns 200 when Redis responds and 503 otherwise; it does not probe the gateway. `/api/diagnostics` reports Redis state, instance, and topology. `TOPOLOGY` labels diagnostics; it does not provision replicas or Redis high availability. Local runs use `../shared-web/wwwroot` and `../../sdk/typescript/dist` relative to the example directory. Containers use the generated optimized UI; set `SHARED_ASSET_ROOT=/app/shared-web/readable` for the readable rollback profile.
 
 ## Feature matrix
 
@@ -44,12 +46,12 @@ This is a teaching adapter, not a production identity system or general reverse 
 
 ## Versions and footprint
 
-| Component | Tested version | Status |
+| Component | Repository pin / compatibility | Status |
 | --- | --- | --- |
-| Go | 1.27.1 | Pinned supported stable point release |
-| Gin | 1.12.0 | Supported framework |
-| go-redis | 9.21.0 | Supported session client |
-| coder/websocket | 1.8.15 | Supported WebSocket implementation |
+| Go | 1.27.1 | `go.mod` and Dockerfile pin |
+| Gin | 1.12.0 | `go.mod` pin |
+| go-redis | 9.21.0 | `go.mod` pin |
+| coder/websocket | 1.8.15 | `go.mod` pin |
 | Go module graph | `go.mod` and `go.sum` | Read-only, reproducible resolution |
 | Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |

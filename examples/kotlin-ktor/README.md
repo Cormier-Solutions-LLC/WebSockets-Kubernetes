@@ -9,7 +9,7 @@ This small, non-production adapter demonstrates a coroutine-native Ktor front en
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis prefixes
 
 For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
-- The generated `sdk/typescript/dist` assets (`npm ci && npm run build` in `sdk/typescript`)
+Generate `sdk/typescript/dist` and `examples/shared-web/dist` before tests or container builds: with Node.js 22+, run `npm ci` then `npm run build` in `sdk/typescript`.
 
 Supply every value shown in `.env.example`; it is a fixture and is not loaded automatically. From `examples/kotlin-ktor` on PowerShell:
 
@@ -36,7 +36,7 @@ docker build -f examples/kotlin-ktor/Dockerfile -t cormier-kotlin-ktor:local .
 docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:15300:15300 --env-file examples/kotlin-ktor/.env.example --env GATEWAY_URL=http://host.docker.internal:15301 --env REDIS_URL=redis://host.docker.internal:16379 cormier-kotlin-ktor:local
 ```
 
-Typed configuration validation rejects unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists before binding the server. Redis connection has a five-second bound; health reports dependency availability; JVM shutdown allows one second of grace and has a 15-second stop bound. Request failures return generic codes, and application logging records exception classes while Redis/Netty internals are disabled so dependency endpoints, credentials, cookies, sessions, tickets, and identity data are not emitted.
+Typed configuration validation rejects unsafe origins, Redis schemes, identifiers, topology, TTL, ports, or allowlists before binding the server. Lettuce is configured with a five-second timeout. `/health` reports Redis availability (200 or 503), not gateway reachability. Shutdown calls Ktor server stop with one second of grace and a 15-second timeout, then closes the HTTP client and Redis store; Redis client shutdown has its own five-second bound. Request failures return generic codes, and application logging records exception classes while Redis/Netty internals are disabled to limit dependency detail in normal logs; inspect framework and deployment logs before sharing and do not enable sensitive request/debug logging.
 
 ## Feature matrix
 
@@ -57,13 +57,13 @@ This is a teaching adapter, not a production identity system or general-purpose 
 
 ## Supported versions and footprint
 
-| Component | Tested version | Status |
+| Component | Repository pin / compatibility | Status |
 | --- | --- | --- |
 | Java | 25 | Required runtime and bytecode target |
-| Kotlin | 2.4.20 | Supported compiler/standard-library line |
-| Ktor | 3.5.2 | Supported server/client/WebSocket framework |
+| Kotlin | 2.4.20 | Pinned compiler/standard-library line |
+| Ktor | 3.5.2 | Pinned server/client/WebSocket framework |
 | Gradle wrapper | 9.7.1 | Checksum-pinned; dependency locking enabled |
-| Lettuce | 7.6.0 | Supported Redis client |
+| Lettuce | 7.6.0 | Pinned Redis client |
 | Cormier.Realtime browser SDK / protocol | 0.1.0 / 1.0 | Canonical generated SDK and wire contract |
 | Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
 | Redis | 7.4 | Tested session service |
@@ -76,3 +76,7 @@ The adapter has three stack-specific production Kotlin files and 411 nonblank li
 Open a repository issue for a non-sensitive defect and include Java, Kotlin, Ktor, Gradle, Lettuce, SDK/protocol, gateway, Redis, and container versions; topology; failing route/scenario; health response; minimal reproduction; and redacted logs. Never include credentials, Redis URLs, cookies, session IDs, tickets, tenant/user data, private origins, or network addresses. Use the repository security policy for suspected vulnerabilities.
 
 See [UPDATE.md](UPDATE.md) for update/deprecation/rollback guidance and [CHANGELOG.md](CHANGELOG.md) for operator-visible changes.
+
+Ticket requests use a five-second connect timeout and 15-second request/socket timeouts; these are not a lifetime limit for WebSockets. Login/ticket bodies and ticket responses are capped at 64 KiB; both WebSocket plugins use a 64 KiB frame limit. The server sends pings every 20 seconds with a 10-second timeout. Keep gateway limits compatible.
+
+Local assets resolve relative to the example directory. Containers use `/app/shared-web/optimized`; select `SHARED_ASSET_ROOT=/app/shared-web/readable` for UI diagnosis. `TOPOLOGY` labels diagnostics and does not provision HA infrastructure.

@@ -2,7 +2,7 @@
 
 `Cormier.Realtime.AspNetCore` adds the existing realtime gateway to an ASP.NET Core application without copying gateway infrastructure.
 
-The package targets `net10.0` and requires the ASP.NET Core shared framework. Add it to a .NET 10 web host from your approved NuGet source (`dotnet add package Cormier.Realtime.AspNetCore --version 0.1.0`). It carries compatible Contracts and Redis dependencies; it does not launch a separate gateway process or provide a login/identity provider.
+The package targets `net10.0` and requires the ASP.NET Core shared framework. Add it to a .NET 10 web host from your approved NuGet source (`dotnet add package Cormier.Realtime.AspNetCore --version 1.0.0-beta`). It carries compatible Contracts and Redis dependencies; it does not launch a separate gateway process or provide a login/identity provider.
 
 The following host setup assumes the required external configuration is already supplied. Memory-backed ASP.NET Core sessions are suitable only for a single-process example; choose a shared session store for multiple replicas.
 

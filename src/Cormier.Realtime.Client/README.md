@@ -2,7 +2,7 @@
 
 `Cormier.Realtime.Client` is the runtime-neutral .NET Standard 2.0 client for the Cormier.Realtime WebSocket protocol. It has no ASP.NET Core hosting dependency and can be consumed by .NET 8, .NET 10, and other runtimes that implement .NET Standard 2.0 and support the package dependency graph.
 
-Install from your approved NuGet source with `dotnet add package Cormier.Realtime.Client --version 0.1.0`. The following example assumes application-owned `configuration`, `cancellationToken`, and `ApplicationAuthenticationProvider`; that provider is not a package type. It must acquire valid session/ticket material and supply the Origin/header configuration required by the target gateway.
+Install from your approved NuGet source with `dotnet add package Cormier.Realtime.Client --version 1.0.0-beta`. The following example assumes application-owned `configuration`, `cancellationToken`, and `ApplicationAuthenticationProvider`; that provider is not a package type. It must acquire valid session/ticket material and supply the Origin/header configuration required by the target gateway.
 
 ```csharp
 using System.Text.Json;
@@ -43,4 +43,4 @@ Defaults are 128 send and receive slots, 64 subscriptions, a 16 KiB frame limit,
 
 The package ships XML documentation, symbols with Source Link metadata, a README, and a dependency on the compatible `Cormier.Realtime.Contracts` `0.1.x` line. Its runtime support dependencies are constrained to the compatible `10.x` line. Routes, hosts, headers, cookies, and tickets are supplied at runtime and are never compiled into the package.
 
-Current package metadata constrains System.Text.Json and System.Threading.Channels to `[10.0.12,11.0.0)`; default Contracts packaging uses `[0.1.0,0.2.0)`. The default subprotocol and queue/size defaults are compiled behavior defaults, while deployment endpoints and credentials are runtime inputs. Repository validation includes client unit tests and `scripts/Test-DotNetClientPackage.ps1` for package contents and an isolated consumer. See the [protocol contract](https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes/blob/main/docs/protocol.md) and [release policy](https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes/blob/main/docs/package-release.md).
+Current package metadata constrains System.Text.Json and System.Threading.Channels to `[10.0.12,11.0.0)`; default Contracts packaging uses `[1.0.0,1.1.0)`. The default subprotocol and queue/size defaults are compiled behavior defaults, while deployment endpoints and credentials are runtime inputs. Repository validation includes client unit tests and `scripts/Test-DotNetClientPackage.ps1` for package contents and an isolated consumer. See the [protocol contract](https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes/blob/main/docs/protocol.md) and [release policy](https://github.com/Cormier-Solutions-LLC/WebSockets-Kubernetes/blob/main/docs/package-release.md).

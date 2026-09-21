@@ -35,7 +35,7 @@ No sticky session or load-balancer affinity is required. The browser matrix incl
 
 The compatibility floor is ES2022 in maintained evergreen browsers. CI uses the exact engines pinned by Playwright:
 
-| Family | CI engine for SDK 0.1.0 | Consumption tested |
+| Family | CI engine for SDK 1.0.0-beta | Consumption tested |
 |---|---:|---|
 | Chromium (Chrome and Edge lineage) | 153 | readable/minified ESM and IIFE |
 | Firefox | 155 | readable/minified ESM and IIFE |

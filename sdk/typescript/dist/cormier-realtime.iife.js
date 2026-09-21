@@ -38,7 +38,7 @@ var CormierRealtime = (() => {
   });
 
   // src/protocol.ts
-  var SDK_VERSION = "0.1.0";
+  var SDK_VERSION = "1.0.0-beta";
   var PROTOCOL_VERSION = "1.0";
   var WEBSOCKET_SUBPROTOCOL = "cormier.realtime.v1";
   var messageTypes = {

@@ -6,7 +6,7 @@ Install this package directly only when composing the lower-level Redis services
 
 Redis endpoints, credentials, key prefixes, and deployment identities are configuration and are never embedded in this package.
 
-The package targets `net10.0`, depends on StackExchange.Redis `3.1.31`, and carries a compatible Contracts dependency (default range `[0.1.0,0.2.0)`). Install from your configured NuGet source with `dotnet add package Cormier.Realtime.Redis --version 0.1.0`. It does not provision Redis, configure ACLs, register gateway endpoints or supply a login flow.
+The package targets `net10.0`, depends on StackExchange.Redis `3.1.31`, and carries a compatible Contracts dependency (default range `[1.0.0,1.1.0)`). Install from your configured NuGet source with `dotnet add package Cormier.Realtime.Redis --version 1.0.0-beta`. It does not provision Redis, configure ACLs, register gateway endpoints or supply a login flow.
 
 ## Composition and configuration
 

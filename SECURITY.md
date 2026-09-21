@@ -1,5 +1,6 @@
 # Security policy
 
+
 Security is part of the Cormier Realtime Gateway contract. This policy covers the gateway, reusable .NET packages, TypeScript/browser client, protocol, lifecycle automation, deployment assets, and reference applications maintained in this repository.
 
 ## Supported versions

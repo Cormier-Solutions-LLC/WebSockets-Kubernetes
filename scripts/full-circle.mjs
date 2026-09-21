@@ -125,10 +125,10 @@ async function buildPackageConsumer() {
   const consumerLockGraph = JSON.parse(await readFile(consumerLockTemplate, "utf8"));
   const targetGraph = consumerLockGraph.dependencies?.["net10.0"];
   for (const [packageId, packageFile] of [
-    ["Cormier.Realtime.AspNetCore", "Cormier.Realtime.AspNetCore.0.1.0.nupkg"],
-    ["Cormier.Realtime.Browser", "Cormier.Realtime.Browser.0.1.0.nupkg"],
-    ["Cormier.Realtime.Contracts", "Cormier.Realtime.Contracts.0.1.0.nupkg"],
-    ["Cormier.Realtime.Redis", "Cormier.Realtime.Redis.0.1.0.nupkg"],
+    ["Cormier.Realtime.AspNetCore", "Cormier.Realtime.AspNetCore.1.0.0-beta.nupkg"],
+    ["Cormier.Realtime.Browser", "Cormier.Realtime.Browser.1.0.0-beta.nupkg"],
+    ["Cormier.Realtime.Contracts", "Cormier.Realtime.Contracts.1.0.0-beta.nupkg"],
+    ["Cormier.Realtime.Redis", "Cormier.Realtime.Redis.1.0.0-beta.nupkg"],
   ]) {
     if (targetGraph?.[packageId] === undefined) {
       throw new Error(`The committed consumer lock is missing ${packageId}.`);

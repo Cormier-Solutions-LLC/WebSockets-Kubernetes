@@ -28,7 +28,8 @@ class ReferenceApplicationTest {
     private val fixtureEnvironment = mapOf(
         "LISTEN_HOST" to "127.0.0.1", "PORT" to "15300", "PUBLIC_ORIGIN" to "http://127.0.0.1:15300",
         "GATEWAY_URL" to "http://127.0.0.1:15301", "REDIS_URL" to "redis://127.0.0.1:6379",
-        "SESSION_LIFETIME_SECONDS" to "1200", "INSTANCE_NAME" to "kotlin-ktor-a", "TOPOLOGY" to "non-ha",
+        "SESSION_LIFETIME_SECONDS" to "1200", "HEARTBEAT_INTERVAL_MILLISECONDS" to "5000",
+        "INSTANCE_NAME" to "kotlin-ktor-a", "TOPOLOGY" to "non-ha",
         "REDIS_INSTANCE_PREFIX" to "cormier:kotlin-test", "REDIS_SESSION_KEY_PREFIX" to "sessions",
         "ALLOWED_TENANTS" to "tenant-a,tenant-b", "ALLOWED_USERS" to "user-a,user-b",
         "SHARED_ASSET_ROOT" to "../shared-web/wwwroot", "SDK_ASSET_ROOT" to "../../sdk/typescript/dist",
@@ -51,6 +52,11 @@ class ReferenceApplicationTest {
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:443")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://EXAMPLE.TEST")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:99999")) }
+        for (heartbeat in listOf("", "4999", "300001", "not-an-integer")) {
+            assertFailsWith<IllegalArgumentException> {
+                ReferenceConfig.load(fixtureEnvironment + ("HEARTBEAT_INTERVAL_MILLISECONDS" to heartbeat))
+            }
+        }
         for (host in listOf("a..b", "-bad.example", "bad-.example", "999.999.999.999", "127.1",
             "${"a".repeat(64)}.example", "[fe80::1%25eth0]")) {
             assertFailsWith<IllegalArgumentException>(host) {

@@ -30,6 +30,7 @@ cormier:
     public-origin: ${PUBLIC_ORIGIN}
     gateway-url: ${GATEWAY_URL}
     session-lifetime-seconds: ${SESSION_LIFETIME_SECONDS}
+    heartbeat-interval-milliseconds: ${HEARTBEAT_INTERVAL_MILLISECONDS}
     instance-name: ${INSTANCE_NAME}
     topology: ${TOPOLOGY}
     redis-instance-prefix: ${REDIS_INSTANCE_PREFIX}

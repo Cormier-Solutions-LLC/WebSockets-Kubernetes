@@ -31,6 +31,7 @@ import reactor.core.publisher.Mono;
     "GATEWAY_URL=http://127.0.0.1:9",
     "REDIS_URL=redis://127.0.0.1:6379",
     "SESSION_LIFETIME_SECONDS=1200",
+    "HEARTBEAT_INTERVAL_MILLISECONDS=5000",
     "INSTANCE_NAME=java-spring-a",
     "TOPOLOGY=non-ha",
     "REDIS_INSTANCE_PREFIX=cormier:java-test",
@@ -62,7 +63,8 @@ final class ReferenceApplicationTests {
     client.get().uri("/api/diagnostics").exchange().expectStatus().isOk()
         .expectHeader().cacheControl(CacheControl.noStore())
         .expectBody().jsonPath("$.stack").isEqualTo("Java / Spring Boot")
-        .jsonPath("$.redis").isEqualTo("ready");
+        .jsonPath("$.redis").isEqualTo("ready")
+        .jsonPath("$.heartbeatIntervalMilliseconds").isEqualTo(5000);
     client.get().uri("/").exchange().expectStatus().isOk()
         .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML);
     client.get().uri("/app.js").exchange().expectStatus().isOk();
@@ -160,7 +162,7 @@ final class ReferenceApplicationTests {
     var mapper = new tools.jackson.databind.ObjectMapper();
     var schema = mapper.readTree(Files.readString(Path.of("../shared-web/reference-app.schema.json")));
     var required = schema.get("required").toString();
-    for (var name : new String[] { "LISTEN_HOST", "PUBLIC_ORIGIN", "GATEWAY_URL", "REDIS_URL", "SESSION_LIFETIME_SECONDS",
+    for (var name : new String[] { "LISTEN_HOST", "PUBLIC_ORIGIN", "GATEWAY_URL", "REDIS_URL", "SESSION_LIFETIME_SECONDS", "HEARTBEAT_INTERVAL_MILLISECONDS",
         "INSTANCE_NAME", "TOPOLOGY", "REDIS_INSTANCE_PREFIX", "REDIS_SESSION_KEY_PREFIX", "ALLOWED_TENANTS",
         "ALLOWED_USERS" }) {
       org.junit.jupiter.api.Assertions.assertTrue(required.contains("\"" + name + "\""), name);
@@ -183,19 +185,19 @@ final class ReferenceApplicationTests {
   void rejectsExplicitDefaultOriginPorts() {
     var properties = new ReferenceProperties(
         "127.0.0.1", 15200, URI.create("https://example.test:443"), URI.create("http://gateway.test"),
-        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        1200, 5000, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
 
     properties = new ReferenceProperties(
         "127.0.0.1", 15200, URI.create("https://EXAMPLE.TEST"), URI.create("http://gateway.test"),
-        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        1200, 5000, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
 
     properties = new ReferenceProperties(
         "127.0.0.1", 15200, URI.create("https://example.test:99999"), URI.create("http://gateway.test"),
-        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        1200, 5000, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid());
   }
@@ -206,13 +208,13 @@ final class ReferenceApplicationTests {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example", "[fe80::1%25eth0]" }) {
       var properties = new ReferenceProperties(
           "127.0.0.1", 15200, URI.create("https://" + name), URI.create("http://gateway.test"),
-          1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+          1200, 5000, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
           java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
       org.junit.jupiter.api.Assertions.assertFalse(properties.areOriginsValid(), name);
     }
     var properties = new ReferenceProperties(
         "127.0.0.1", 15200, URI.create("https://[::1]"), URI.create("http://192.0.2.1:15501"),
-        1200, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+        1200, 5000, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
         java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
     org.junit.jupiter.api.Assertions.assertTrue(properties.areOriginsValid());
   }

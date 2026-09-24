@@ -11,6 +11,7 @@ const validEnvironment = Object.freeze({
   REDIS_URL: "redis://user:password@127.0.0.1:16379/2",
   SESSION_SECRET: "a-runtime-only-secret-that-is-long-enough",
   SESSION_LIFETIME_SECONDS: "1200",
+  HEARTBEAT_INTERVAL_MILLISECONDS: "5000",
   INSTANCE_NAME: "node-express-a",
   TOPOLOGY: "non-ha",
   REDIS_INSTANCE_PREFIX: "cormier:reference-node",
@@ -48,4 +49,7 @@ test("rejects missing or unsafe configuration", () => {
   assert.throws(() => loadConfig({ ...validEnvironment, REDIS_URL: "https://example.test" }), /REDIS_URL/);
   assert.throws(() => loadConfig({ ...validEnvironment, TOPOLOGY: "maybe" }), /TOPOLOGY/);
   assert.throws(() => loadConfig({ ...validEnvironment, ALLOWED_USERS: "user-a,bad user" }), /ALLOWED_USERS/);
+  for (const value of ["4999", "300001", "not-an-integer"]) {
+    assert.throws(() => loadConfig({ ...validEnvironment, HEARTBEAT_INTERVAL_MILLISECONDS: value }), /HEARTBEAT_INTERVAL_MILLISECONDS/);
+  }
 });

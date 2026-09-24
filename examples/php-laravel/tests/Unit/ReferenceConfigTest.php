@@ -16,6 +16,7 @@ final class ReferenceConfigTest extends TestCase
         return [
             'listen_host' => '127.0.0.1', 'port' => '15500', 'public_origin' => 'http://127.0.0.1:15500', 'gateway_url' => 'http://127.0.0.1:15501',
             'redis_url' => 'redis://127.0.0.1:6379', 'session_secret' => str_repeat('x', 32), 'session_lifetime_seconds' => '1200',
+            'heartbeat_interval_milliseconds' => '5000',
             'instance_name' => 'php-laravel-a', 'topology' => 'non-ha', 'redis_instance_prefix' => 'cormier:test',
             'redis_session_key_prefix' => 'sessions', 'allowed_tenants' => 'tenant-a', 'allowed_users' => 'user-a',
             'shared_asset_root' => __DIR__, 'sdk_asset_root' => __DIR__,
@@ -30,6 +31,26 @@ final class ReferenceConfigTest extends TestCase
         self::assertTrue($config->allows('tenant-a', 'user-a'));
         self::assertSame('cormier:test:sessions:id', $config->sessionKey('id'));
         self::assertSame('http', $config->publicScheme());
+        self::assertSame(5000, $config->heartbeatIntervalMilliseconds);
+    }
+
+    #[DataProvider('invalidHeartbeatProvider')]
+    public function test_it_rejects_invalid_heartbeat_intervals(?string $value): void
+    {
+        $values = $this->values();
+        if ($value === null) {
+            unset($values['heartbeat_interval_milliseconds']);
+        } else {
+            $values['heartbeat_interval_milliseconds'] = $value;
+        }
+        $this->expectException(InvalidArgumentException::class);
+        ReferenceConfig::fromArray($values);
+    }
+
+    /** @return array<string, array{?string}> */
+    public static function invalidHeartbeatProvider(): array
+    {
+        return ['missing' => [null], 'below' => ['4999'], 'above' => ['300001'], 'non-integer' => ['invalid']];
     }
 
     public function test_it_rejects_unsafe_origins(): void
@@ -108,7 +129,7 @@ final class ReferenceConfigTest extends TestCase
         $sdk = file_get_contents(__DIR__.'/../../../../sdk/typescript/dist/version.json');
         $protocol = file_get_contents(__DIR__.'/../../../../protocol/fixtures/v1/envelopes.json');
         self::assertIsString($schema);
-        foreach (['LISTEN_HOST', 'PORT', 'PUBLIC_ORIGIN', 'GATEWAY_URL', 'REDIS_URL', 'SESSION_SECRET', 'PUBLIC_ROOT'] as $key) {
+        foreach (['LISTEN_HOST', 'PORT', 'PUBLIC_ORIGIN', 'GATEWAY_URL', 'REDIS_URL', 'SESSION_SECRET', 'HEARTBEAT_INTERVAL_MILLISECONDS', 'PUBLIC_ROOT'] as $key) {
             self::assertStringContainsString('"'.$key.'"', $schema);
         }
         self::assertStringContainsString('"protocolVersion": "1.0"', (string) $sdk);

@@ -98,6 +98,7 @@ export function createApp({ config, redisClient, proxy, logger = console, ticket
       topology: config.topology,
       instance: config.instanceName,
       redis: ready ? "ready" : "unavailable",
+      heartbeatIntervalMilliseconds: config.heartbeatIntervalMilliseconds,
       timestamp: new Date().toISOString(),
     });
   });

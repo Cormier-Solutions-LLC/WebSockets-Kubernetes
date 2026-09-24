@@ -14,6 +14,7 @@ final readonly class ReferenceConfig
         public string $gatewayUrl,
         public string $redisUrl,
         public int $sessionLifetimeSeconds,
+        public int $heartbeatIntervalMilliseconds,
         public string $instanceName,
         public string $topology,
         public string $redisInstancePrefix,
@@ -37,7 +38,8 @@ final readonly class ReferenceConfig
         };
         $port = filter_var($required('port'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1024, 'max_range' => 65535]]);
         $lifetime = filter_var($required('session_lifetime_seconds'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 60, 'max_range' => 7200]]);
-        if ($port === false || $lifetime === false) {
+        $heartbeat = filter_var($required('heartbeat_interval_milliseconds'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 5000, 'max_range' => 300000]]);
+        if ($port === false || $lifetime === false || $heartbeat === false) {
             throw new InvalidArgumentException('Numeric configuration is invalid.');
         }
         $origin = self::origin($required('public_origin'));
@@ -76,6 +78,7 @@ final readonly class ReferenceConfig
             $gateway,
             $required('redis_url'),
             $lifetime,
+            $heartbeat,
             $instance,
             $topology,
             $instancePrefix,

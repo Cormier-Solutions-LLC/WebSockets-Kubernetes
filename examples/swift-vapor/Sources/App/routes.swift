@@ -33,6 +33,7 @@ struct Diagnostics: Content {
   let topology: String
   let instance: String
   let redis: String
+  let heartbeatIntervalMilliseconds: Int
   let timestamp: String
 }
 
@@ -85,7 +86,8 @@ func routes(_ application: Application, settings: ReferenceSettings) {
     }
     return Diagnostics(
       stack: "Swift / Vapor", topology: settings.topology, instance: settings.instanceName,
-      redis: redisStatus, timestamp: timestamp())
+      redis: redisStatus, heartbeatIntervalMilliseconds: settings.heartbeatIntervalMilliseconds,
+      timestamp: timestamp())
   }
 
   application.post("api", "login") { request async -> Response in

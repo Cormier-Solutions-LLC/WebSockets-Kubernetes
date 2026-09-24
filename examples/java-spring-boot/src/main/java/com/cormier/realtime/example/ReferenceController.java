@@ -50,12 +50,13 @@ public final class ReferenceController {
   }
 
   @GetMapping("/api/diagnostics")
-  Mono<Map<String, String>> diagnostics() {
+  Mono<Map<String, Object>> diagnostics() {
     return health().map(result -> Map.of(
         "stack", "Java / Spring Boot",
         "topology", properties.topology(),
         "instance", properties.instanceName(),
         "redis", result.getStatusCode().is2xxSuccessful() ? "ready" : "unavailable",
+        "heartbeatIntervalMilliseconds", properties.heartbeatIntervalMilliseconds(),
         "timestamp", Instant.now().toString()));
   }
 

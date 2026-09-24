@@ -45,7 +45,7 @@ export default defineConfig({
       reuseExistingServer: process.env.REFERENCE_REUSE_SERVER === "true",
       env: {
         LISTEN_HOST: "127.0.0.1", PORT: "15500", PUBLIC_ORIGIN: frontendOrigin, GATEWAY_URL: gatewayOrigin,
-        REDIS_URL: `redis://${redisEndpoint}`, SESSION_LIFETIME_SECONDS: "1200",
+        REDIS_URL: `redis://${redisEndpoint}`, SESSION_LIFETIME_SECONDS: "1200", HEARTBEAT_INTERVAL_MILLISECONDS: "5000",
         INSTANCE_NAME: "go-gin-a", TOPOLOGY: "non-ha",
         REDIS_INSTANCE_PREFIX: "cormier:go-gin-tests", REDIS_SESSION_KEY_PREFIX: "sessions",
         ALLOWED_TENANTS: "tenant-a,tenant-b", ALLOWED_USERS: "user-a,user-b",

@@ -12,6 +12,7 @@ struct ReferenceSettings: Sendable {
   let redisURL: String
   let sessionSecret: String
   let sessionLifetime: Int
+  let heartbeatIntervalMilliseconds: Int
   let instanceName: String
   let topology: String
   let redisInstancePrefix: String
@@ -37,6 +38,8 @@ struct ReferenceSettings: Sendable {
     guard (32...4_096).contains(self.sessionSecret.utf8.count) else { throw SettingsError.invalid }
     self.sessionLifetime = try Self.integer(
       Self.required("SESSION_LIFETIME_SECONDS", in: environment), range: 60...7_200)
+    self.heartbeatIntervalMilliseconds = try Self.integer(
+      Self.required("HEARTBEAT_INTERVAL_MILLISECONDS", in: environment), range: 5_000...300_000)
     self.instanceName = try Self.identifier(Self.required("INSTANCE_NAME", in: environment))
     self.topology = Self.required("TOPOLOGY", in: environment)
     guard ["ha", "non-ha"].contains(self.topology) else { throw SettingsError.invalid }

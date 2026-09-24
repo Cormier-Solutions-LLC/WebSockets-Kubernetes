@@ -12,6 +12,8 @@ For ticket and WebSocket relays, the adapter forwards the scheme from validated 
 
 Supply every `.env.example` value externally; the application does not load the fixture. From this directory run `mix deps.get && mix run --no-halt`. The repeatable gate is:
 
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
+
 ```text
 mix format --check-formatted
 mix compile --warnings-as-errors
@@ -55,7 +57,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container base | Hex Elixir 1.20.4, OTP 29.0.6, Alpine 3.24.1 | Digest-pinned amd64/arm64 index |
 
-The adapter has nine stack-specific Elixir/config files and 820 nonblank lines, including tests. Shared assets, fixtures, generated SDK, dependency/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has nine stack-specific Elixir/config files and 828 nonblank lines, including tests. Shared assets, fixtures, generated SDK, dependency/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

@@ -11,6 +11,7 @@ data class ReferenceConfig(
     val gatewayUrl: URI,
     val redisUrl: String,
     val sessionLifetimeSeconds: Long,
+    val heartbeatIntervalMilliseconds: Int,
     val instanceName: String,
     val topology: String,
     val redisInstancePrefix: String,
@@ -66,6 +67,8 @@ data class ReferenceConfig(
             require(Regex("[A-Za-z0-9._:-]{1,253}").matches(listenHost)) { "LISTEN_HOST is invalid" }
             val lifetime = required("SESSION_LIFETIME_SECONDS").toLongOrNull()
             require(lifetime != null && lifetime in 60..7200) { "SESSION_LIFETIME_SECONDS must be between 60 and 7200" }
+            val heartbeat = required("HEARTBEAT_INTERVAL_MILLISECONDS").toIntOrNull()
+            require(heartbeat != null && heartbeat in 5_000..300_000) { "HEARTBEAT_INTERVAL_MILLISECONDS must be between 5000 and 300000" }
             val instance = required("INSTANCE_NAME")
             require(safeName.matches(instance)) { "INSTANCE_NAME is invalid" }
             val topology = required("TOPOLOGY")
@@ -80,7 +83,7 @@ data class ReferenceConfig(
             }
 
             return ReferenceConfig(
-                listenHost, port, origin("PUBLIC_ORIGIN"), origin("GATEWAY_URL"), redis.toString(), lifetime, instance, topology,
+                listenHost, port, origin("PUBLIC_ORIGIN"), origin("GATEWAY_URL"), redis.toString(), lifetime, heartbeat, instance, topology,
                 instancePrefix, sessionPrefix, names("ALLOWED_TENANTS"), names("ALLOWED_USERS"),
                 Path.of(environment["SHARED_ASSET_ROOT"] ?: "../shared-web/wwwroot"),
                 Path.of(environment["SDK_ASSET_ROOT"] ?: "../../sdk/typescript/dist"),

@@ -22,6 +22,7 @@ public record ReferenceProperties(
     URI publicOrigin,
     URI gatewayUrl,
     @Min(60) @Max(7200) int sessionLifetimeSeconds,
+    @Min(5000) @Max(300000) int heartbeatIntervalMilliseconds,
     @NotBlank @Pattern(regexp = "[A-Za-z0-9._-]{1,128}") String instanceName,
     @Pattern(regexp = "ha|non-ha") String topology,
     @NotBlank @Pattern(regexp = "[A-Za-z0-9._:-]{1,128}") String redisInstancePrefix,

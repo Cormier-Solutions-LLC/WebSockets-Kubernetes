@@ -9,6 +9,7 @@ pub struct Config {
     pub gateway_url: Url,
     pub redis_url: String,
     pub session_lifetime_seconds: u64,
+    pub heartbeat_interval_milliseconds: u64,
     pub instance_name: String,
     pub topology: String,
     pub redis_instance_prefix: String,
@@ -41,6 +42,12 @@ impl Config {
         if !(60..=7200).contains(&lifetime) {
             return Err("session lifetime is invalid");
         }
+        let heartbeat_interval_milliseconds = required("HEARTBEAT_INTERVAL_MILLISECONDS")?
+            .parse()
+            .map_err(|_| "heartbeat interval is invalid")?;
+        if !(5000..=300000).contains(&heartbeat_interval_milliseconds) {
+            return Err("heartbeat interval is invalid");
+        }
         let public_origin = origin(&required("PUBLIC_ORIGIN")?)?;
         let gateway_url = origin(&required("GATEWAY_URL")?)?;
         let redis_url = required("REDIS_URL")?;
@@ -67,6 +74,7 @@ impl Config {
             gateway_url,
             redis_url,
             session_lifetime_seconds: lifetime,
+            heartbeat_interval_milliseconds,
             instance_name,
             topology,
             redis_instance_prefix,
@@ -168,6 +176,7 @@ mod tests {
             ("GATEWAY_URL", "http://127.0.0.1:15401".into()),
             ("REDIS_URL", "redis://127.0.0.1:6379".into()),
             ("SESSION_LIFETIME_SECONDS", "1200".into()),
+            ("HEARTBEAT_INTERVAL_MILLISECONDS", "5000".into()),
             ("INSTANCE_NAME", "rust-axum-a".into()),
             ("TOPOLOGY", "non-ha".into()),
             ("REDIS_INSTANCE_PREFIX", "cormier:rust-test".into()),
@@ -183,12 +192,18 @@ mod tests {
         let config = Config::from_values(|key| values.get(key).cloned()).unwrap();
         assert_eq!(config.port, 15400);
         assert_eq!(config.listen_host, "127.0.0.1");
+        assert_eq!(config.heartbeat_interval_milliseconds, 5000);
         assert_eq!(config.public_scheme(), "http");
         let mut invalid = values.clone();
         invalid.insert("PUBLIC_ORIGIN", "file:///tmp".into());
         assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());
         invalid.insert("PUBLIC_ORIGIN", "https://example.test:443".into());
         assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());
+        for heartbeat in ["", "4999", "300001", "not-an-integer"] {
+            let mut invalid = values.clone();
+            invalid.insert("HEARTBEAT_INTERVAL_MILLISECONDS", heartbeat.into());
+            assert!(Config::from_values(|key| invalid.get(key).cloned()).is_err());
+        }
     }
 
     #[test]

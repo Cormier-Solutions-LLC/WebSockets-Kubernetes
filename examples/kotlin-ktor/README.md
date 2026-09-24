@@ -20,6 +20,7 @@ $env:PUBLIC_ORIGIN = "http://127.0.0.1:15300"
 $env:GATEWAY_URL = "http://127.0.0.1:15301"
 $env:REDIS_URL = "redis://127.0.0.1:16379"
 $env:SESSION_LIFETIME_SECONDS = "1200"
+$env:HEARTBEAT_INTERVAL_MILLISECONDS = "15000"
 $env:INSTANCE_NAME = "kotlin-ktor-a"
 $env:TOPOLOGY = "non-ha"
 $env:REDIS_INSTANCE_PREFIX = "cormier:reference-kotlin"
@@ -28,6 +29,8 @@ $env:ALLOWED_TENANTS = "tenant-a,tenant-b"
 $env:ALLOWED_USERS = "user-a,user-b"
 ./gradlew.bat run
 ```
+
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
 
 The wrapper pins Gradle 9.7.1 and verifies its distribution checksum; `gradle.lockfile` pins all application and test modules. Run `./gradlew test` (`gradlew.bat` on Windows) for locked checks. Build and run the digest-pinned container from the repository root:
 
@@ -69,7 +72,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Gradle 9.7.1 JDK 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has three stack-specific production Kotlin files and 411 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
+The adapter has three stack-specific production Kotlin files and 415 nonblank lines. Canonical assets, protocol fixtures, generated SDK, tests, build metadata, and logging configuration are excluded. Recalculate this footprint when functionality changes.
 
 ## Support and diagnostics
 

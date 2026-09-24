@@ -11,6 +11,7 @@
     "GATEWAY_URL",
     "REDIS_URL",
     "SESSION_LIFETIME_SECONDS",
+    "HEARTBEAT_INTERVAL_MILLISECONDS",
     "INSTANCE_NAME",
     "TOPOLOGY",
     "REDIS_INSTANCE_PREFIX",
@@ -31,6 +32,7 @@
     "REDIS_URL": { "$ref": "#/$defs/redisUrl" },
     "SESSION_SECRET": { "type": "string", "minLength": 32, "maxLength": 4096, "pattern": "^[!-~]{32,4096}(?![\\s\\S])" },
     "SESSION_LIFETIME_SECONDS": { "$ref": "#/$defs/sessionLifetime" },
+    "HEARTBEAT_INTERVAL_MILLISECONDS": { "$ref": "#/$defs/heartbeatIntervalMilliseconds" },
     "INSTANCE_NAME": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
     "TOPOLOGY": { "enum": ["non-ha", "ha"] },
     "REDIS_INSTANCE_PREFIX": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
@@ -55,6 +57,10 @@
     "sessionLifetime": {
       "type": "string",
       "pattern": "^(?:[6-9][0-9]|[1-9][0-9]{2}|[1-6][0-9]{3}|7(?:[01][0-9]{2}|200))$"
+    },
+    "heartbeatIntervalMilliseconds": {
+      "type": "string",
+      "pattern": "^(?:[5-9][0-9]{3}|[1-9][0-9]{4}|[12][0-9]{5}|300000)$"
     },
     "httpOrigin": {
       "type": "string",

@@ -239,7 +239,7 @@ func (a *App) diagnostics(c *gin.Context) {
 	if a.store.Ready(ctx) {
 		redisStatus = "ready"
 	}
-	c.JSON(http.StatusOK, gin.H{"stack": "Go / Gin", "topology": a.config.Topology, "instance": a.config.InstanceName, "redis": redisStatus, "timestamp": time.Now().UTC().Format(time.RFC3339)})
+	c.JSON(http.StatusOK, gin.H{"stack": "Go / Gin", "topology": a.config.Topology, "instance": a.config.InstanceName, "redis": redisStatus, "heartbeatIntervalMilliseconds": a.config.HeartbeatIntervalMilliseconds, "timestamp": time.Now().UTC().Format(time.RFC3339)})
 }
 
 func (a *App) requireOrigin(c *gin.Context) bool {

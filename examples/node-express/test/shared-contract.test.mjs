@@ -17,6 +17,7 @@ test("configuration stays aligned with the canonical reference schema", async ()
     REDIS_URL: "redis://127.0.0.1:16379",
     SESSION_SECRET: "a-runtime-only-secret-that-is-long-enough",
     SESSION_LIFETIME_SECONDS: "1200",
+    HEARTBEAT_INTERVAL_MILLISECONDS: "5000",
     INSTANCE_NAME: "node-express-a",
     TOPOLOGY: "non-ha",
     REDIS_INSTANCE_PREFIX: "cormier:reference-node",
@@ -94,6 +95,10 @@ test("configuration stays aligned with the canonical reference schema", async ()
   const lifetimePattern = new RegExp(schema.$defs.sessionLifetime.pattern);
   for (const value of ["60", "1200", "7200"]) assert.equal(lifetimePattern.test(value), true, value);
   for (const value of ["0", "59", "7201", "999999"]) assert.equal(lifetimePattern.test(value), false, value);
+
+  const heartbeatPattern = new RegExp(schema.$defs.heartbeatIntervalMilliseconds.pattern);
+  for (const value of ["5000", "15000", "300000"]) assert.equal(heartbeatPattern.test(value), true, value);
+  for (const value of ["4999", "300001", "not-an-integer"]) assert.equal(heartbeatPattern.test(value), false, value);
 
   const allowlistPattern = new RegExp(schema.$defs.allowlist.pattern);
   for (const value of ["tenant-a", "tenant-a,tenant_b", " tenant-a, tenant.b "]) {

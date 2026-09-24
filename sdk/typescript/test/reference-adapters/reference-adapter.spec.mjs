@@ -15,6 +15,9 @@ test("optimized shared UI keeps integrity, CSP, and accessible controls", async 
   const response = await page.goto("/");
   expect(response?.headers()["content-security-policy"]).toContain("default-src 'self'");
   await expect(page.locator("#diagnostics")).toContainText(process.env.REFERENCE_STACK);
+  const diagnostics = await page.request.get("/api/diagnostics");
+  expect(diagnostics.ok()).toBe(true);
+  expect((await diagnostics.json()).heartbeatIntervalMilliseconds).toBe(5_000);
   await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute("integrity", /^sha384-/u);
   await expect(page.locator('script[src$="cormier-realtime.iife.min.js"]')).toHaveAttribute("integrity", /^sha384-/u);
   await expect(page.locator('script[src="/app.js"]')).toHaveAttribute("integrity", /^sha384-/u);
@@ -45,6 +48,11 @@ test("shared UI completes login, ticket connect, subscribe, publish, receive, re
   await page.fill("#payload", JSON.stringify({ marker: firstMarker }));
   await page.click("#publish");
   await expect(page.locator("#events")).toContainText(firstMarker);
+  await expect(page.locator("#message-modal")).toBeVisible();
+  await expect(page.locator("#message-route")).toHaveText("topics/orders");
+  await expect(page.locator("#message-payload")).toContainText(firstMarker);
+  await page.locator("#message-modal button").click();
+  await expect(page.locator("#message-modal")).not.toBeVisible();
 
   await page.click("#disconnect");
   await expect(page.locator("#state")).toHaveText("closed");
@@ -53,6 +61,18 @@ test("shared UI completes login, ticket connect, subscribe, publish, receive, re
 
   await page.click("#logout");
   await expect(page.locator("#events")).toContainText("logged out");
+  await page.click("#disconnect");
+});
+
+test("server-advertised heartbeats keep an otherwise idle browser connection open", async ({ page }) => {
+  test.setTimeout(40_000);
+  await login(page);
+  await page.click("#connect");
+  await expect(page.locator("#state")).toHaveText("open");
+  await page.waitForTimeout(17_000);
+  await expect(page.locator("#state")).toHaveText("open");
+  await expect(page.locator("#events")).not.toContainText("heartbeat_timeout");
+  await expect(page.locator("#events")).not.toContainText('"code":4009');
   await page.click("#disconnect");
 });
 

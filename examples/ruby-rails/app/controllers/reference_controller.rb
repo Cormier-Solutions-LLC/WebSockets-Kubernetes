@@ -61,6 +61,7 @@ class ReferenceController < ApplicationController
       topology: settings.topology,
       instance: settings.instance_name,
       redis: redis_status,
+      heartbeatIntervalMilliseconds: settings.heartbeat_interval_milliseconds,
       timestamp: Time.now.utc.iso8601
     }
   end

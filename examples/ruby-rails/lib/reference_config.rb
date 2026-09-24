@@ -7,7 +7,7 @@ class ReferenceConfig
   PREFIX = /\A[A-Za-z0-9._:-]{1,128}\z/
 
   attr_reader :listen_host, :port, :public_origin, :public_uri, :gateway_url, :gateway_uri, :redis_url,
-    :session_secret, :session_lifetime, :instance_name, :topology, :redis_instance_prefix,
+    :session_secret, :session_lifetime, :heartbeat_interval_milliseconds, :instance_name, :topology, :redis_instance_prefix,
     :redis_session_key_prefix, :allowed_tenants, :allowed_users, :shared_asset_root, :sdk_asset_root
 
   def self.load(environment)
@@ -24,6 +24,7 @@ class ReferenceConfig
     raise ArgumentError, "session configuration is invalid" unless (32..4_096).cover?(@session_secret.bytesize)
 
     @session_lifetime = integer(required(environment, "SESSION_LIFETIME_SECONDS"), 60..7_200)
+    @heartbeat_interval_milliseconds = integer(required(environment, "HEARTBEAT_INTERVAL_MILLISECONDS"), 5_000..300_000)
     @instance_name = identifier(required(environment, "INSTANCE_NAME"))
     @topology = required(environment, "TOPOLOGY")
     raise ArgumentError, "topology configuration is invalid" unless %w[ha non-ha].include?(@topology)

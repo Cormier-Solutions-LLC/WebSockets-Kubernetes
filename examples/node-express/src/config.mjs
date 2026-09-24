@@ -105,6 +105,10 @@ export function loadConfig(environment = process.env) {
   if (!Number.isSafeInteger(sessionLifetimeSeconds) || sessionLifetimeSeconds < 60 || sessionLifetimeSeconds > 7200) {
     throw new Error("SESSION_LIFETIME_SECONDS must be an integer between 60 and 7200.");
   }
+  const heartbeatIntervalMilliseconds = Number(required(environment, "HEARTBEAT_INTERVAL_MILLISECONDS"));
+  if (!Number.isSafeInteger(heartbeatIntervalMilliseconds) || heartbeatIntervalMilliseconds < 5_000 || heartbeatIntervalMilliseconds > 300_000) {
+    throw new Error("HEARTBEAT_INTERVAL_MILLISECONDS must be an integer between 5000 and 300000.");
+  }
 
   return Object.freeze({
     listenHost: parseHost(required(environment, "LISTEN_HOST")),
@@ -116,6 +120,7 @@ export function loadConfig(environment = process.env) {
     redisUrl: redisUrl.toString(),
     sessionSecret,
     sessionLifetimeSeconds,
+    heartbeatIntervalMilliseconds,
     instanceName,
     topology,
     redisInstancePrefix,

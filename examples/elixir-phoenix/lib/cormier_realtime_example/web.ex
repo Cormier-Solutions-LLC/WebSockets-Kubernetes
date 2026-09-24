@@ -85,6 +85,7 @@ defmodule CormierRealtimeExample.Web do
       topology: config.topology,
       instance: config.instance_name,
       redis: redis,
+      heartbeatIntervalMilliseconds: config.heartbeat_interval_milliseconds,
       timestamp: DateTime.utc_now()
     })
   end

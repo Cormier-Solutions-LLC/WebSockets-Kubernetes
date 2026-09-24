@@ -20,6 +20,7 @@ $env:PUBLIC_ORIGIN = "http://127.0.0.1:15200"
 $env:GATEWAY_URL = "http://127.0.0.1:15201"
 $env:REDIS_URL = "redis://127.0.0.1:16379"
 $env:SESSION_LIFETIME_SECONDS = "1200"
+$env:HEARTBEAT_INTERVAL_MILLISECONDS = "15000"
 $env:INSTANCE_NAME = "java-spring-a"
 $env:TOPOLOGY = "non-ha"
 $env:REDIS_INSTANCE_PREFIX = "cormier:reference-java"
@@ -28,6 +29,8 @@ $env:ALLOWED_TENANTS = "tenant-a,tenant-b"
 $env:ALLOWED_USERS = "user-a,user-b"
 ./mvnw.cmd spring-boot:run
 ```
+
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
 
 The Maven wrapper pins Maven 3.9.12 and verifies its distribution checksum. Run repeatable checks with `./mvnw verify` (`mvnw.cmd` on Windows). From the repository root, build and run the digest-pinned multi-stage container:
 
@@ -69,7 +72,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Redis | 7.4 | Tested session service |
 | Container bases | Maven 3.9.12 + Temurin 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |
 
-The adapter has four stack-specific production Java files and 342 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
+The adapter has four stack-specific production Java files and 344 nonblank lines. Canonical HTML, CSS, JavaScript, protocol fixtures, generated SDK files, tests, and build metadata are excluded. Recalculate this footprint when functionality changes so duplication stays visible.
 
 ## Support and diagnostics
 

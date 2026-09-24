@@ -17,6 +17,7 @@ class ReferenceConfigTest < Minitest::Test
       "REDIS_URL" => "redis://127.0.0.1:6379",
       "SESSION_SECRET" => "x" * 32,
       "SESSION_LIFETIME_SECONDS" => "1200",
+      "HEARTBEAT_INTERVAL_MILLISECONDS" => "5000",
       "INSTANCE_NAME" => "ruby-rails-a",
       "TOPOLOGY" => "non-ha",
       "REDIS_INSTANCE_PREFIX" => "cormier:test",
@@ -32,9 +33,17 @@ class ReferenceConfigTest < Minitest::Test
     assert_equal 15_500, config.port
     assert config.allows?("tenant-a", "user-a")
     assert_equal "cormier:test:sessions:id", config.session_key("id")
+    assert_equal 5_000, config.heartbeat_interval_milliseconds
     root = File.expand_path("../../..", __dir__)
     assert_equal File.join(root, "examples/shared-web/wwwroot"), config.shared_asset_root
     assert_equal File.join(root, "sdk/typescript/dist"), config.sdk_asset_root
+  end
+
+  def test_rejects_invalid_heartbeat_intervals
+    [nil, "4999", "300001", "not-an-integer"].each do |heartbeat|
+      environment = values.merge("HEARTBEAT_INTERVAL_MILLISECONDS" => heartbeat)
+      assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
+    end
   end
 
   def test_rejects_unsafe_origin
@@ -76,6 +85,7 @@ class ReferenceConfigTest < Minitest::Test
     sdk = JSON.parse(File.read(File.join(root, "sdk/typescript/dist/version.json")))
     protocol = JSON.parse(File.read(File.join(root, "protocol/fixtures/v1/envelopes.json")))
     assert_includes schema.fetch("required"), "PUBLIC_ORIGIN"
+    assert_includes schema.fetch("required"), "HEARTBEAT_INTERVAL_MILLISECONDS"
     assert_equal "1.0", sdk.fetch("protocolVersion")
     assert_equal "1.0", protocol.fetch("protocolVersion")
   end

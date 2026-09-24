@@ -59,6 +59,7 @@ export default defineConfig({
         REDIS_URL: redisUrl,
         SESSION_SECRET: "browser-fixture-secret-with-at-least-32-characters",
         SESSION_LIFETIME_SECONDS: "1200",
+        HEARTBEAT_INTERVAL_MILLISECONDS: "5000",
         INSTANCE_NAME: "node-express-a",
         TOPOLOGY: "non-ha",
         REDIS_INSTANCE_PREFIX: "cormier:node-express-tests",

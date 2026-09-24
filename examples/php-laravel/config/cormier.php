@@ -8,6 +8,7 @@ return [
     'redis_url' => env('REDIS_URL'),
     'session_secret' => env('SESSION_SECRET'),
     'session_lifetime_seconds' => env('SESSION_LIFETIME_SECONDS'),
+    'heartbeat_interval_milliseconds' => env('HEARTBEAT_INTERVAL_MILLISECONDS'),
     'instance_name' => env('INSTANCE_NAME'),
     'topology' => env('TOPOLOGY'),
     'redis_instance_prefix' => env('REDIS_INSTANCE_PREFIX'),

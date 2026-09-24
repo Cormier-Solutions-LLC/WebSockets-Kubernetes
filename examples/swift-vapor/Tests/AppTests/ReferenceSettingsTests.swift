@@ -26,6 +26,7 @@ struct ReferenceSettingsTests {
       "REDIS_URL": "redis://127.0.0.1:6379",
       "SESSION_SECRET": String(repeating: "x", count: 32),
       "SESSION_LIFETIME_SECONDS": "1200",
+      "HEARTBEAT_INTERVAL_MILLISECONDS": "5000",
       "INSTANCE_NAME": "swift-vapor-a",
       "TOPOLOGY": "non-ha",
       "REDIS_INSTANCE_PREFIX": "cormier:test",
@@ -43,6 +44,14 @@ struct ReferenceSettingsTests {
     #expect(settings.publicScheme == "http")
     #expect(settings.allows(tenant: "tenant-a", user: "user-a"))
     #expect(settings.sessionKey("id") == "cormier:test:sessions:id")
+    #expect(settings.heartbeatIntervalMilliseconds == 5_000)
+  }
+
+  @Test("rejects invalid heartbeat intervals", arguments: ["", "4999", "300001", "not-an-integer"])
+  func rejectsInvalidHeartbeatIntervals(_ heartbeat: String) {
+    var environment = self.values
+    environment["HEARTBEAT_INTERVAL_MILLISECONDS"] = heartbeat
+    #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
   }
 
   @Test("derives the public relay scheme")

@@ -45,6 +45,7 @@ final class ReferenceController
             'topology' => $this->config->topology,
             'instance' => $this->config->instanceName,
             'redis' => $redis,
+            'heartbeatIntervalMilliseconds' => $this->config->heartbeatIntervalMilliseconds,
             'timestamp' => now('UTC')->toIso8601String(),
         ]);
     }

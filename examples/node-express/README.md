@@ -21,6 +21,7 @@ $env:GATEWAY_URL = "http://127.0.0.1:15101"
 $env:REDIS_URL = "redis://127.0.0.1:16379"
 $env:SESSION_SECRET = "replace-with-a-runtime-secret-of-at-least-32-characters"
 $env:SESSION_LIFETIME_SECONDS = "1200"
+$env:HEARTBEAT_INTERVAL_MILLISECONDS = "15000"
 $env:INSTANCE_NAME = "node-express-a"
 $env:TOPOLOGY = "non-ha"
 $env:REDIS_INSTANCE_PREFIX = "cormier:reference-node"
@@ -29,6 +30,8 @@ $env:ALLOWED_TENANTS = "tenant-a,tenant-b"
 $env:ALLOWED_USERS = "user-a,user-b"
 npm start
 ```
+
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
 
 Startup validates all configuration and exits nonzero on a missing or invalid value or unavailable Redis. `TRUST_PROXY_HOPS` must match the exact number of trusted TLS-terminating proxies (`0` for direct traffic); ticket proxy requests are bounded to ten seconds. Lifecycle and proxy handlers emit structural JSON; Express application handlers log structural objects through the default console logger. They intentionally omit sensitive values, but do not assume all framework logs are redacted. `/health` checks Redis readiness and PING, returning 200 or 503; the global request limiter can also return 429. It does not probe the gateway. Shutdown on `SIGINT` or `SIGTERM` stops accepting work, closes the proxy and Redis client, and allows 15 seconds for WebSocket drain, with a forced-exit timer at 16 seconds.
 
@@ -72,7 +75,7 @@ This is a teaching adapter, not a production identity system or reverse proxy. `
 | Redis | 7.4 | Tested session service |
 | Container base | Node 24.20.0 Alpine, pinned OCI index digest | Reproducible multi-platform base |
 
-The stack-specific runtime is six source files and 577 nonblank lines before tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
+The stack-specific runtime is six source files and 583 nonblank lines before tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
 
 ## Support and diagnostics
 

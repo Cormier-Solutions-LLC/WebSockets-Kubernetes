@@ -41,7 +41,7 @@ export default defineConfig({
       },
     },
     {
-      command: `docker run --rm --name cormier-ruby-rails-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e LISTEN_HOST=0.0.0.0 -e PORT=15500 -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_SECRET=playwright-only-secret-with-at-least-32-characters -e SESSION_LIFETIME_SECONDS=1200 -e INSTANCE_NAME=ruby-rails-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:ruby-rails-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
+      command: `docker run --rm --name cormier-ruby-rails-playwright --add-host host.docker.internal:host-gateway -p 127.0.0.1:15500:15500 -e LISTEN_HOST=0.0.0.0 -e PORT=15500 -e PUBLIC_ORIGIN=${frontendOrigin} -e GATEWAY_URL=http://host.docker.internal:15501 -e REDIS_URL=redis://host.docker.internal:${redisEndpoint.split(":").at(-1)} -e SESSION_SECRET=playwright-only-secret-with-at-least-32-characters -e SESSION_LIFETIME_SECONDS=1200 -e HEARTBEAT_INTERVAL_MILLISECONDS=5000 -e INSTANCE_NAME=ruby-rails-a -e TOPOLOGY=non-ha -e REDIS_INSTANCE_PREFIX=cormier:ruby-rails-tests -e REDIS_SESSION_KEY_PREFIX=sessions -e ALLOWED_TENANTS=tenant-a,tenant-b -e ALLOWED_USERS=user-a,user-b ${image}`,
       cwd: repositoryRoot,
       url: `${frontendOrigin}/health`,
       timeout: 120_000,

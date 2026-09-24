@@ -12,6 +12,7 @@ defmodule CormierRealtimeExample.ConfigTest do
       "GATEWAY_URL" => "http://127.0.0.1:15601",
       "REDIS_URL" => "redis://127.0.0.1:6379",
       "SESSION_LIFETIME_SECONDS" => "1200",
+      "HEARTBEAT_INTERVAL_MILLISECONDS" => "5000",
       "INSTANCE_NAME" => "elixir-phoenix-a",
       "TOPOLOGY" => "non-ha",
       "REDIS_INSTANCE_PREFIX" => "cormier:elixir-test",
@@ -32,6 +33,10 @@ defmodule CormierRealtimeExample.ConfigTest do
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
     invalid = Map.put(values, "PUBLIC_ORIGIN", "https://example.test:99999")
     assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
+    for heartbeat <- [nil, "4999", "300001", "not-an-integer"] do
+      invalid = Map.put(values, "HEARTBEAT_INTERVAL_MILLISECONDS", heartbeat)
+      assert {:error, :invalid_configuration} = Config.load(&invalid[&1])
+    end
   end
 
   test "rejects malformed origin network hosts" do

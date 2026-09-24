@@ -206,6 +206,7 @@ async fn diagnostics(
     Ok(Json(serde_json::json!({
         "stack": "Rust / Axum", "topology": state.config.topology, "instance": state.config.instance_name,
         "redis": if state.store.ready().await { "ready" } else { "unavailable" },
+        "heartbeatIntervalMilliseconds": state.config.heartbeat_interval_milliseconds,
         "timestamp": OffsetDateTime::now_utc().format(&Rfc3339).map_err(|_| AppError::unavailable())?
     })))
 }

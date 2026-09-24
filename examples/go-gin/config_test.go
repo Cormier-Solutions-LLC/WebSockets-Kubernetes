@@ -28,7 +28,7 @@ func (connection *fakeManagedWebSocket) Close(code websocket.StatusCode, _ strin
 func (connection *fakeManagedWebSocket) CloseNow() error { return nil }
 
 func testValues() map[string]string {
-	return map[string]string{"LISTEN_HOST": "127.0.0.1", "PORT": "15500", "PUBLIC_ORIGIN": "http://127.0.0.1:15500", "GATEWAY_URL": "http://127.0.0.1:15501", "REDIS_URL": "redis://127.0.0.1:6379", "SESSION_LIFETIME_SECONDS": "1200", "INSTANCE_NAME": "go-gin-a", "TOPOLOGY": "non-ha", "REDIS_INSTANCE_PREFIX": "cormier:go-test", "REDIS_SESSION_KEY_PREFIX": "sessions", "ALLOWED_TENANTS": "tenant-a", "ALLOWED_USERS": "user-a"}
+	return map[string]string{"LISTEN_HOST": "127.0.0.1", "PORT": "15500", "PUBLIC_ORIGIN": "http://127.0.0.1:15500", "GATEWAY_URL": "http://127.0.0.1:15501", "REDIS_URL": "redis://127.0.0.1:6379", "SESSION_LIFETIME_SECONDS": "1200", "HEARTBEAT_INTERVAL_MILLISECONDS": "5000", "INSTANCE_NAME": "go-gin-a", "TOPOLOGY": "non-ha", "REDIS_INSTANCE_PREFIX": "cormier:go-test", "REDIS_SESSION_KEY_PREFIX": "sessions", "ALLOWED_TENANTS": "tenant-a", "ALLOWED_USERS": "user-a"}
 }
 func TestTypedConfiguration(t *testing.T) {
 	values := testValues()
@@ -54,6 +54,13 @@ func TestTypedConfiguration(t *testing.T) {
 	values["PUBLIC_ORIGIN"] = "https://example.test:99999"
 	if _, err = loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
 		t.Fatal("out-of-range origin port was accepted")
+	}
+	for _, heartbeat := range []string{"", "4999", "300001", "not-an-integer"} {
+		values := testValues()
+		values["HEARTBEAT_INTERVAL_MILLISECONDS"] = heartbeat
+		if _, err := loadConfig(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
+			t.Fatalf("invalid heartbeat interval %q was accepted", heartbeat)
+		}
 	}
 }
 func TestOriginsRejectMalformedNetworkHosts(t *testing.T) {

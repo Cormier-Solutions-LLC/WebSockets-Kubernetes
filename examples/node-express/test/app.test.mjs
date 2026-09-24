@@ -37,6 +37,7 @@ function fixture(overrides = {}) {
     gatewayUrl: "http://127.0.0.1:15101",
     sessionSecret: "a-runtime-only-secret-that-is-long-enough",
     sessionLifetimeSeconds: 1200,
+    heartbeatIntervalMilliseconds: 5000,
     instanceName: "node-express-a",
     topology: "non-ha",
     redisInstancePrefix: "cormier:reference-node",
@@ -63,6 +64,7 @@ test("reports dependency-aware health and redacted diagnostics", async () => {
   const diagnostics = await request(ready.app).get("/api/diagnostics").expect(200);
   assert.equal(diagnostics.body.stack, "Node.js / Express");
   assert.equal(diagnostics.body.instance, ready.config.instanceName);
+  assert.equal(diagnostics.body.heartbeatIntervalMilliseconds, 5000);
   assert.equal(JSON.stringify(diagnostics.body).includes("secret"), false);
 
   ready.redisClient.isReady = false;

@@ -147,6 +147,7 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             call.respond(mapOf(
                 "stack" to "Kotlin / Ktor", "topology" to config.topology, "instance" to config.instanceName,
                 "redis" to if (runCatching { store.ready() }.getOrDefault(false)) "ready" else "unavailable",
+                "heartbeatIntervalMilliseconds" to config.heartbeatIntervalMilliseconds,
                 "timestamp" to Instant.now().toString(),
             ))
         }

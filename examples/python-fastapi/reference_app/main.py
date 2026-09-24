@@ -184,7 +184,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse({"status": "unavailable"}, 503)
 
     @app.get("/api/diagnostics")
-    async def diagnostics(request: Request) -> dict[str, str]:
+    async def diagnostics(request: Request) -> dict[str, str | int]:
         try:
             await asyncio.wait_for(request.app.state.redis.ping(), timeout=5)
             redis_status = "ready"
@@ -195,6 +195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "topology": configured.TOPOLOGY,
             "instance": configured.INSTANCE_NAME,
             "redis": redis_status,
+            "heartbeatIntervalMilliseconds": configured.HEARTBEAT_INTERVAL_MILLISECONDS,
             "timestamp": datetime.now(UTC).isoformat(),
         }
 

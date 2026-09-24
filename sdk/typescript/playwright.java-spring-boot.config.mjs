@@ -55,6 +55,7 @@ export default defineConfig({
         GATEWAY_URL: gatewayOrigin,
         REDIS_URL: `redis://${redisEndpoint}`,
         SESSION_LIFETIME_SECONDS: "1200",
+        HEARTBEAT_INTERVAL_MILLISECONDS: "5000",
         INSTANCE_NAME: "java-spring-a",
         TOPOLOGY: "non-ha",
         REDIS_INSTANCE_PREFIX: "cormier:java-spring-tests",

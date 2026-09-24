@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     GATEWAY_URL: str
     REDIS_URL: str
     SESSION_LIFETIME_SECONDS: int = Field(ge=60, le=7200)
+    HEARTBEAT_INTERVAL_MILLISECONDS: int = Field(ge=5000, le=300000)
     INSTANCE_NAME: str
     TOPOLOGY: str
     REDIS_INSTANCE_PREFIX: str

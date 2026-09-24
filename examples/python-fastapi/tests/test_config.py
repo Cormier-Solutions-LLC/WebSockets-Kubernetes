@@ -15,6 +15,7 @@ def values() -> dict[str, object]:
         "GATEWAY_URL": "http://127.0.0.1:15501",
         "REDIS_URL": "redis://127.0.0.1:6379",
         "SESSION_LIFETIME_SECONDS": 1200,
+        "HEARTBEAT_INTERVAL_MILLISECONDS": 5000,
         "INSTANCE_NAME": "python-fastapi-a",
         "TOPOLOGY": "non-ha",
         "REDIS_INSTANCE_PREFIX": "cormier:test",
@@ -62,6 +63,17 @@ def test_invalid_allowlists_are_rejected_during_settings_construction() -> None:
             Settings.model_validate(environment)
 
 
+@pytest.mark.parametrize("value", [None, 4999, 300001, "not-an-integer"])
+def test_invalid_heartbeat_intervals_are_rejected(value: object) -> None:
+    environment = values()
+    if value is None:
+        environment.pop("HEARTBEAT_INTERVAL_MILLISECONDS")
+    else:
+        environment["HEARTBEAT_INTERVAL_MILLISECONDS"] = value
+    with pytest.raises(ValidationError):
+        Settings.model_validate(environment)
+
+
 def test_gateway_default_ports() -> None:
     assert gateway_port("http://gateway.example") == 80
     assert gateway_port("https://gateway.example") == 443
@@ -81,5 +93,6 @@ def test_canonical_contracts() -> None:
     assert schema["properties"]["APPLICATION_PORT"] == {"$ref": "#/$defs/port"}
     assert schema["properties"]["REDIS_URL"] == {"$ref": "#/$defs/redisUrl"}
     assert schema["properties"]["SESSION_LIFETIME_SECONDS"] == {"$ref": "#/$defs/sessionLifetime"}
+    assert schema["properties"]["HEARTBEAT_INTERVAL_MILLISECONDS"] == {"$ref": "#/$defs/heartbeatIntervalMilliseconds"}
     assert sdk["protocolVersion"] == "1.0"
     assert protocol["protocolVersion"] == "1.0"

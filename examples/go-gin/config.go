@@ -22,6 +22,7 @@ type Config struct {
 	GatewayURL            *url.URL
 	RedisURL              string
 	SessionLifetime       time.Duration
+	HeartbeatIntervalMilliseconds int
 	InstanceName          string
 	Topology              string
 	RedisInstancePrefix   string
@@ -61,6 +62,14 @@ func loadConfig(lookup func(string) (string, bool)) (Config, error) {
 	lifetime, err := strconv.Atoi(lifetimeValue)
 	if err != nil || lifetime < 60 || lifetime > 7200 {
 		return Config{}, fmt.Errorf("session lifetime is invalid")
+	}
+	heartbeatValue, err := required("HEARTBEAT_INTERVAL_MILLISECONDS")
+	if err != nil {
+		return Config{}, err
+	}
+	heartbeat, err := strconv.Atoi(heartbeatValue)
+	if err != nil || heartbeat < 5000 || heartbeat > 300000 {
+		return Config{}, fmt.Errorf("HEARTBEAT_INTERVAL_MILLISECONDS is invalid")
 	}
 	publicValue, err := required("PUBLIC_ORIGIN")
 	if err != nil {
@@ -126,7 +135,7 @@ func loadConfig(lookup func(string) (string, bool)) (Config, error) {
 	if value, ok := lookup("SDK_ASSET_ROOT"); ok && value != "" {
 		sdkRoot = value
 	}
-	return Config{listenHost, port, publicOrigin, gatewayURL, redisURL, time.Duration(lifetime) * time.Second, instance, topology, prefix, sessionPrefix, tenants, users, filepath.Clean(sharedRoot), filepath.Clean(sdkRoot)}, nil
+	return Config{listenHost, port, publicOrigin, gatewayURL, redisURL, time.Duration(lifetime) * time.Second, heartbeat, instance, topology, prefix, sessionPrefix, tenants, users, filepath.Clean(sharedRoot), filepath.Clean(sdkRoot)}, nil
 }
 
 func parseOrigin(value string) (string, *url.URL, error) {

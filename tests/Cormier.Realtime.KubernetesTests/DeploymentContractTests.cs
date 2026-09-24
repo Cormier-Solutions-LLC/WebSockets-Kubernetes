@@ -548,7 +548,9 @@ public sealed class DeploymentContractTests
         Assert.Contains("DOTNET_INSTALL_DIR: ${{ vars.CI_DOTNET_INSTALL_DIR || '/home/runner/.dotnet' }}", workflow, StringComparison.Ordinal);
         Assert.Equal(3, workflow.Split("run: bash scripts/setup-ci-powershell.sh", StringSplitOptions.None).Length - 1);
         Assert.Contains("if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
-        Assert.Contains("ref: ${{ github.event.workflow_run.head_sha }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("name: Check out trusted release automation", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: refs/heads/main", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("ref: ${{ github.event.workflow_run.head_sha }}", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha", workflow, StringComparison.Ordinal);
         Assert.Contains("workflow_run:", workflow, StringComparison.Ordinal);
         Assert.Contains("workflows: [Realtime gateway CI]", workflow, StringComparison.Ordinal);
@@ -582,7 +584,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("@parameters", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("@arguments", workflow, StringComparison.Ordinal);
         Assert.Contains("PACKAGE_REPOSITORY_URL", workflow, StringComparison.Ordinal);
-        Assert.Contains("Get-PackageReleaseIntent.ps1 -PreviousRevision $parent", workflow, StringComparison.Ordinal);
+        Assert.Contains("Get-PackageReleaseIntent.ps1 -CurrentRevision $candidateSha -PreviousRevision $parent", workflow, StringComparison.Ordinal);
+        Assert.Contains("Get-RevisionFile -Revision $CurrentRevision", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("Every coordinated NuGet and npm package version must match", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("A coordinated release must change every package version", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("VersionChanged = $changed.Count -eq $current.Count", releaseIntent, StringComparison.Ordinal);

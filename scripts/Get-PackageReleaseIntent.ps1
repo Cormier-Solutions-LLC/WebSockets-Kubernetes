@@ -3,11 +3,12 @@
     Validates the coordinated package version and detects a release change.
 .DESCRIPTION
     Reads the five NuGet versions and the npm version, requires one valid semantic version across all six,
-    and optionally compares them with a Git revision. A release change is valid only when every package
+    and optionally reads the candidate from and compares it with Git revisions. A release change is valid only when every package
     version changed together. The script returns one object and performs no registry or repository mutation.
 #>
 [CmdletBinding()]
 param(
+    [string]$CurrentRevision,
     [string]$PreviousRevision,
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
 )
@@ -63,23 +64,42 @@ function Assert-CoordinatedVersion {
     return [string]$unique[0]
 }
 
+function Get-RevisionFile {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Revision,
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $text = (& git -C $RepositoryRoot show "${Revision}:${Path}") -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to read ${Path} from revision ${Revision}."
+    }
+    return $text
+}
+
 $propsPath = Join-Path $RepositoryRoot 'Directory.Build.props'
 $packageJsonPath = Join-Path $RepositoryRoot 'sdk/typescript/package.json'
+$currentProps = if ([string]::IsNullOrWhiteSpace($CurrentRevision)) {
+    Get-Content -LiteralPath $propsPath -Raw
+} else {
+    Get-RevisionFile -Revision $CurrentRevision -Path 'Directory.Build.props'
+}
+$currentPackage = if ([string]::IsNullOrWhiteSpace($CurrentRevision)) {
+    Get-Content -LiteralPath $packageJsonPath -Raw
+} else {
+    Get-RevisionFile -Revision $CurrentRevision -Path 'sdk/typescript/package.json'
+}
 $current = Get-PackageVersions `
-    -PropsText (Get-Content -LiteralPath $propsPath -Raw) `
-    -PackageJsonText (Get-Content -LiteralPath $packageJsonPath -Raw)
+    -PropsText $currentProps `
+    -PackageJsonText $currentPackage
 $releaseVersion = Assert-CoordinatedVersion $current
 $changed = @()
 
 if (-not [string]::IsNullOrWhiteSpace($PreviousRevision)) {
-    $previousProps = (& git -C $RepositoryRoot show "${PreviousRevision}:Directory.Build.props") -join "`n"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to read Directory.Build.props from revision ${PreviousRevision}."
-    }
-    $previousPackage = (& git -C $RepositoryRoot show "${PreviousRevision}:sdk/typescript/package.json") -join "`n"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to read sdk/typescript/package.json from revision ${PreviousRevision}."
-    }
+    $previousProps = Get-RevisionFile -Revision $PreviousRevision -Path 'Directory.Build.props'
+    $previousPackage = Get-RevisionFile -Revision $PreviousRevision -Path 'sdk/typescript/package.json'
     $previous = Get-PackageVersions -PropsText $previousProps -PackageJsonText $previousPackage
     $changed = @($current.Keys | Where-Object { $current[$_] -ne $previous[$_] })
     if ($changed.Count -gt 0 -and $changed.Count -ne $current.Count) {

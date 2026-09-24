@@ -51,18 +51,24 @@ jobs:
       should_build: ${{ steps.release.outputs.should_build }}
       should_publish: ${{ steps.release.outputs.should_publish }}
     steps:
-      - name: Check out successful CI commit
+      - name: Check out trusted release automation
         if: github.event_name == 'workflow_run'
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
-          ref: ${{ github.event.workflow_run.head_sha }}
-      - name: Check out pull request or trusted manual commit
-        if: github.event_name != 'workflow_run'
+          fetch-depth: 0
+          ref: refs/heads/main
+      - name: Check out pull request
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
           ref: ${{ github.sha }}
+      - name: Check out trusted manual commit
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          ref: refs/heads/main
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Select coordinated package release
@@ -102,7 +108,7 @@ jobs:
               if ($LASTEXITCODE -ne 0 -or $parent -notmatch '^[a-f0-9]{40}$') {
                 throw 'Unable to resolve the first parent of the successful main-branch CI commit.'
               }
-              $intent = & ./scripts/Get-PackageReleaseIntent.ps1 -PreviousRevision $parent
+              $intent = & ./scripts/Get-PackageReleaseIntent.ps1 -CurrentRevision $candidateSha -PreviousRevision $parent
               $shouldBuild = $intent.VersionChanged
               $shouldPublish = $shouldBuild
               $publishNpm = $false

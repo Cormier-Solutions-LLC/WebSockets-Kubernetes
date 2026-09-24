@@ -1,5 +1,7 @@
 import Foundation
+
 import Logging
+
 import Vapor
 
 @main

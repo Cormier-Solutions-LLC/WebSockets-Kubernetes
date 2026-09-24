@@ -24,7 +24,7 @@ export default defineConfig({
   use: { baseURL: frontendOrigin, trace: "retain-on-failure", screenshot: "only-on-failure", video: "retain-on-failure" },
   webServer: [
     {
-      command: "dotnet run --project examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore",
+      command: "dotnet run --project examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore --no-launch-profile",
       cwd: repositoryRoot,
       url: `${gatewayOrigin}/health`,
       timeout: 60_000,

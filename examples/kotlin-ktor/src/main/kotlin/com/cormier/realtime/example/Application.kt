@@ -144,11 +144,11 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                 mapOf("status" to if (ready) "healthy" else "unavailable"))
         }
         get("/api/diagnostics") {
-            call.respond(mapOf(
-                "stack" to "Kotlin / Ktor", "topology" to config.topology, "instance" to config.instanceName,
-                "redis" to if (runCatching { store.ready() }.getOrDefault(false)) "ready" else "unavailable",
-                "heartbeatIntervalMilliseconds" to config.heartbeatIntervalMilliseconds,
-                "timestamp" to Instant.now().toString(),
+            call.respond(DiagnosticsResponse(
+                stack = "Kotlin / Ktor", topology = config.topology, instance = config.instanceName,
+                redis = if (runCatching { store.ready() }.getOrDefault(false)) "ready" else "unavailable",
+                heartbeatIntervalMilliseconds = config.heartbeatIntervalMilliseconds,
+                timestamp = Instant.now().toString(),
             ))
         }
         post("/api/login") {
@@ -290,4 +290,5 @@ private class DependencyFault : RuntimeException("The reference application depe
 @Serializable private data class SessionRecord(val tenantId: String, val userId: String, val allowedTopics: List<String>, val expiresAt: String, val revoked: Boolean)
 @Serializable private data class LoginResponse(val tenantId: String, val userId: String, val expiresAt: String)
 @Serializable private data class SessionResponse(val authenticated: Boolean, val tenantId: String, val userId: String, val allowedTopics: List<String>, val expiresAt: String)
+@Serializable private data class DiagnosticsResponse(val stack: String, val topology: String, val instance: String, val redis: String, val heartbeatIntervalMilliseconds: Int, val timestamp: String)
 @Serializable private data class ErrorResponse(val code: String, val message: String)

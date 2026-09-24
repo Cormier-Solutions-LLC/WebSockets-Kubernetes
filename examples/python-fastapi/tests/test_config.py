@@ -64,10 +64,11 @@ def test_invalid_allowlists_are_rejected_during_settings_construction() -> None:
 
 
 @pytest.mark.parametrize("value", [None, 4999, 300001, "not-an-integer"])
-def test_invalid_heartbeat_intervals_are_rejected(value: object) -> None:
+def test_invalid_heartbeat_intervals_are_rejected(value: object, monkeypatch: pytest.MonkeyPatch) -> None:
     environment = values()
     if value is None:
         environment.pop("HEARTBEAT_INTERVAL_MILLISECONDS")
+        monkeypatch.delenv("HEARTBEAT_INTERVAL_MILLISECONDS", raising=False)
     else:
         environment["HEARTBEAT_INTERVAL_MILLISECONDS"] = value
     with pytest.raises(ValidationError):

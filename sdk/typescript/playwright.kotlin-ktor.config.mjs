@@ -26,7 +26,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "dotnet run --project examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore",
+      command: "dotnet run --project examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --configuration Release --no-build --no-restore --no-launch-profile",
       cwd: repositoryRoot,
       url: `${gatewayOrigin}/health`,
       timeout: 60_000,

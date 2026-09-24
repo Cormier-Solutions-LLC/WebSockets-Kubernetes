@@ -1,9 +1,15 @@
 import Foundation
+
 import NIOCore
+
 import NIOPosix
+
 @preconcurrency import NIOSSL
+
 @preconcurrency import RediStack
+
 @preconcurrency import Redis
+
 import Vapor
 
 func configure(_ application: Application) throws {
@@ -21,11 +27,9 @@ func configure(_ application: Application) throws {
   application.middleware.use(SecurityHeadersMiddleware())
   routes(application, settings: settings)
 }
-
 enum RedisDeadlineError: Error {
   case exceeded
 }
-
 private final class RedisDeadlineGate<Value: Sendable>: @unchecked Sendable {
   private let lock = NSLock()
   private var completed = false
@@ -43,7 +47,6 @@ private final class RedisDeadlineGate<Value: Sendable>: @unchecked Sendable {
     promise.completeWith(result)
   }
 }
-
 private final class RedisChannelSet: @unchecked Sendable {
   private let lock = NSLock()
   private var channels: [ObjectIdentifier: any Channel] = [:]
@@ -73,18 +76,15 @@ private final class RedisChannelSet: @unchecked Sendable {
     self.lock.unlock()
   }
 }
-
 private struct DeadlineRedisPoolKey: StorageKey {
   typealias Value = DeadlineRedisPool
 }
-
 extension Application {
   var deadlineRedis: DeadlineRedisPool {
     get { self.storage[DeadlineRedisPoolKey.self]! }
     set { self.storage[DeadlineRedisPoolKey.self] = newValue }
   }
 }
-
 final class DeadlineRedisPool: @unchecked Sendable {
   private let channels: RedisChannelSet
   private let pool: RedisConnectionPool
@@ -148,7 +148,6 @@ final class DeadlineRedisPool: @unchecked Sendable {
     self.pool.close()
   }
 }
-
 private struct RedisLifecycle: LifecycleHandler {
   func didBootAsync(_ application: Application) async throws {
     _ = try await application.deadlineRedis.send(command: "PING", with: [])
@@ -159,7 +158,6 @@ private struct RedisLifecycle: LifecycleHandler {
     application.deadlineRedis.close()
   }
 }
-
 private func validateAssets(_ settings: ReferenceSettings) throws {
   let required = [
     "\(settings.sharedAssetRoot)/index.html",
@@ -172,7 +170,6 @@ private func validateAssets(_ settings: ReferenceSettings) throws {
     throw SettingsError.invalid
   }
 }
-
 struct SecurityHeadersMiddleware: AsyncMiddleware {
   func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
     let response = try await next.respond(to: request)

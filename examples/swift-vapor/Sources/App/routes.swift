@@ -1,17 +1,19 @@
 import AsyncHTTPClient
+
 import Foundation
+
 import NIOCore
+
 @preconcurrency import Redis
+
 import Vapor
 
 private let sessionCookie = "cormier_session"
 private let maximumBodyBytes = 64 * 1_024
-
 struct LoginInput: Content {
   let tenantId: String
   let userId: String
 }
-
 struct SessionRecord: Content {
   let tenantId: String
   let userId: String
@@ -19,7 +21,6 @@ struct SessionRecord: Content {
   let expiresAt: String
   let revoked: Bool
 }
-
 struct SessionResponse: Content {
   let authenticated: Bool
   let tenantId: String
@@ -27,7 +28,6 @@ struct SessionResponse: Content {
   let allowedTopics: [String]
   let expiresAt: String
 }
-
 struct Diagnostics: Content {
   let stack: String
   let topology: String
@@ -36,13 +36,11 @@ struct Diagnostics: Content {
   let heartbeatIntervalMilliseconds: Int
   let timestamp: String
 }
-
 struct StatusBody: Content { let status: String }
 struct ErrorBody: Content {
   let code: String
   let message: String
 }
-
 func routes(_ application: Application, settings: ReferenceSettings) {
   application.get { request in
     try asset(request, path: "\(settings.sharedAssetRoot)/index.html", type: .html)
@@ -202,7 +200,6 @@ func routes(_ application: Application, settings: ReferenceSettings) {
     }
   }
 }
-
 private func boundedTicketRequest(
   _ request: Request, settings: ReferenceSettings, headers: HTTPHeaders
 ) async throws -> HTTPClient.Response {
@@ -216,7 +213,6 @@ private func boundedTicketRequest(
       request: outbound, delegate: accumulator, deadline: deadline)
   return try await task.futureResult.get()
 }
-
 private func asset(_ request: Request, path: String, type: HTTPMediaType) throws -> Response {
   guard FileManager.default.fileExists(atPath: path) else { throw Abort(.notFound) }
   let data = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -224,7 +220,6 @@ private func asset(_ request: Request, path: String, type: HTTPMediaType) throws
   headers.contentType = type
   return Response(status: .ok, headers: headers, body: .init(data: data))
 }
-
 private func readSession(_ request: Request, settings: ReferenceSettings) async throws
   -> SessionRecord?
 {
@@ -241,15 +236,12 @@ private func readSession(_ request: Request, settings: ReferenceSettings) async 
   else { return nil }
   return record
 }
-
 private func validOrigin(_ request: Request, settings: ReferenceSettings) -> Bool {
   request.headers.first(name: .origin) == settings.publicOrigin
 }
-
 private func validSessionID(_ value: String) -> Bool {
   value.range(of: #"^[A-Za-z0-9_-]{16,256}$"#, options: .regularExpression) != nil
 }
-
 private func randomID() -> String {
   Data((0..<36).map { _ in UInt8.random(in: .min ... .max) })
     .base64EncodedString()
@@ -257,13 +249,11 @@ private func randomID() -> String {
     .replacingOccurrences(of: "/", with: "_")
     .replacingOccurrences(of: "=", with: "")
 }
-
 private func timestamp(_ date: Date = Date()) -> String {
   let formatter = ISO8601DateFormatter()
   formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
   return formatter.string(from: date)
 }
-
 func parseTimestamp(_ value: String) -> Date? {
   let formatter = ISO8601DateFormatter()
   formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -273,13 +263,11 @@ func parseTimestamp(_ value: String) -> Date? {
   formatter.formatOptions = [.withInternetDateTime]
   return formatter.date(from: value)
 }
-
 private func errorResponse(
   _ status: HTTPStatus, _ code: String, _ message: String, _ request: Request
 ) async throws -> Response {
   try await ErrorBody(code: code, message: message).encodeResponse(status: status, for: request)
 }
-
 private func dependencyUnavailable(_ request: Request, caught: any Error) async -> Response {
   request.logger.error(
     "request_failed", metadata: ["stack": "swift-vapor", "errorType": "\(type(of: caught))"])

@@ -16,21 +16,21 @@ var safeIdentifier = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 var safePrefix = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
 type Config struct {
-	ListenHost            string
-	Port                  int
-	PublicOrigin          string
-	GatewayURL            *url.URL
-	RedisURL              string
-	SessionLifetime       time.Duration
+	ListenHost                    string
+	Port                          int
+	PublicOrigin                  string
+	GatewayURL                    *url.URL
+	RedisURL                      string
+	SessionLifetime               time.Duration
 	HeartbeatIntervalMilliseconds int
-	InstanceName          string
-	Topology              string
-	RedisInstancePrefix   string
-	RedisSessionKeyPrefix string
-	AllowedTenants        map[string]struct{}
-	AllowedUsers          map[string]struct{}
-	SharedAssetRoot       string
-	SDKAssetRoot          string
+	InstanceName                  string
+	Topology                      string
+	RedisInstancePrefix           string
+	RedisSessionKeyPrefix         string
+	AllowedTenants                map[string]struct{}
+	AllowedUsers                  map[string]struct{}
+	SharedAssetRoot               string
+	SDKAssetRoot                  string
 }
 
 func LoadConfig() (Config, error) { return loadConfig(os.LookupEnv) }

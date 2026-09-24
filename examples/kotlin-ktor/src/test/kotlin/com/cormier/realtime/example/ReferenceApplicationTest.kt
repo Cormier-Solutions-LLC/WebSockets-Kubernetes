@@ -52,7 +52,10 @@ class ReferenceApplicationTest {
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:443")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://EXAMPLE.TEST")) }
         assertFailsWith<IllegalArgumentException> { ReferenceConfig.load(fixtureEnvironment + ("PUBLIC_ORIGIN" to "https://example.test:99999")) }
-        for (heartbeat in listOf("", "4999", "300001", "not-an-integer")) {
+        assertFailsWith<IllegalStateException> {
+            ReferenceConfig.load(fixtureEnvironment - "HEARTBEAT_INTERVAL_MILLISECONDS")
+        }
+        for (heartbeat in listOf("4999", "300001", "not-an-integer")) {
             assertFailsWith<IllegalArgumentException> {
                 ReferenceConfig.load(fixtureEnvironment + ("HEARTBEAT_INTERVAL_MILLISECONDS" to heartbeat))
             }

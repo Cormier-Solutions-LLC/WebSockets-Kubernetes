@@ -1,4 +1,5 @@
 import Foundation
+
 import NIOCore
 
 struct ReferenceSettings: Sendable {
@@ -149,7 +150,6 @@ struct ReferenceSettings: Sendable {
     return items
   }
 }
-
 enum SettingsError: Error {
   case invalid
 }

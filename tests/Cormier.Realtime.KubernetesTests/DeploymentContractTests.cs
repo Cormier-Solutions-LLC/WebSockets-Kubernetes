@@ -546,6 +546,9 @@ public sealed class DeploymentContractTests
         Assert.Equal(3, workflow.Split("runs-on: cormier-runners", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("runs-on: ubuntu-latest", workflow, StringComparison.Ordinal);
         Assert.Equal(3, workflow.Split("run: bash scripts/setup-ci-powershell.sh", StringSplitOptions.None).Length - 1);
+        Assert.Contains("if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: ${{ github.event.workflow_run.head_sha }}", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha", workflow, StringComparison.Ordinal);
         Assert.Contains("workflow_run:", workflow, StringComparison.Ordinal);
         Assert.Contains("workflows: [Realtime gateway CI]", workflow, StringComparison.Ordinal);
         Assert.Contains("WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}", workflow, StringComparison.Ordinal);

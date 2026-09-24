@@ -40,6 +40,7 @@ env:
 
 jobs:
   release-intent:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: cormier-runners
     outputs:
       candidate_sha: ${{ steps.release.outputs.candidate_sha }}
@@ -49,10 +50,18 @@ jobs:
       should_build: ${{ steps.release.outputs.should_build }}
       should_publish: ${{ steps.release.outputs.should_publish }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out successful CI commit
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v4
         with:
           fetch-depth: 2
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Check out pull request or trusted manual commit
+        if: github.event_name != 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          ref: ${{ github.sha }}
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Select coordinated package release

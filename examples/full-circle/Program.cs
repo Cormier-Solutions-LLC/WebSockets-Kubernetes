@@ -5,10 +5,24 @@ using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Example.FullCircle;
 using Cormier.Realtime.Redis;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
+StaticFileOptions? developmentSharedAssets = null;
+if (builder.Environment.IsDevelopment())
+{
+    var sharedWebRoot = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "shared-web", "wwwroot"));
+    if (!Directory.Exists(sharedWebRoot))
+    {
+        throw new DirectoryNotFoundException($"The shared development web root was not found: {sharedWebRoot}");
+    }
+    developmentSharedAssets = new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(sharedWebRoot),
+    };
+}
 builder.Services.AddOptions<FullCircleOptions>()
     .Bind(builder.Configuration.GetSection(FullCircleOptions.SectionName))
     .Validate(options => options.Topology is "ha" or "non-ha", "FullCircle:Topology must be explicitly set to 'ha' or 'non-ha'.")
@@ -49,7 +63,14 @@ if (diagnosticsEnabled)
     app.UseAuthorization();
 }
 app.UseStaticFiles();
-app.MapStaticAssets();
+if (developmentSharedAssets is not null)
+{
+    app.UseStaticFiles(developmentSharedAssets);
+}
+if (developmentSharedAssets is null)
+{
+    app.MapStaticAssets();
+}
 app.MapRealtimeGateway();
 app.MapRealtimeDiagnostics();
 
@@ -111,7 +132,14 @@ app.MapGet("/api/diagnostics", async (IOptions<FullCircleOptions> settings, IRed
         timestamp = DateTimeOffset.UtcNow,
     }));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
-app.MapFallbackToFile("index.html");
+if (developmentSharedAssets is null)
+{
+    app.MapFallbackToFile("index.html");
+}
+else
+{
+    app.MapFallbackToFile("index.html", developmentSharedAssets);
+}
 app.Run();
 
 static bool IsSafeScope(string value) =>

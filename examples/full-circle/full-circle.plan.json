@@ -19,7 +19,8 @@
   },
   "redis": {
     "endpointEnvironment": "REDIS_TEST_ENDPOINT",
-    "defaultEndpoint": "127.0.0.1:6379",
+    "defaultEndpoint": "127.0.0.1:16379",
+    "composeFile": "examples/full-circle/compose.yaml",
     "instancePrefix": "cormier:full-circle-tests"
   },
   "timeouts": {

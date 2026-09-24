@@ -11,7 +11,11 @@
       "name": "Example: Full Circle",
       "type": "dotnet",
       "request": "launch",
-      "projectPath": "${workspaceFolder}/examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj"
+      "projectPath": "${workspaceFolder}/examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj",
+      "preLaunchTask": "dependencies: full-circle",
+      "env": {
+        "Redis__Endpoint": "127.0.0.1:16379"
+      }
     },
     {
       "name": "Example: .NET Client",

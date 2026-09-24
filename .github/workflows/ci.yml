@@ -1021,6 +1021,8 @@ jobs:
 
   full-circle:
     runs-on: cormier-runners
+    env:
+      REDIS_TEST_ENDPOINT: 127.0.0.1:6379
     strategy:
       fail-fast: false
       matrix:

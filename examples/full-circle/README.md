@@ -9,10 +9,12 @@ The `/operator.html` page demonstrates the operator-only diagnostics workflow ag
 - .NET SDK 10
 - Node.js 22 or later and npm
 - PowerShell 7 or Bash
+- Docker with Docker Compose for the automatically managed local Redis dependency
 - Chromium for browser validation (`npx playwright install chromium` from `sdk/typescript`)
-- A configured Redis 7 endpoint; local examples use the loopback-only `127.0.0.1:6379`
 
-No credentials are embedded. Set `REDIS_TEST_ENDPOINT` and `NUGET_UPSTREAM_SOURCE` when the defaults are unsuitable. Redis authentication and topology use the normal environment-backed configuration keys: `Redis__User`, `Redis__Password`, `Redis__Ssl`, `Redis__SentinelServiceName`, and `Redis__SentinelPassword`. Secrets remain in environment variables and are never placed in command arguments or logs.
+With no `REDIS_TEST_ENDPOINT`, the lifecycle starts the pinned Redis 7 image from `compose.yaml`, publishes it only on `127.0.0.1:16379`, waits for its health check, and configures the web process to use it. Set `FULL_CIRCLE_REDIS_IMAGE` or `FULL_CIRCLE_REDIS_PORT` to override the local container without editing the Compose file. When launching directly from an IDE with a custom port, override `Redis__Endpoint` there as well. Set `REDIS_TEST_ENDPOINT` to use an already managed Redis endpoint instead; doing so disables automatic container deployment and teardown.
+
+No credentials are embedded. Set `NUGET_UPSTREAM_SOURCE` when the default is unsuitable. Redis authentication and topology use the normal environment-backed configuration keys: `Redis__User`, `Redis__Password`, `Redis__Ssl`, `Redis__SentinelServiceName`, and `Redis__SentinelPassword`. Secrets remain in environment variables and are never placed in command arguments or logs.
 
 ## Shared lifecycle
 
@@ -32,7 +34,9 @@ bash ./scripts/full-circle.sh validate --profile ha
 bash ./scripts/full-circle.sh cleanup --profile ha
 ```
 
-`bootstrap` restores and builds the project-reference development graph, then packs the libraries into an isolated local feed and builds the same application using only NuGet package references. Candidate packages use a fresh package cache and exclusive local source mapping. The committed consumer graph pins upstream hashes; bootstrap adds the freshly packed local package hashes to an ignored copy and restores that complete graph in locked mode. A missing browser static-asset route fails bootstrap. `validate` runs bounded Playwright scenarios. `cleanup` deletes only the configured literal test prefix in Redis, in non-blocking batches, and the repository's `artifacts/full-circle` directory. Repeating bootstrap, validation, or cleanup is supported.
+`bootstrap` deploys and verifies the local dependency stack when an external Redis endpoint was not supplied, restores and builds the project-reference development graph, then packs the libraries into an isolated local feed and builds the same application using only NuGet package references. Candidate packages use a fresh package cache and exclusive local source mapping. The committed consumer graph pins upstream hashes; bootstrap adds the freshly packed local package hashes to an ignored copy and restores that complete graph in locked mode. A missing browser static-asset route fails bootstrap. `validate` also ensures the dependency stack is running before executing bounded Playwright scenarios. `cleanup` deletes only the configured literal test prefix in Redis, removes the repository's `artifacts/full-circle` directory, and tears down only the Compose stack it manages. Repeating bootstrap, validation, or cleanup is supported.
+
+Launching **Example: Full Circle** from VS Code performs the same Compose deployment before starting the web project. The VS Code launch configuration supplies `Redis__Endpoint=127.0.0.1:16379`; use the **dependencies: full-circle (stop)** task when you want to stop the persistent development container without running lifecycle cleanup.
 
 The `non-ha` profile starts one process and makes no failover promise. The `ha` profile starts two processes behind the test proxy and verifies Redis fan-out, tenant isolation, a forced transport drop, ticket reauthentication, subscription restoration, and reconnect to a different instance. The UI reports the selected topology, instance, Redis readiness, connection state, structured errors, and received events.
 
@@ -48,7 +52,7 @@ The suite covers anonymous login rejection, configured tenant/user login, ticket
 
 ## Troubleshooting and limits
 
-- `Redis unavailable`: verify `REDIS_TEST_ENDPOINT`, network access, and configured Redis authentication, then run `recover`.
+- `Redis unavailable`: verify Docker is running, or verify `REDIS_TEST_ENDPOINT`, network access, and configured Redis authentication when using an external endpoint, then run `recover`.
 - `browser executable missing`: install Chromium from `sdk/typescript`.
 - `invalid Origin`: make `Realtime__AllowedOrigins__0` exactly match the configured entry origin; do not use wildcards.
 - Port conflict: change the versioned plan before bootstrap so both shells use the same topology.

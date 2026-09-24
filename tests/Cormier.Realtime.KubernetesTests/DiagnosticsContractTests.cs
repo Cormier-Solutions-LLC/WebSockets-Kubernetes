@@ -281,6 +281,27 @@ public sealed class DiagnosticsContractTests
             .TryGetProperty("OpenTelemetry.Exporter.OpenTelemetryProtocol", out _));
     }
 
+    [Fact]
+    public void FullCircleLocalDependenciesAreAutomatedAndLoopbackBound()
+    {
+        using var plan = JsonDocument.Parse(Read("examples/full-circle/full-circle.plan.json"));
+        using var applicationSettings = JsonDocument.Parse(Read("examples/full-circle/appsettings.json"));
+        var compose = Read("examples/full-circle/compose.yaml");
+        var lifecycle = Read("scripts/full-circle.mjs");
+
+        var redis = plan.RootElement.GetProperty("redis");
+        Assert.Equal("127.0.0.1:16379", redis.GetProperty("defaultEndpoint").GetString());
+        Assert.Equal("examples/full-circle/compose.yaml", redis.GetProperty("composeFile").GetString());
+        Assert.Contains("127.0.0.1:${FULL_CIRCLE_REDIS_PORT:-16379}:6379", compose, StringComparison.Ordinal);
+        Assert.Contains("redis-cli", compose, StringComparison.Ordinal);
+        Assert.Contains("\"up\", \"--detach\", \"--wait\"", lifecycle, StringComparison.Ordinal);
+        Assert.Contains("externalRedisEndpoint === undefined", lifecycle, StringComparison.Ordinal);
+
+        Assert.Equal(
+            "127.0.0.1:16379",
+            applicationSettings.RootElement.GetProperty("Redis").GetProperty("Endpoint").GetString());
+    }
+
     private static string Read(string relative) =>
         File.ReadAllText(Path.Join(Root, relative.Replace('/', Path.DirectorySeparatorChar)));
 

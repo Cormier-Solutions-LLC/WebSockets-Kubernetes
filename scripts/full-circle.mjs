@@ -30,7 +30,13 @@ if (profileName !== "ha" && profileName !== "non-ha") fail("--profile must expli
 const plan = JSON.parse(await readFile(planPath, "utf8"));
 if (plan.schemaVersion !== 1 || !plan.profiles?.[profileName]) fail("The shared plan schema or selected profile is invalid.");
 const profile = plan.profiles[profileName];
-const redisEndpoint = process.env[plan.redis.endpointEnvironment] ?? plan.redis.defaultEndpoint;
+const externalRedisEndpoint = process.env[plan.redis.endpointEnvironment];
+const localRedisPort = process.env.FULL_CIRCLE_REDIS_PORT;
+if (localRedisPort !== undefined && (!/^\d+$/.test(localRedisPort) || Number(localRedisPort) < 1 || Number(localRedisPort) > 65535)) {
+  fail("FULL_CIRCLE_REDIS_PORT must be a TCP port from 1 through 65535.");
+}
+const redisEndpoint = externalRedisEndpoint ?? (localRedisPort === undefined ? plan.redis.defaultEndpoint : `127.0.0.1:${localRedisPort}`);
+const composeFile = resolve(repositoryRoot, plan.redis.composeFile);
 const upstreamPackageSource = process.env.NUGET_UPSTREAM_SOURCE ?? "https://api.nuget.org/v3/index.json";
 const upstreamPackageEnvironment = { NUGET_UPSTREAM_SOURCE: upstreamPackageSource };
 const normalized = {
@@ -57,12 +63,30 @@ async function command(file, args, options = {}) {
       stdio: "inherit",
       shell: process.platform === "win32" && file.endsWith(".cmd"),
     });
+    const forwardSignal = signal => {
+      if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+    };
+    const forwardInterrupt = () => forwardSignal("SIGINT");
+    const forwardTermination = () => forwardSignal("SIGTERM");
+    process.once("SIGINT", forwardInterrupt);
+    process.once("SIGTERM", forwardTermination);
+    const removeSignalHandlers = () => {
+      process.removeListener("SIGINT", forwardInterrupt);
+      process.removeListener("SIGTERM", forwardTermination);
+    };
     const timeout = options.timeout === false ? undefined : options.timeout ?? commandTimeout;
     const timer = timeout === undefined
       ? undefined
       : setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`Command exceeded ${timeout / 1000} seconds.`)); }, timeout);
-    child.on("error", reject);
-    child.on("exit", code => { if (timer !== undefined) clearTimeout(timer); code === 0 ? accept() : reject(new Error(`${file} exited with code ${code}.`)); });
+    child.on("error", error => {
+      removeSignalHandlers();
+      reject(error);
+    });
+    child.on("exit", code => {
+      removeSignalHandlers();
+      if (timer !== undefined) clearTimeout(timer);
+      code === 0 ? accept() : reject(new Error(`${file} exited with code ${code}.`));
+    });
   });
 }
 
@@ -71,6 +95,19 @@ async function verifyRedis() {
     cwd: resolve(repositoryRoot, "sdk/typescript"),
     env: { Redis__Endpoint: redisEndpoint },
   });
+}
+
+async function ensureDependencies() {
+  if (externalRedisEndpoint === undefined) {
+    await command("docker", ["compose", "--file", composeFile, "up", "--detach", "--wait"]);
+  }
+  await verifyRedis();
+}
+
+async function stopDependencies() {
+  if (externalRedisEndpoint === undefined) {
+    await command("docker", ["compose", "--file", composeFile, "down", "--remove-orphans"]);
+  }
 }
 
 function escapeRedisGlob(value) {
@@ -157,6 +194,7 @@ async function buildPackageConsumer() {
 
 try {
   if (["bootstrap", "update", "recover"].includes(action)) {
+    await ensureDependencies();
     await command(executable("npm"), ["ci", "--ignore-scripts"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     await command(executable("npm"), ["run", "build", "--silent"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     const projectConfig = await writeProjectReferenceConfig();
@@ -166,9 +204,8 @@ try {
     await command("dotnet", ["build", "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj", "--configuration", "Release", "--no-restore", "--no-incremental"]);
     await command("dotnet", ["build", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-restore", "--no-incremental"]);
     await buildPackageConsumer();
-    await verifyRedis();
   } else if (action === "validate") {
-    await verifyRedis();
+    await ensureDependencies();
     const diagnosticsToken = randomBytes(32).toString("hex");
     await command(executable("npx"), ["playwright", "test", "--config", "playwright.full-circle.config.mjs"], {
       cwd: resolve(repositoryRoot, "sdk/typescript"),
@@ -179,8 +216,11 @@ try {
       },
     });
   } else if (action === "run") {
+    await ensureDependencies();
     const instance = profile.instances[0];
-    await command("dotnet", ["run", "--project", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--configuration", "Release", "--no-build", "--no-restore"], {
+    const application = resolve(repositoryRoot, "examples/full-circle/bin/Release/net10.0/Cormier.Realtime.Example.FullCircle.dll");
+    await command("dotnet", [application], {
+      cwd: dirname(application),
       env: {
         ASPNETCORE_URLS: `http://127.0.0.1:${instance.port}`,
         FullCircle__Topology: profileName,
@@ -193,12 +233,17 @@ try {
       timeout: false,
     });
   } else if (action === "cleanup" || action === "rollback") {
-    await cleanRedisFixtures();
-    const resolvedEvidence = resolve(evidenceRoot);
-    if (!resolvedEvidence.startsWith(resolve(repositoryRoot, "artifacts") + "\\") && !resolvedEvidence.startsWith(resolve(repositoryRoot, "artifacts") + "/")) {
-      throw new Error("Refusing cleanup outside the repository artifacts directory.");
+    try {
+      await ensureDependencies();
+      await cleanRedisFixtures();
+      const resolvedEvidence = resolve(evidenceRoot);
+      if (!resolvedEvidence.startsWith(resolve(repositoryRoot, "artifacts") + "\\") && !resolvedEvidence.startsWith(resolve(repositoryRoot, "artifacts") + "/")) {
+        throw new Error("Refusing cleanup outside the repository artifacts directory.");
+      }
+      await rm(resolvedEvidence, { recursive: true, force: true });
+    } finally {
+      await stopDependencies();
     }
-    await rm(resolvedEvidence, { recursive: true, force: true });
   }
   await mkdir(evidenceRoot, { recursive: true });
   await writeFile(resolve(evidenceRoot, `${action}-${profileName}.json`), `${JSON.stringify({ ...normalized, status: "passed", completedAt: new Date().toISOString() }, null, 2)}\n`);

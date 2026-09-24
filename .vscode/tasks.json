@@ -2,6 +2,33 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "dependencies: full-circle",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "--file",
+        "${workspaceFolder}/examples/full-circle/compose.yaml",
+        "up",
+        "--detach",
+        "--wait"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "dependencies: full-circle (stop)",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "--file",
+        "${workspaceFolder}/examples/full-circle/compose.yaml",
+        "down",
+        "--remove-orphans"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "build: .NET solution",
       "type": "process",
       "command": "dotnet",

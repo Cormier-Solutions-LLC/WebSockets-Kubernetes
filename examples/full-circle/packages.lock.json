@@ -61,8 +61,8 @@
       "cormier.realtime.aspnetcore": {
         "type": "Project",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[1.0.0-beta, )",
-          "Cormier.Realtime.Redis": "[1.0.0-beta, )",
+          "Cormier.Realtime.Contracts": "[1.0.1-beta, )",
+          "Cormier.Realtime.Redis": "[1.0.1-beta, )",
           "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.18.0, )",
           "OpenTelemetry.Extensions.Hosting": "[1.18.0, )"
         }
@@ -76,7 +76,7 @@
       "cormier.realtime.redis": {
         "type": "Project",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[1.0.0-beta, )",
+          "Cormier.Realtime.Contracts": "[1.0.1-beta, )",
           "StackExchange.Redis": "[3.1.31, )"
         }
       }

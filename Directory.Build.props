@@ -2,11 +2,11 @@
   <PropertyGroup>
     <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">0.1.0</ApplicationVersion>
     <ContainerVersion Condition="'$(ContainerVersion)' == ''">0.1.0</ContainerVersion>
-    <ContractsVersion Condition="'$(ContractsVersion)' == ''">1.0.0-beta</ContractsVersion>
-    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">1.0.0-beta</RedisAdapterVersion>
-    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.0-beta</AspNetCoreIntegrationVersion>
-    <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.0-beta</DotNetClientVersion>
-    <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.0-beta</BrowserPackageVersion>
+    <ContractsVersion Condition="'$(ContractsVersion)' == ''">1.0.1-beta</ContractsVersion>
+    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">1.0.1-beta</RedisAdapterVersion>
+    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.1-beta</AspNetCoreIntegrationVersion>
+    <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.1-beta</DotNetClientVersion>
+    <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.1-beta</BrowserPackageVersion>
     <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">0.1.0</HelmChartVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>

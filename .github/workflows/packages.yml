@@ -255,10 +255,14 @@ jobs:
       - name: Validate publication inputs
         shell: pwsh
         env:
+          NUGET_USER: ${{ secrets.NUGET_USER }}
           PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
           INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
           PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) {
+            throw 'The package-production environment must define the NuGet.org profile name in NUGET_USER.'
+          }
           if ($env:PROTECTED_NUGET_SOURCE -notmatch '^https://') {
             throw 'The package-production environment must define an HTTPS NUGET_SOURCE variable.'
           }
@@ -283,10 +287,15 @@ jobs:
           }
           New-Item -ItemType Directory -Path artifacts/package-promotion -Force | Out-Null
           Copy-Item -LiteralPath $states[0].FullName -Destination artifacts/package-promotion
+      - name: Obtain temporary NuGet credential
+        id: nuget_login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
       - name: Promote exact candidate
         shell: pwsh
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
           INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}

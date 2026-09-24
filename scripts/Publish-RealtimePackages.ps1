@@ -8,7 +8,8 @@
     Version: 1.0.0
     Project: Cormier.Realtime
     Requires: PowerShell 7, .NET SDK 10, Node.js/npm only when PublishNpm is selected.
-    Inputs: CandidatePath, configured registry endpoints, and secret-backed environment variables.
+    Inputs: CandidatePath, configured registry endpoints, and credential-bearing environment variables. CI supplies
+    the NuGet credential from Trusted Publishing; optional npm publication still uses a protected secret.
     Outputs: Redacted promotion log and state in the configured EvidencePath.
     Exit codes: 0 success; 1 publication failure; 2 invalid candidate/input; 3 prerequisite failure; 4 credential failure.
 #>

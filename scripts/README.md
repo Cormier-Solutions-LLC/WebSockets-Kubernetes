@@ -18,6 +18,7 @@ The legacy `Bootstrap-Realtime.ps1` accepts `-NameSuffix <dns-label>` (maximum 2
 | `Bootstrap-Realtime.ps1`, `Deploy-Realtime.ps1` | Legacy developer bootstrap and Kubernetes lifecycle | `.bootstrap`, `.logs`, `.backups/<target>`; inspect PowerShell help |
 | `FullCircle.ps1`, `full-circle.sh` | Shared Node.js packaged-consumer example lifecycle with explicit `ha` / `non-ha` profile | [FullCircle guide](../examples/full-circle/README.md) |
 | `Build-RealtimePackages.ps1`, `Publish-RealtimePackages.ps1` | Candidate validation and immutable promotion; PowerShell 7 and .NET 10, plus Node/npm for build or npm publication | Package artifacts, `.logs`, promotion evidence |
+| `configure-nuget-trusted-publishing.sh` | Configure the GitHub environment for NuGet.org OIDC Trusted Publishing; GitHub CLI with repository admin access | `package-production` variables, policy instructions, optional package-workflow dispatch |
 | `Test-AspNetCorePackage.ps1`, `Test-BrowserPackage.ps1`, `Test-DotNetClientPackage.ps1` | Isolated feed and clean consumer validation; configured upstream NuGet source | Temporary feeds/consumers cleaned after validation |
 | `Test-RealtimeEdge.ps1`, `Invoke-RealtimeEdgeFailureTest.ps1` | Read-only edge checks or explicitly approved disruptive exercises; PowerShell 7.4+, kubectl, curl | Edge evidence; [cluster guide](../cluster/README.md) |
 | `Invoke-RealtimeLoad.ps1` | .NET load runner; explicit endpoint, Origin and session | `artifacts/load-results.json` by default; [load guide](../load/README.md) |

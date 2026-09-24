@@ -4,33 +4,33 @@
     "net10.0": {
       "Cormier.Realtime.AspNetCore": {
         "type": "Direct",
-        "requested": "[1.0.0-beta, )",
-        "resolved": "1.0.0-beta",
-        "contentHash": "IDnOOvyw1a3bW396iiGJo9F+Z0zsP1tAYiwYsDvDXnSXhsaLlZi+hvi3W3Z47oiqc+vJDT4wFQzPF21jlH0+1A==",
+        "requested": "[1.0.1-beta, )",
+        "resolved": "1.0.1-beta",
+        "contentHash": "ibex/A9i8mfv+vFN9Fhramu3aW0w+0NF/WlGB/egm+/QcNTxVQCBjAzcJtHi9CIQqCHKQFDXbiyous/w33zmuw==",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[1.0.0-beta, 1.1.0)",
-          "Cormier.Realtime.Redis": "[1.0.0-beta, 1.1.0)",
+          "Cormier.Realtime.Contracts": "[1.0.1-beta, 1.1.0)",
+          "Cormier.Realtime.Redis": "[1.0.1-beta, 1.1.0)",
           "OpenTelemetry.Exporter.OpenTelemetryProtocol": "1.18.0",
           "OpenTelemetry.Extensions.Hosting": "1.18.0"
         }
       },
       "Cormier.Realtime.Browser": {
         "type": "Direct",
-        "requested": "[1.0.0-beta, )",
-        "resolved": "1.0.0-beta",
-        "contentHash": "eEhwLbYik7OjSN1oMldSQzgmFtu7UhrcWq2gC6MmkUP45zYxalIJYuNliBcVxnlas/yKoU1L2S8P3aBjh7kwbA=="
+        "requested": "[1.0.1-beta, )",
+        "resolved": "1.0.1-beta",
+        "contentHash": "/AM3qfRktVLb20H2SoghvLjnkgw5Djo5DG4Z1tBqggRqcgeHdBTra/W5BQf4o33vTcSx9Si2IvHXoZwnEM1Q7w=="
       },
       "Cormier.Realtime.Contracts": {
         "type": "Transitive",
-        "resolved": "1.0.0-beta",
-        "contentHash": "WB4TnJ9oV+geOlneVcnCrgb8ygEVJlXWz25IvkpDPQjpqcOSQsUCpLFXOjDlUI3sAH6FWNWamcmIunKmsrnIiA=="
+        "resolved": "1.0.1-beta",
+        "contentHash": "iCgXeSVPndIu2jxJWcY2TapX7bLA/V1PA6CZH0bJXvBNH09vuzyMjgSBpn93yTntEa1/QDWd9Q7aWIFg1btuJg=="
       },
       "Cormier.Realtime.Redis": {
         "type": "Transitive",
-        "resolved": "1.0.0-beta",
-        "contentHash": "SPE3XR4VifRO/nRpjy1tchMxjZX/gIkGXKVFm0pvbOUis61sweLdPN7yb3W+rkIXevYDkt7Fa3WzmosaLlmiIA==",
+        "resolved": "1.0.1-beta",
+        "contentHash": "boKoiQ326EZlCKLJfqjd9W9QMejn/U+FB2dPUsydO2S1GBrSa7E8fbnsdQbG5V1pALig/NLhnnl6B6/vCNkGYw==",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[1.0.0-beta, 1.1.0)",
+          "Cormier.Realtime.Contracts": "[1.0.1-beta, 1.1.0)",
           "StackExchange.Redis": "3.1.31"
         }
       },

@@ -1,6 +1,6 @@
 {
   "package": "@cormier/realtime",
-  "version": "1.0.0-beta",
+  "version": "1.0.1-beta",
   "protocolVersion": "1.0",
   "subprotocol": "cormier.realtime.v1"
 }

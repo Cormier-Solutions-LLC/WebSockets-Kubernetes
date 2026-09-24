@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -171,6 +172,21 @@ final class ReferenceApplicationTests {
     var protocol = mapper.readTree(Files.readString(Path.of("../../protocol/fixtures/v1/envelopes.json")));
     org.junit.jupiter.api.Assertions.assertEquals("1.0", sdk.get("protocolVersion").asText());
     org.junit.jupiter.api.Assertions.assertEquals(sdk.get("protocolVersion"), protocol.get("protocolVersion"));
+  }
+
+  @Test
+  void rejectsMissingAndOutOfRangeHeartbeatIntervals() {
+    try (var factory = Validation.buildDefaultValidatorFactory()) {
+      var validator = factory.getValidator();
+      for (var heartbeat : new int[] { 0, 4999, 300001 }) {
+        var candidate = new ReferenceProperties(
+            "127.0.0.1", 15200, URI.create("http://127.0.0.1:15200"), URI.create("http://127.0.0.1:15201"),
+            1200, heartbeat, "java-spring-a", "non-ha", "cormier:java-test", "sessions",
+            java.util.List.of("tenant-a"), java.util.List.of("user-a"), Path.of("."), Path.of("."));
+        org.junit.jupiter.api.Assertions.assertTrue(validator.validate(candidate).stream()
+            .anyMatch(violation -> violation.getPropertyPath().toString().equals("heartbeatIntervalMilliseconds")));
+      }
+    }
   }
 
   @Test

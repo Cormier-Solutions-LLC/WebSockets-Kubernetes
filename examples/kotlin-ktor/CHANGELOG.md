@@ -5,6 +5,7 @@ Operator-visible features, fixes, security/configuration changes, breaking behav
 ## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- `HEARTBEAT_INTERVAL_MILLISECONDS` is now required and `/api/diagnostics` publishes it for the shared browser client; set it to the gateway heartbeat in seconds multiplied by 1000.
 - Current build prerequisite: generate both `sdk/typescript/dist` and `examples/shared-web/dist` through the SDK build before testing or packaging. Containers select the optimized UI; `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the readable profile with the same SDK.
 - Operational clarification: `/health` checks Redis, not the gateway. Ktor's configured stop bound covers the server stop call; HTTP-client and Redis cleanup follow it. See [README.md](README.md) and [UPDATE.md](UPDATE.md) for current setup and qualification steps; the released entry below is retained.
 

@@ -13,6 +13,8 @@ When the adapter forwards an HTTPS public origin to an internal HTTP gateway, it
 
 Supply every `.env.example` value externally, including the explicit `LISTEN_HOST` and `PORT`, and adjust all network values for the target environment; the application does not load the fixture. From this directory run `uv sync --frozen`, `uv run python -m reference_app`, and this repeatable gate:
 
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
+
 ```text
 uv lock --check
 uv run ruff check .
@@ -56,7 +58,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has seven stack-specific Python/test files and 804 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has seven stack-specific Python/test files and 819 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Support
 

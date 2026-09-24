@@ -12,6 +12,8 @@ This non-production adapter demonstrates a minimal Laravel front end for Cormier
 
 Supply every `.env.example` value externally, replace `SESSION_SECRET`, and adjust all endpoints and ports for the target environment; the application does not load `.env.example` automatically. Laravel may load a local `.env`, so keep any real values outside source control. `PUBLIC_ROOT=public` supports this documented working-directory launch and can be replaced with an absolute deployment path. From this directory run `composer install` and then `php artisan app:preflight`. Before direct startup, export `PUBLIC_SCHEME` as the validated origin scheme (`http` or `https`); in PowerShell use `$env:PUBLIC_SCHEME = ([uri]$env:PUBLIC_ORIGIN).Scheme`. Then run `frankenphp run --config Caddyfile --adapter caddyfile`. Unlike the container startup script, this direct command does not run preflight or derive the scheme for you. The repeatable gate is:
 
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
+
 ```text
 composer validate --no-check-publish
 vendor/bin/pint --test
@@ -55,7 +57,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has 15 stack-specific PHP/configuration/test files and 715 nonblank lines. Generated dependencies, shared assets/fixtures, lock/build metadata, and documentation are excluded. Recalculate after changes.
+The adapter has 15 stack-specific PHP/configuration/test files and 756 nonblank lines. Generated dependencies, shared assets/fixtures, lock/build metadata, and documentation are excluded. Recalculate after changes.
 
 ## Support and limitations
 

@@ -13,6 +13,8 @@ For ticket and WebSocket relays, the adapter forwards the scheme from validated 
 
 Supply every `.env.example` value externally; the application does not load the fixture. From `examples/rust-axum`, run `cargo run --locked`. Run the repeatable gate with:
 
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
+
 ```text
 cargo fmt --check
 cargo test --locked
@@ -55,7 +57,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Redis | 7.4 | Tested dependency |
 | Container bases | Rust 1.98.1 Alpine / Alpine 3.24 | Digest-pinned |
 
-The adapter has three stack-specific Rust files and 926 nonblank lines, including tests colocated with typed configuration. Shared assets, fixtures, generated SDK, lock/build metadata, and docs are excluded. Recalculate after changes.
+The adapter has three stack-specific Rust files and 942 nonblank lines, including tests colocated with typed configuration. Shared assets, fixtures, generated SDK, lock/build metadata, and docs are excluded. Recalculate after changes.
 
 ## Support
 

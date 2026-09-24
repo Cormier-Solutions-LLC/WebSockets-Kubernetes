@@ -54,6 +54,13 @@ struct ReferenceSettingsTests {
     #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
   }
 
+  @Test("requires the heartbeat interval")
+  func requiresHeartbeatInterval() {
+    var environment = self.values
+    environment.removeValue(forKey: "HEARTBEAT_INTERVAL_MILLISECONDS")
+    #expect(throws: SettingsError.self) { try ReferenceSettings(environment: environment) }
+  }
+
   @Test("derives the public relay scheme")
   func derivesPublicRelayScheme() throws {
     var environment = self.values

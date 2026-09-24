@@ -5,6 +5,7 @@ Operator-visible changes to the Rust/Axum reference application are recorded her
 ## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- `HEARTBEAT_INTERVAL_MILLISECONDS` is now required and `/api/diagnostics` publishes it for the shared browser client; set it to the gateway heartbeat in seconds multiplied by 1000.
 
 ## 0.1.0 - 2026-09-11
 

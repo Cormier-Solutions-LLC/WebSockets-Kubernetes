@@ -3,6 +3,7 @@
 ## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- `HEARTBEAT_INTERVAL_MILLISECONDS` is now required and `/api/diagnostics` publishes it for the shared browser client; set it to the gateway heartbeat in seconds multiplied by 1000.
 - Current operational clarification: the WebSocket drain deadline is 15 seconds and the forced-exit timer is 16 seconds. `/health` checks Redis only; Express middleware (including the process-local limiter) does not process WebSocket upgrades, so gateway authentication, Origin checks and connection limits remain essential.
 - Build the SDK and shared UI together before packaging; see [README.md](README.md) and [UPDATE.md](UPDATE.md) for asset generation, container networking and rollback. The initial release entry below is preserved.
 

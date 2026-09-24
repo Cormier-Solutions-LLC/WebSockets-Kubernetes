@@ -3,6 +3,7 @@
 ## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
+- `HEARTBEAT_INTERVAL_MILLISECONDS` is now required and `/api/diagnostics` publishes it for the shared browser client; set it to the gateway heartbeat in seconds multiplied by 1000.
 - Current launch clarification: direct FrankenPHP runs must export `PUBLIC_SCHEME` from `PUBLIC_ORIGIN`; the container startup script does this automatically. Generate both SDK and shared UI output trees before building the image.
 - `/health` checks Redis only. The startup script forwards termination and waits for FrankenPHP without its own forced-kill deadline, so configure a container/orchestrator stop timeout. See [README.md](README.md) and [UPDATE.md](UPDATE.md); the initial release record below is preserved.
 

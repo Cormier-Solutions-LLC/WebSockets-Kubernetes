@@ -11,6 +11,8 @@ This non-production adapter demonstrates a compact Vapor front end for Cormier.R
 
 Supply every `.env.example` value externally and adjust all network values for the target environment; the application does not load the fixture. From this directory run this repeatable gate:
 
+Set `HEARTBEAT_INTERVAL_MILLISECONDS` to the gateway's configured `Realtime:HeartbeatSeconds` multiplied by 1000. The adapter publishes this value through `/api/diagnostics` so the shared browser client uses the same heartbeat cadence.
+
 ```text
 swift package resolve --disable-sandbox
 git diff --exit-code Package.resolved
@@ -53,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
-The adapter has 5 stack-specific Swift source/test files and 782 nonblank lines. SwiftPM build outputs, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
+The adapter has 5 stack-specific Swift source/test files and 801 nonblank lines. SwiftPM build outputs, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.
 
 ## Platform support
 

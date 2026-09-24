@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Cormier.Realtime.LoadRunner (local connection smoke)": {
+      "commandName": "Project",
+      "commandLineArgs": "--endpoint ws://localhost:5097/realtime/ws --origin http://localhost:5097 --session-cookie-name cormier_session --subprotocol cormier.realtime.v1 --topic orders --connections 1 --messages-per-connection 0 --payload-bytes 0 --scenario connection --duration-seconds 10 --output ../../artifacts/load/local-debug.json",
+      "environmentVariables": {
+        "CORMIER_LOAD_SESSION_ID": "replace-with-local-session-id"
+      }
+    }
+  }
+}

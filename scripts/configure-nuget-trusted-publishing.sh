@@ -76,8 +76,7 @@ is_admin="$(gh api "repos/${repository}" --jq '.permissions.admin')"
 printf '{}' | gh api --method PUT "repos/${repository}/environments/${environment}" --input - >/dev/null
 gh variable set NUGET_SOURCE --env "$environment" --repo "$repository" \
   --body "https://api.nuget.org/v3/index.json"
-gh variable set NUGET_USER --env "$environment" --repo "$repository" \
-  --body "$nuget_user"
+printf '%s' "$nuget_user" | gh secret set NUGET_USER --env "$environment" --repo "$repository"
 
 workflow="$({
   gh api "repos/${repository}/contents/.github/workflows/packages.yml?ref=main" --jq '.content'
@@ -87,7 +86,7 @@ for required in \
   "environment: ${environment}" \
   "id-token: write" \
   "uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841" \
-  'user: ${{ vars.NUGET_USER }}' \
+  'user: ${{ secrets.NUGET_USER }}' \
   'NUGET_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}'; do
   grep --fixed-strings --quiet "$required" <<<"$workflow" \
     || fail "The main-branch packages.yml workflow is missing: ${required}"
@@ -109,7 +108,7 @@ Create this policy at https://www.nuget.org/account/trustedpublishing:
   Scope:            Push new packages and package versions
   Package glob:     Cormier.Realtime.*
 
-NuGet login user configured in GitHub: ${nuget_user}
+NuGet login user stored in the GitHub environment secret NUGET_USER.
 No permanent NUGET_API_KEY secret is required.
 EOF
 

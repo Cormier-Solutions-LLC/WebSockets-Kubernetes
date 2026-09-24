@@ -255,7 +255,7 @@ jobs:
       - name: Validate publication inputs
         shell: pwsh
         env:
-          NUGET_USER: ${{ vars.NUGET_USER }}
+          NUGET_USER: ${{ secrets.NUGET_USER }}
           PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
           INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
           PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
@@ -291,7 +291,7 @@ jobs:
         id: nuget_login
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
-          user: ${{ vars.NUGET_USER }}
+          user: ${{ secrets.NUGET_USER }}
       - name: Promote exact candidate
         shell: pwsh
         env:

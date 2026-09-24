@@ -29,6 +29,12 @@
     <section><h2>Events and diagnostics</h2><pre id="events" aria-live="polite"></pre></section>
     <div id="stack-links"></div>
   </main>
+  <dialog id="message-modal" aria-labelledby="message-title">
+    <h2 id="message-title">Subscription message</h2>
+    <p>Route: <strong id="message-route"></strong></p>
+    <pre id="message-payload"></pre>
+    <form method="dialog"><button>Close</button></form>
+  </dialog>
   <script src="/_content/Cormier.Realtime.Browser/cormier-realtime.iife.js"></script>
   <script src="/app.js"></script>
 </body>

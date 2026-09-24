@@ -34,6 +34,7 @@ export default defineConfig({
       timeout: readinessTimeout,
       reuseExistingServer: false,
       env: {
+        ASPNETCORE_ENVIRONMENT: "Automation",
         ASPNETCORE_URLS: gatewayOrigin,
         FullCircle__Topology: "non-ha",
         FullCircle__InstanceName: "gateway-a",

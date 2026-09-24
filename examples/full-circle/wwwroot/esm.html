@@ -1,5 +1,40 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cormier.Realtime ESM consumer</title></head>
-<body><p>ESM state: <strong id="state">loading</strong></p><script type="module">
-import { RealtimeClient } from "/_content/Cormier.Realtime.Browser/cormier-realtime.js";
-window.RealtimeClient = RealtimeClient; document.querySelector("#state").textContent = "ready";
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cormier.Realtime ESM consumer</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <h1>Cormier.Realtime full circle</h1>
+    <p>ESM module: <strong id="esm-state">loading</strong></p>
+    <p id="diagnostics">Loading application details…</p>
+    <section>
+      <h2>Session</h2>
+      <label>Tenant <input id="tenant" value="tenant-a" autocomplete="off"></label>
+      <label>User <input id="user" value="user-a" autocomplete="off"></label>
+      <button id="login">Log in</button><button id="logout">Log out</button>
+    </section>
+    <section>
+      <h2>Realtime</h2>
+      <p>State: <strong id="state">idle</strong></p>
+      <label>Route <input id="route" value="topics/orders"></label>
+      <label>Payload <input id="payload" value='{"message":"hello"}'></label>
+      <button id="connect">Connect</button><button id="disconnect">Disconnect</button>
+      <button id="subscribe">Subscribe</button><button id="unsubscribe">Unsubscribe</button>
+      <button id="publish">Publish</button>
+    </section>
+    <section><h2>Events and diagnostics</h2><pre id="events" aria-live="polite"></pre></section>
+    <div id="stack-links"></div>
+  </main>
+  <dialog id="message-modal" aria-labelledby="message-title">
+    <h2 id="message-title">Subscription message</h2>
+    <p>Route: <strong id="message-route"></strong></p>
+    <pre id="message-payload"></pre>
+    <form method="dialog"><button>Close</button></form>
+  </dialog>
+  <script type="module" src="/esm.js"></script>
+</body>
+</html>

@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Cormier.Realtime.AspNetCore;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Example.FullCircle;
+using Cormier.Realtime.Gateway;
 using Cormier.Realtime.Redis;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.FileProviders;
@@ -22,6 +24,17 @@ if (builder.Environment.IsDevelopment())
     {
         FileProvider = new PhysicalFileProvider(sharedWebRoot),
     };
+}
+string? generatedOperatorTokenPath = null;
+if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(builder.Configuration["Diagnostics:OperatorToken"]))
+{
+    var configuredTokenPath = builder.Configuration["FullCircleDevelopment:OperatorTokenFile"];
+    if (string.IsNullOrWhiteSpace(configuredTokenPath))
+    {
+        throw new InvalidOperationException("FullCircleDevelopment:OperatorTokenFile is required in Development.");
+    }
+    generatedOperatorTokenPath = Path.GetFullPath(configuredTokenPath, builder.Environment.ContentRootPath);
+    builder.Configuration["Diagnostics:OperatorToken"] = ReadOrCreateDevelopmentOperatorToken(generatedOperatorTokenPath);
 }
 builder.Services.AddOptions<FullCircleOptions>()
     .Bind(builder.Configuration.GetSection(FullCircleOptions.SectionName))
@@ -55,6 +68,10 @@ builder.Services.AddSession(options =>
 });
 
 var app = builder.Build();
+if (generatedOperatorTokenPath is not null)
+{
+    FullCircleLog.DevelopmentOperatorTokenFile(app.Logger, generatedOperatorTokenPath);
+}
 app.UseRealtimeGateway();
 app.UseSession();
 if (diagnosticsEnabled)
@@ -117,13 +134,15 @@ app.MapGet("/api/session", async (HttpContext context, IRealtimeSessionStore ses
         : Results.Ok(new { authenticated = true, identity.TenantId, identity.UserId, identity.AllowedTopics, identity.ExpiresAt });
 });
 
-app.MapGet("/api/diagnostics", async (IOptions<FullCircleOptions> settings, IRedisReadinessProbe redis,
+app.MapGet("/api/diagnostics", async (IOptions<FullCircleOptions> settings, IOptions<RealtimeOptions> realtime,
+    IRedisReadinessProbe redis,
     CancellationToken cancellationToken) => Results.Ok(new
     {
         stack = "ASP.NET Core",
         topology = settings.Value.Topology,
         instance = settings.Value.InstanceName,
         redis = await redis.IsReadyAsync(cancellationToken) ? "ready" : "unavailable",
+        heartbeatIntervalMilliseconds = checked(realtime.Value.HeartbeatSeconds * 1000),
         links = new[]
         {
             new { href = "/esm.html", label = "Run the ESM variant" },
@@ -145,3 +164,52 @@ app.Run();
 static bool IsSafeScope(string value) =>
     !string.IsNullOrWhiteSpace(value) && value.Length <= 128 &&
     value.All(character => char.IsLetterOrDigit(character) || character is '-' or '_' or '.');
+
+static string ReadOrCreateDevelopmentOperatorToken(string tokenPath)
+{
+    var directory = Path.GetDirectoryName(tokenPath)
+        ?? throw new InvalidOperationException("The development operator token path must include a directory.");
+    Directory.CreateDirectory(directory);
+
+    if (!File.Exists(tokenPath))
+    {
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        try
+        {
+            using var stream = new FileStream(
+                tokenPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read,
+                4096,
+                FileOptions.WriteThrough);
+            stream.Write(Encoding.UTF8.GetBytes($"{token}{Environment.NewLine}"));
+        }
+        catch (IOException) when (File.Exists(tokenPath))
+        {
+            // Another local process created the file first; its value is authoritative.
+        }
+    }
+
+    if (!OperatingSystem.IsWindows())
+    {
+        File.SetUnixFileMode(tokenPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    var persistedToken = File.ReadAllText(tokenPath).Trim();
+    if (persistedToken.Length != 64 || !persistedToken.All(Uri.IsHexDigit))
+    {
+        throw new InvalidOperationException(
+            "The development diagnostics operator token file must contain exactly 64 hexadecimal characters.");
+    }
+    return persistedToken;
+}
+
+internal static partial class FullCircleLog
+{
+    [LoggerMessage(
+        EventId = 1001,
+        Level = LogLevel.Information,
+        Message = "The development diagnostics operator token is stored in {OperatorTokenFile}. The token value is not logged.")]
+    public static partial void DevelopmentOperatorTokenFile(ILogger logger, string operatorTokenFile);
+}

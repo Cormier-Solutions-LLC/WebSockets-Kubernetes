@@ -220,8 +220,9 @@ try {
     const instance = profile.instances[0];
     const application = resolve(repositoryRoot, "examples/full-circle/bin/Release/net10.0/Cormier.Realtime.Example.FullCircle.dll");
     await command("dotnet", [application], {
-      cwd: dirname(application),
+      cwd: resolve(repositoryRoot, "examples/full-circle"),
       env: {
+        ASPNETCORE_ENVIRONMENT: "Development",
         ASPNETCORE_URLS: `http://127.0.0.1:${instance.port}`,
         FullCircle__Topology: profileName,
         Gateway__Topology: profileName,
@@ -229,6 +230,7 @@ try {
         Redis__Endpoint: redisEndpoint,
         Redis__InstancePrefix: plan.redis.instancePrefix,
         Realtime__AllowedOrigins__0: `http://127.0.0.1:${instance.port}`,
+        Diagnostics__AllowedOrigins__0: `http://127.0.0.1:${instance.port}`,
       },
       timeout: false,
     });

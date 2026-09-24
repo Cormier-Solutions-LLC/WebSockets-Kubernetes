@@ -286,6 +286,8 @@ public sealed class DiagnosticsContractTests
     {
         using var plan = JsonDocument.Parse(Read("examples/full-circle/full-circle.plan.json"));
         using var applicationSettings = JsonDocument.Parse(Read("examples/full-circle/appsettings.json"));
+        using var developmentSettings = JsonDocument.Parse(Read("examples/full-circle/appsettings.Development.json"));
+        using var automationSettings = JsonDocument.Parse(Read("examples/full-circle/appsettings.Automation.json"));
         var compose = Read("examples/full-circle/compose.yaml");
         var lifecycle = Read("scripts/full-circle.mjs");
 
@@ -300,6 +302,38 @@ public sealed class DiagnosticsContractTests
         Assert.Equal(
             "127.0.0.1:16379",
             applicationSettings.RootElement.GetProperty("Redis").GetProperty("Endpoint").GetString());
+        AssertHeartbeatProfile(applicationSettings.RootElement, 15, 45);
+        AssertHeartbeatProfile(developmentSettings.RootElement, 5, 15);
+        AssertHeartbeatProfile(automationSettings.RootElement, 5, 15);
+        var developmentDiagnostics = developmentSettings.RootElement.GetProperty("Diagnostics");
+        Assert.True(developmentDiagnostics.GetProperty("Enabled").GetBoolean());
+        Assert.False(developmentDiagnostics.TryGetProperty("OperatorToken", out _));
+        Assert.Equal(
+            "../../.bootstrap/full-circle/operator-token",
+            developmentSettings.RootElement
+                .GetProperty("FullCircleDevelopment")
+                .GetProperty("OperatorTokenFile")
+                .GetString());
+        Assert.Contains("ASPNETCORE_ENVIRONMENT: \"Development\"", lifecycle, StringComparison.Ordinal);
+        Assert.Contains("cwd: resolve(repositoryRoot, \"examples/full-circle\")", lifecycle, StringComparison.Ordinal);
+
+        var fullCirclePlaywrightConfigurations = Directory
+            .EnumerateFiles(Path.Join(Root, "sdk", "typescript"), "playwright*.config.mjs")
+            .Select(File.ReadAllText)
+            .Where(configuration => configuration.Contains(
+                "Cormier.Realtime.Example.FullCircle",
+                StringComparison.Ordinal))
+            .ToArray();
+        Assert.NotEmpty(fullCirclePlaywrightConfigurations);
+        Assert.All(fullCirclePlaywrightConfigurations, configuration =>
+            Assert.Contains("ASPNETCORE_ENVIRONMENT: \"Automation\"", configuration, StringComparison.Ordinal));
+    }
+
+    private static void AssertHeartbeatProfile(JsonElement settings, int heartbeatSeconds, int idleTimeoutSeconds)
+    {
+        var realtime = settings.GetProperty("Realtime");
+        Assert.Equal(heartbeatSeconds, realtime.GetProperty("HeartbeatSeconds").GetInt32());
+        Assert.Equal(idleTimeoutSeconds, realtime.GetProperty("IdleTimeoutSeconds").GetInt32());
     }
 
     private static string Read(string relative) =>

@@ -4,6 +4,8 @@ This application is an external-consumer proof for the supported ASP.NET Core in
 
 The `/operator.html` page demonstrates the operator-only diagnostics workflow against a diagnostics API that has been explicitly enabled and protected. Supply the configured base path and a short-lived operator bearer token at runtime; the page keeps it only in memory and never writes it to output or storage. Snapshot, operational-event, live-log, and temporary log-level control calls remain subject to the server's policy, Origin, network, duration, buffer, and rate limits. The ordinary application page does not expose these controls.
 
+In Development, the application enables the loopback-only operator workflow and creates a 256-bit token at `.bootstrap/full-circle/operator-token` when no `Diagnostics__OperatorToken` is supplied. Startup logs show this file path but never the credential. Read the ignored file locally and paste its value into `/operator.html`; deleting the file rotates the generated token on the next start. A token supplied through configuration remains configuration-only and is not copied to disk.
+
 ## Prerequisites
 
 - .NET SDK 10
@@ -39,6 +41,8 @@ bash ./scripts/full-circle.sh cleanup --profile ha
 Launching **Example: Full Circle** from VS Code performs the same Compose deployment before starting the web project. The VS Code launch configuration supplies `Redis__Endpoint=127.0.0.1:16379`; use the **dependencies: full-circle (stop)** task when you want to stop the persistent development container without running lifecycle cleanup.
 
 The `non-ha` profile starts one process and makes no failover promise. The `ha` profile starts two processes behind the test proxy and verifies Redis fan-out, tenant isolation, a forced transport drop, ticket reauthentication, subscription restoration, and reconnect to a different instance. The UI reports the selected topology, instance, Redis readiness, connection state, structured errors, and received events.
+
+The base configuration uses a 15-second heartbeat and a 45-second idle timeout for deployed Test and Production environments. Development and the dedicated Automation environment use 5- and 15-second values. The UI reads `heartbeatIntervalMilliseconds` from `/api/diagnostics` before connecting, so its client heartbeat always matches the active server profile.
 
 Release builds embed the centralized `shared-web/dist/optimized` profile, including SRI-bound minified assets. Non-Release development embeds the readable canonical source. The containerized reference stacks make the same production selection through `SHARED_ASSET_ROOT`; see [optimized-assets.md](../../docs/optimized-assets.md) for explicit obfuscation, source-map handling, support diagnosis, and rollback.
 

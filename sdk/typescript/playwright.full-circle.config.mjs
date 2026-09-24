@@ -32,6 +32,7 @@ const appServers = instances.map(instance => ({
   reuseExistingServer: false,
   env: {
     ...forwardedRedisConfiguration,
+    ASPNETCORE_ENVIRONMENT: "Automation",
     ASPNETCORE_URLS: `http://127.0.0.1:${instance.port}`,
     FullCircle__Topology: profile,
     FullCircle__InstanceName: instance.name,

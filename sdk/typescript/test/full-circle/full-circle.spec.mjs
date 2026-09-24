@@ -20,7 +20,9 @@ test("packaged browser assets expose both direct-script and ESM consumers", asyn
   await expect(page.locator("#diagnostics")).toContainText(`Topology: ${process.env.FULL_CIRCLE_PROFILE}`);
   expect(await page.evaluate(() => typeof window.CormierRealtime?.RealtimeClient)).toBe("function");
   await page.goto("/esm.html");
-  await expect(page.locator("#state")).toHaveText("ready");
+  await expect(page.locator("#esm-state")).toHaveText("ready");
+  await expect(page.locator("#state")).toHaveText("idle");
+  await expect(page.locator("#login")).toBeVisible();
   expect(await page.evaluate(() => typeof window.RealtimeClient)).toBe("function");
 });
 
@@ -57,10 +59,27 @@ test("login, ticket authentication, subscribe, publish, receive, and unsubscribe
   await page.fill("#payload", JSON.stringify({ marker }));
   await page.click("#publish");
   await expect(page.locator("#events")).toContainText(marker);
+  await expect(page.locator("#message-modal")).toBeVisible();
+  await expect(page.locator("#message-route")).toHaveText("topics/orders");
+  await expect(page.locator("#message-payload")).toContainText(marker);
+  await page.locator("#message-modal button").click();
+  await expect(page.locator("#message-modal")).not.toBeVisible();
   await page.click("#unsubscribe");
   await expect(page.locator("#events")).toContainText("unsubscribed");
   await page.click("#disconnect");
   await expect(page.locator("#state")).toHaveText("closed");
+});
+
+test("server-advertised heartbeats keep an otherwise idle browser connection open", async ({ page }) => {
+  test.setTimeout(40_000);
+  await login(page);
+  await page.click("#connect");
+  await expect(page.locator("#state")).toHaveText("open");
+  await pageDelay(17_000);
+  await expect(page.locator("#state")).toHaveText("open");
+  await expect(page.locator("#events")).not.toContainText("heartbeat_timeout");
+  await expect(page.locator("#events")).not.toContainText('"code":4009');
+  await page.click("#disconnect");
 });
 
 test("invalid routes and invalid payloads produce structured visible errors", async ({ page }) => {

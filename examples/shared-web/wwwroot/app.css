@@ -4,3 +4,7 @@ body { margin: 0; } main { max-width: 58rem; margin: auto; padding: 2rem; }
 section { border: 1px solid #7777; border-radius: .5rem; margin: 1rem 0; padding: 1rem; }
 label, button { margin: .35rem; } input { min-width: 18rem; }
 pre { min-height: 10rem; max-height: 24rem; overflow: auto; white-space: pre-wrap; }
+dialog { width: min(32rem, calc(100% - 2rem)); border: 1px solid #7777; border-radius: .5rem; padding: 1.25rem; }
+dialog::backdrop { background: #0008; }
+dialog pre { min-height: 4rem; padding: .75rem; background: #7772; border-radius: .35rem; }
+dialog form { display: flex; justify-content: flex-end; }

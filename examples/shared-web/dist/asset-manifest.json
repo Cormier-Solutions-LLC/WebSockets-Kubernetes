@@ -24,24 +24,24 @@
       "files": [
         {
           "path": "readable/app.css",
-          "bytes": 435,
-          "gzipBytes": 294,
-          "sha256": "1fa80c5e8f9e642c26b717e496c9fb4f5ace10627f6e9d5621fcabdbc6a9f9df",
-          "integrity": "sha384-z466FB2fyJDVP/f10Hj6g64MlPJtn4lLfaiw23VqIRapq78UNw880NpfgNB8Rgy4"
+          "bytes": 739,
+          "gzipBytes": 413,
+          "sha256": "4cd7a3dc7c0fbbd2ff341c08a0be7c485dc23c93f1ac86d866a7932c1d6c1074",
+          "integrity": "sha384-pDRoPtvYYvDMWwWx3Nf8D63VasDAnBOmf0T5FGHkoFU9l9qNrilr2nmDZfu6sS6E"
         },
         {
           "path": "readable/app.js",
-          "bytes": 3577,
-          "gzipBytes": 1230,
-          "sha256": "14df044dd1397a7b46fbbd06a8881f7326ca00786d280ee939cf0d4ade635e48",
-          "integrity": "sha384-dHmYeShxKhIf1MU/VoAvzZXzc44ot7i2/cvIDrCMckH4L6ngsmkH7BmpeYX+no/L"
+          "bytes": 4438,
+          "gzipBytes": 1468,
+          "sha256": "e5192ced9e9fc57484c8f9fda9daa1ca05c61654dccc21c9ece763617d2c9e59",
+          "integrity": "sha384-sLUKrfjAA7X6a5nkuUts00nGhgoiOGoheDwBpBK+Zowa5mTLAEJrJnmvi/FgKCDH"
         },
         {
           "path": "readable/index.html",
-          "bytes": 1776,
-          "gzipBytes": 858,
-          "sha256": "a418871ebcc3f9c284b3df6a4e177867245556a39ae3bf642ff970469a8f72ac",
-          "integrity": "sha384-JUrSsBo7z3L1PR3CuLXxpESoJySDdzHPzpOupJflSNceSAvdEMaDD8k89BLWi9cZ"
+          "bytes": 2051,
+          "gzipBytes": 948,
+          "sha256": "104aa1a38a54d6500785ad916f9c01627effcda35e7994b553f6291e1998bc1b",
+          "integrity": "sha384-OffKawHxm6GNA1tPq7/BA94NWBKG/UguzMWplP5rfAIr+kWDTsIPekZwZFUjT7wY"
         }
       ],
       "sdk": {
@@ -54,38 +54,38 @@
       "files": [
         {
           "path": "optimized/app.css",
-          "bytes": 373,
-          "gzipBytes": 279,
-          "sha256": "787c314c602e69f5516bb795ae8089f767e2b633c5e3d6419128abb322bbef5b",
-          "integrity": "sha384-5dAbhnvpPymUyIA3AXeyChlf5xU5CLIUGqFgPDv+VUxsXN6pXWwR2joW52Hh6XGs"
+          "bytes": 632,
+          "gzipBytes": 383,
+          "sha256": "d0c3bbb400fd01dd404fb61d95271b826e88815830828c21bf3e8fca734e760f",
+          "integrity": "sha384-0vFe2L/Uyn/MrRV+ur+ixyFEXLugoKyk+DNspJiILSRBB/5rGfgf4+Djf+i5h/Ps"
         },
         {
           "path": "optimized/app.js",
-          "bytes": 2520,
-          "gzipBytes": 1029,
-          "sha256": "4447f75193ae8e1d914e9009fd3a5a9984f87a27ea25caf70390094d6a6e4692",
-          "integrity": "sha384-I8DHSBsj5l8w4xX3HN0nD3WYB7BvXNMPD7NKvNV6yP2K7ug2rWmK1L0qSBFoOI9B"
+          "bytes": 3027,
+          "gzipBytes": 1197,
+          "sha256": "e6b51a38e48977da0fffbe49c33549ce7616d3fd80ab704ac6288c1d8e89dd99",
+          "integrity": "sha384-65lHdfH0kTk6drcJLnyLkNwYpnroO3xhCQooHEYdEMV3KFW2yFqzipf5XVdqKIqs"
         },
         {
           "path": "optimized/index.html",
-          "bytes": 1665,
-          "gzipBytes": 854,
-          "sha256": "d1a5019949c104896b4c6b45a95a187eb858d462b1ee590e751200ee71bb07e0",
-          "integrity": "sha384-6OxDkRVsUZVT6YwzSOgUT6urWQrYuQdtGklJUazcPWQoALykXiGopR7bkhk/egQI"
+          "bytes": 1920,
+          "gzipBytes": 935,
+          "sha256": "0976ee89d15bdbc80974ff8b60a1615ca93ecb6119c884c0e61317b8325bddf5",
+          "integrity": "sha384-kl2ixyLVl9jyWygj7pfGepITM04++jPQ+XYbeCyDssSCftVh3vM15xiAFYI1UZFk"
         },
         {
           "path": "source-maps/optimized/app.css.map",
-          "bytes": 601,
-          "gzipBytes": 403,
-          "sha256": "46b0914c8c2c5ac40b5c6679d096a9537abb90ae7a3e4799361f0079886c4261",
-          "integrity": "sha384-bKTH+ylOOY2AtwAI5vjGU9PNCDNH9OC0CSHV7imSqlk+UL2n4jblKpSUDFt3HTzW"
+          "bytes": 933,
+          "gzipBytes": 535,
+          "sha256": "cd263b05f3011e3e5e79f0e954b5c1be372d1a28eb25fd0af80cc0128acd07f0",
+          "integrity": "sha384-ujnDYzJGTNpP9td08FFLpjloVvBXFbx09m9upOAQ35cvMEw/OlxuYxnMA/AUXPG8"
         },
         {
           "path": "source-maps/optimized/app.js.map",
-          "bytes": 6687,
-          "gzipBytes": 2330,
-          "sha256": "0d920b661f3c413eb34e33a920b9a5cd1e976e23f850cc854b92852dcae0667e",
-          "integrity": "sha384-hkAHOGBEGlLQDjLkrRLDoaBSaClLecqwIZW54YLsL3RpkGamVWSmiK1fcU/W4up+"
+          "bytes": 8076,
+          "gzipBytes": 2749,
+          "sha256": "63a8cd90d10d2c1ebb690a23a80d80125f65b0abf2c7090ea33b64cfbd5d3a22",
+          "integrity": "sha384-ESPEazASMuLUByJwFGoXsMqxxp94M4RCpllA2JwAFw8YnhaKIA/9vMKiSrhM1AK/"
         }
       ],
       "sdk": {

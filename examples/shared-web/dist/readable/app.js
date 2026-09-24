@@ -2,14 +2,25 @@
 (() => {
   const output = document.querySelector("#events");
   const state = document.querySelector("#state");
+  const messageModal = document.querySelector("#message-modal");
+  const messageRoute = document.querySelector("#message-route");
+  const messagePayload = document.querySelector("#message-payload");
   let client;
   let unsubscribe;
   const write = (kind, value) => {
     const safe = typeof value === "string" ? value : JSON.stringify(value);
     output.textContent = `${new Date().toISOString()} ${kind} ${safe}\n${output.textContent}`.slice(0, 12000);
   };
+  const showMessage = event => {
+    messageRoute.textContent = event.route;
+    messagePayload.textContent = JSON.stringify(event.payload ?? null, null, 2);
+    if (!messageModal.open) messageModal.showModal();
+  };
   const invoke = async (action) => { try { await action(); } catch (error) { write("error", { name: error.name, code: error.code, message: error.message }); } };
-  fetch("/api/diagnostics").then(r => r.json()).then(value => {
+  const runtimeConfiguration = fetch("/api/diagnostics").then(r => r.json()).then(value => {
+    if (!Number.isSafeInteger(value.heartbeatIntervalMilliseconds) || value.heartbeatIntervalMilliseconds <= 0) {
+      throw new Error("The server returned an invalid heartbeat interval.");
+    }
     const stack = value.stack ? `Stack: ${value.stack}; ` : "";
     document.querySelector("#diagnostics").textContent = `${stack}Topology: ${value.topology}; instance: ${value.instance}; Redis: ${value.redis}`;
     const links = document.querySelector("#stack-links");
@@ -22,7 +33,9 @@
       paragraph.append(anchor);
       links.append(paragraph);
     }
-  }).catch(error => write("diagnostics", error.message));
+    return value;
+  });
+  void runtimeConfiguration.catch(error => write("diagnostics", error.message));
   document.querySelector("#login").onclick = () => invoke(async () => {
     const response = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ tenantId: document.querySelector("#tenant").value, userId: document.querySelector("#user").value }) });
@@ -37,7 +50,9 @@
     write("session", "logged out");
   });
   document.querySelector("#connect").onclick = () => invoke(async () => {
-    client = new CormierRealtime.RealtimeClient({ url: "/realtime/ws", authentication: { kind: "ticket" },
+    const configuration = await runtimeConfiguration;
+    client = new globalThis.CormierRealtime.RealtimeClient({ url: "/realtime/ws", authentication: { kind: "ticket" },
+      heartbeatIntervalMilliseconds: configuration.heartbeatIntervalMilliseconds,
       reconnect: { initialDelayMilliseconds: 50, maximumDelayMilliseconds: 500, jitterRatio: 0, maximumAttempts: 20 } });
     client.on("state", value => { state.textContent = value; write("state", value); });
     client.on("error", error => write("error", { code: error.code, message: error.message }));
@@ -45,7 +60,7 @@
   });
   document.querySelector("#disconnect").onclick = () => invoke(() => client.disconnect());
   document.querySelector("#subscribe").onclick = () => invoke(async () => {
-    const route = document.querySelector("#route").value; unsubscribe = await client.subscribe(route, event => write("event", event)); write("subscribed", route);
+    const route = document.querySelector("#route").value; unsubscribe = await client.subscribe(route, event => { write("event", event); showMessage(event); }); write("subscribed", route);
   });
   document.querySelector("#unsubscribe").onclick = () => invoke(async () => { if (unsubscribe) await unsubscribe(); unsubscribe = undefined; write("unsubscribed", "ok"); });
   document.querySelector("#publish").onclick = () => invoke(async () => {

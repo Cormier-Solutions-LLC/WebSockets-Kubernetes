@@ -33,6 +33,9 @@
       "unsubscribe",
       "publish",
       "events",
+      "message-modal",
+      "message-route",
+      "message-payload",
       "stack-links"
     ]
   },

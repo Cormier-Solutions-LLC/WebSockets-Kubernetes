@@ -27,7 +27,7 @@ test("configuration stays aligned with the canonical reference schema", async ()
   })[name]]));
   environment.SESSION_SECRET = "a-runtime-only-secret-that-is-long-enough";
   environment.TRUST_PROXY_HOPS = "0";
-  assert.equal(Object.keys(environment).length, 14);
+  assert.equal(Object.keys(environment).length, 15);
   assert.doesNotThrow(() => loadConfig(environment));
 
   const originSchema = schema.$defs.httpOrigin;

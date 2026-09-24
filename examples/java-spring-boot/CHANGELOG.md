@@ -2,7 +2,7 @@
 
 Operator-visible changes to the Java/Spring Boot reference application are recorded here. Entries identify features, fixes, security/configuration impact, breaking behavior, and required operator action.
 
-## Unreleased
+## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
 - Build both generated asset trees with `npm --prefix sdk/typescript ci` and `npm --prefix sdk/typescript run build` from the repository root before building an image. The container defaults to `/app/shared-web/optimized`; `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the readable UI without changing adapter or SDK versions.

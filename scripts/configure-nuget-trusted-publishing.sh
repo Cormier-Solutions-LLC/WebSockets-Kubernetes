@@ -17,7 +17,7 @@ Options:
   --nuget-user <name>  NuGet.org profile name that owns or created the policy.
   --repository <name>  GitHub OWNER/REPOSITORY (default: Cormier-Solutions-LLC/WebSockets-Kubernetes).
   --environment <name> GitHub environment (default: package-production).
-  --dispatch           Dispatch package publication after confirming the NuGet.org policy exists.
+  --dispatch           Manually dispatch publication for recovery or an operator-selected release.
   --help               Show this help.
 
 This script does not create or store a permanent NuGet API key. NuGet.org currently

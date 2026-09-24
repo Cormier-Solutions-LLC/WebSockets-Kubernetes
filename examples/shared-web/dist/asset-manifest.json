@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pipelineVersion": "1.1.0",
   "package": "@cormier/realtime",
-  "version": "1.0.1-beta",
+  "version": "1.0.2-beta",
   "defaults": {
     "development": "readable",
     "support": "readable",
@@ -39,15 +39,15 @@
         {
           "path": "readable/index.html",
           "bytes": 1776,
-          "gzipBytes": 856,
-          "sha256": "fe671e6df67ed19702821c6b89d656469635c172dc3763cc36c969aed35bc125",
-          "integrity": "sha384-JewvPU8c5OyDO1jxfx2k7Rb/cPP28h6OKpvM2n6wjHGRezOQQSqm3y9uhkx0J7P7"
+          "gzipBytes": 858,
+          "sha256": "a418871ebcc3f9c284b3df6a4e177867245556a39ae3bf642ff970469a8f72ac",
+          "integrity": "sha384-JUrSsBo7z3L1PR3CuLXxpESoJySDdzHPzpOupJflSNceSAvdEMaDD8k89BLWi9cZ"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "f9036c9d6961cc8f718192a397f8c7cd1b6c482c2a702607c76796d05abf60eb",
-        "integrity": "sha384-x6y+PgBUNfhx8bcry+cFCbZd6HjjHmux7P7oxhup2Plmqa8eu4sSEg0PqfJFRHex"
+        "sha256": "8a1a5663b66e586d76c76a06606e4bde58cda6be61d7a83e1d4c109e2031b505",
+        "integrity": "sha384-BcAbYxHWXcopU+gvadhX9G7WwugancYXp/S3s8kIZ3Gcp8rQzt7+Mx13wTaFdeNK"
       }
     },
     "optimized": {
@@ -68,10 +68,10 @@
         },
         {
           "path": "optimized/index.html",
-          "bytes": 1666,
+          "bytes": 1665,
           "gzipBytes": 854,
-          "sha256": "ad55694cd74726f54225cf963eb38b468355ad7aeb3e012e33827bdff48ae6ba",
-          "integrity": "sha384-yxAstZ9+95S57Oyz6zak7v7dUKhvepTHWwJTjd118TQROMrynpWnB0wYR3WAQXz1"
+          "sha256": "d1a5019949c104896b4c6b45a95a187eb858d462b1ee590e751200ee71bb07e0",
+          "integrity": "sha384-6OxDkRVsUZVT6YwzSOgUT6urWQrYuQdtGklJUazcPWQoALykXiGopR7bkhk/egQI"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -90,8 +90,8 @@
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "db3f2d24df8ff36d8a446fb224d4b6c06b1fe43215e48490e502fa78d48c134a",
-        "integrity": "sha384-Zu4cEZnulaMuBVktz7+pzjTuOYjn7zcQY+afBCofo2P1mmuVl5tbPELKJlpi/bK9"
+        "sha256": "67065bc9ddad0c742983891b3c9a9e2bd3667bb353a9288e10a024a3a0f93613",
+        "integrity": "sha384-iHP101VXMhrLZLIN2eOgdfM1Flp6jwJ3Gj3zClPdLFdthpVW7MeYGBsrUSvf/9gT"
       }
     }
   },

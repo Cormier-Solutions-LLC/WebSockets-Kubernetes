@@ -1103,7 +1103,7 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     sdkIntegrity: sdkSri,
     sdkName,
   });
-  const html = profile === "readable" ? `${referencedHtml.trimEnd()}\n` : `${await minifyHtml(referencedHtml, {
+  const html = profile === "readable" ? `${referencedHtml.trimEnd()}\n` : `${(await minifyHtml(referencedHtml, {
     collapseWhitespace: true,
     conservativeCollapse: true,
     ignoreCustomComments: [/^!/u],
@@ -1117,7 +1117,7 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     sortAttributes: false,
     sortClassName: false,
     useShortDoctype: true,
-  })}\n`;
+  })).trimEnd()}\n`;
 
   write(profileRoot, "app.js", javascript);
   write(profileRoot, "app.css", css);

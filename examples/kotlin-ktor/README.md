@@ -64,7 +64,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Ktor | 3.5.2 | Pinned server/client/WebSocket framework |
 | Gradle wrapper | 9.7.1 | Checksum-pinned; dependency locking enabled |
 | Lettuce | 7.6.0 | Pinned Redis client |
-| Cormier.Realtime browser SDK / protocol | 0.1.0 / 1.0 | Canonical generated SDK and wire contract |
+| Cormier.Realtime browser SDK / protocol | 1.0.2-beta / 1.0 | Canonical generated SDK and wire contract |
 | Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
 | Redis | 7.4 | Tested session service |
 | Container bases | Gradle 9.7.1 JDK 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |

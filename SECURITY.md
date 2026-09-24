@@ -10,7 +10,7 @@ The project is currently pre-release. The repository has no published GitHub rel
 | Version or branch | Security support |
 | --- | --- |
 | `main` | Active development; accepted fixes are applied here |
-| Unreleased `0.1.0` artifacts | Evaluation only; not a supported production release |
+| `1.0.2-beta` prerelease artifacts | Security fixes during the beta support window |
 | Any other build, branch, fork, or modified artifact | Not supported by this repository |
 
 This table will be replaced with explicit release ranges when the first supported release is published. A commit, package, container image, npm artifact, or Helm chart built from `main` is not a supported release unless it is identified by the repository's release process.

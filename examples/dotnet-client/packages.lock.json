@@ -5,7 +5,7 @@
       "cormier.realtime.client": {
         "type": "Project",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[1.0.1-beta, )"
+          "Cormier.Realtime.Contracts": "[1.0.2-beta, )"
         }
       },
       "cormier.realtime.contracts": {

@@ -51,7 +51,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Phoenix / Bandit | 1.8.13 / 1.12.5 | Supported endpoint stack |
 | Redix / Req / Mint.WebSocket | 1.9.1 / 0.7.4 / 1.0.6 | Locked dependency clients |
 | Hex graph | `mix.lock` | Locked; `mix hex.audit` required |
-| Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
+| Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 | Container base | Hex Elixir 1.20.4, OTP 29.0.6, Alpine 3.24.1 | Digest-pinned amd64/arm64 index |
 

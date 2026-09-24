@@ -98,7 +98,7 @@ jobs:
         run: |
           $manifest = Get-Content -LiteralPath artifacts/release/release-manifest.json -Raw | ConvertFrom-Json
           if ($manifest.sourceCommit -ne $env:EXPECTED_COMMIT) { throw 'Release evidence does not match the requested tested commit.' }
-          $credentialProvider = if ($manifest.schemaVersion -eq 2) {
+          $credentialProvider = if ($manifest.schemaVersion -in @(2, 3)) {
             $manifest.credentialProvider
           } elseif ($manifest.schemaVersion -eq 1) {
             $env:LEGACY_CREDENTIAL_PROVIDER

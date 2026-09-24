@@ -545,6 +545,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("environment: package-production", workflow, StringComparison.Ordinal);
         Assert.Equal(3, workflow.Split("runs-on: cormier-runners", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("runs-on: ubuntu-latest", workflow, StringComparison.Ordinal);
+        Assert.Contains("DOTNET_INSTALL_DIR: ${{ vars.CI_DOTNET_INSTALL_DIR || '/home/runner/.dotnet' }}", workflow, StringComparison.Ordinal);
         Assert.Equal(3, workflow.Split("run: bash scripts/setup-ci-powershell.sh", StringSplitOptions.None).Length - 1);
         Assert.Contains("if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
         Assert.Contains("ref: ${{ github.event.workflow_run.head_sha }}", workflow, StringComparison.Ordinal);

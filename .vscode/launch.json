@@ -1,0 +1,264 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Example: ASP.NET Core",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/examples/aspnet-core/Cormier.Realtime.Example.AspNetCore.csproj"
+    },
+    {
+      "name": "Example: Full Circle",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj"
+    },
+    {
+      "name": "Example: .NET Client",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/examples/dotnet-client/Cormier.Realtime.Example.Client.csproj",
+      "env": {
+        "REALTIME_ENDPOINT": "${input:realtimeEndpoint}",
+        "REALTIME_TICKET": "${input:realtimeTicket}"
+      }
+    },
+    {
+      "name": "Example: Browser",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:8000/examples/browser/",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "serve: browser example"
+    },
+    {
+      "name": "Example: Node / Express",
+      "type": "pwa-node",
+      "request": "launch",
+      "program": "${workspaceFolder}/examples/node-express/src/server.mjs",
+      "cwd": "${workspaceFolder}/examples/node-express",
+      "envFile": "${workspaceFolder}/examples/node-express/.env.example",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Example: Python / FastAPI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "reference_app",
+      "cwd": "${workspaceFolder}/examples/python-fastapi",
+      "envFile": "${workspaceFolder}/examples/python-fastapi/.env.example",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Example: Go / Gin",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/examples/go-gin",
+      "cwd": "${workspaceFolder}/examples/go-gin",
+      "envFile": "${workspaceFolder}/examples/go-gin/.env.example"
+    },
+    {
+      "name": "Example: Java / Spring Boot",
+      "type": "java",
+      "request": "launch",
+      "mainClass": "com.cormier.realtime.example.ReferenceApplication",
+      "projectName": "java-spring-boot",
+      "cwd": "${workspaceFolder}/examples/java-spring-boot",
+      "envFile": "${workspaceFolder}/examples/java-spring-boot/.env.example",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Example: Kotlin / Ktor",
+      "type": "java",
+      "request": "launch",
+      "mainClass": "com.cormier.realtime.example.ApplicationKt",
+      "projectName": "kotlin-ktor",
+      "cwd": "${workspaceFolder}/examples/kotlin-ktor",
+      "envFile": "${workspaceFolder}/examples/kotlin-ktor/.env.example",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Example: Elixir / Phoenix",
+      "type": "mix_task",
+      "request": "launch",
+      "task": "run",
+      "taskArgs": ["--no-halt"],
+      "projectDir": "${workspaceFolder}/examples/elixir-phoenix",
+      "env": {
+        "LISTEN_HOST": "0.0.0.0",
+        "PORT": "15600",
+        "PUBLIC_ORIGIN": "http://127.0.0.1:15600",
+        "GATEWAY_URL": "http://127.0.0.1:15601",
+        "REDIS_URL": "redis://127.0.0.1:16379",
+        "SESSION_LIFETIME_SECONDS": "1200",
+        "INSTANCE_NAME": "elixir-phoenix-a",
+        "TOPOLOGY": "non-ha",
+        "REDIS_INSTANCE_PREFIX": "cormier:reference-elixir",
+        "REDIS_SESSION_KEY_PREFIX": "sessions",
+        "ALLOWED_TENANTS": "tenant-a,tenant-b",
+        "ALLOWED_USERS": "user-a,user-b"
+      }
+    },
+    {
+      "name": "Example: Rust / Axum",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--locked", "--manifest-path", "${workspaceFolder}/examples/rust-axum/Cargo.toml"],
+        "filter": { "name": "cormier-realtime-example-rust-axum", "kind": "bin" }
+      },
+      "cwd": "${workspaceFolder}/examples/rust-axum",
+      "env": {
+        "LISTEN_HOST": "0.0.0.0",
+        "PORT": "15400",
+        "PUBLIC_ORIGIN": "http://127.0.0.1:15400",
+        "GATEWAY_URL": "http://127.0.0.1:15401",
+        "REDIS_URL": "redis://127.0.0.1:16379",
+        "SESSION_LIFETIME_SECONDS": "1200",
+        "INSTANCE_NAME": "rust-axum-a",
+        "TOPOLOGY": "non-ha",
+        "REDIS_INSTANCE_PREFIX": "cormier:reference-rust",
+        "REDIS_SESSION_KEY_PREFIX": "sessions",
+        "ALLOWED_TENANTS": "tenant-a,tenant-b",
+        "ALLOWED_USERS": "user-a,user-b"
+      }
+    },
+    {
+      "name": "Example: Ruby / Rails",
+      "type": "rdbg",
+      "request": "launch",
+      "script": "${workspaceFolder}/examples/ruby-rails/bin/rails",
+      "args": ["server"],
+      "cwd": "${workspaceFolder}/examples/ruby-rails",
+      "env": {
+        "LISTEN_HOST": "0.0.0.0",
+        "PORT": "15500",
+        "PUBLIC_ORIGIN": "http://127.0.0.1:15500",
+        "GATEWAY_URL": "http://127.0.0.1:15501",
+        "REDIS_URL": "redis://127.0.0.1:16379",
+        "SESSION_SECRET": "replace-with-a-runtime-secret-of-at-least-32-characters",
+        "SESSION_LIFETIME_SECONDS": "1200",
+        "INSTANCE_NAME": "ruby-rails-a",
+        "TOPOLOGY": "non-ha",
+        "REDIS_INSTANCE_PREFIX": "cormier:reference-ruby",
+        "REDIS_SESSION_KEY_PREFIX": "sessions",
+        "ALLOWED_TENANTS": "tenant-a,tenant-b",
+        "ALLOWED_USERS": "user-a,user-b",
+        "RAILS_ENV": "development"
+      }
+    },
+    {
+      "name": "Run: PHP / Laravel server",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "node ../../scripts/run-with-example-env.mjs .env.example frankenphp run --config Caddyfile --adapter caddyfile",
+      "cwd": "${workspaceFolder}/examples/php-laravel",
+      "env": { "PUBLIC_SCHEME": "http" }
+    },
+    {
+      "name": "Debug: PHP / Laravel (Xdebug)",
+      "type": "php",
+      "request": "launch",
+      "port": 9003
+    },
+    {
+      "name": "Example: Swift / Vapor",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/examples/swift-vapor/.build/debug/CormierRealtimeVaporExample",
+      "cwd": "${workspaceFolder}/examples/swift-vapor",
+      "preLaunchTask": "build: Swift Vapor",
+      "env": {
+        "LISTEN_HOST": "0.0.0.0",
+        "PORT": "15500",
+        "APPLICATION_HOST": "127.0.0.1",
+        "APPLICATION_PORT": "15502",
+        "APP_URL": "http://127.0.0.1:15502",
+        "PUBLIC_ORIGIN": "http://127.0.0.1:15500",
+        "GATEWAY_URL": "http://127.0.0.1:15501",
+        "REDIS_URL": "redis://127.0.0.1:16379",
+        "SESSION_SECRET": "replace-with-a-runtime-secret-of-at-least-32-characters",
+        "SESSION_LIFETIME_SECONDS": "1200",
+        "INSTANCE_NAME": "swift-vapor-a",
+        "TOPOLOGY": "non-ha",
+        "REDIS_INSTANCE_PREFIX": "cormier:reference-swift",
+        "REDIS_SESSION_KEY_PREFIX": "sessions",
+        "ALLOWED_TENANTS": "tenant-a,tenant-b",
+        "ALLOWED_USERS": "user-a,user-b"
+      }
+    },
+    {
+      "name": "Cormier.Realtime Gateway",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/Cormier.Realtime.Gateway/Cormier.Realtime.Gateway.csproj"
+    },
+    {
+      "name": "Cormier.Realtime Load Runner",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/Cormier.Realtime.LoadRunner/bin/Debug/net10.0/Cormier.Realtime.LoadRunner.dll",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build: load runner",
+      "args": [
+        "--endpoint", "${input:loadEndpoint}",
+        "--origin", "${input:loadOrigin}",
+        "--session-cookie-name", "cormier_session",
+        "--subprotocol", "cormier.realtime.v1",
+        "--topic", "orders",
+        "--connections", "1",
+        "--messages-per-connection", "0",
+        "--payload-bytes", "0",
+        "--scenario", "connection",
+        "--duration-seconds", "10",
+        "--output", "artifacts/load/local-debug.json"
+      ],
+      "env": { "CORMIER_LOAD_SESSION_ID": "${input:loadSessionId}" }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Example: PHP / Laravel",
+      "configurations": [
+        "Run: PHP / Laravel server",
+        "Debug: PHP / Laravel (Xdebug)"
+      ],
+      "stopAll": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "realtimeEndpoint",
+      "type": "promptString",
+      "description": "WebSocket endpoint for the .NET client",
+      "default": "ws://127.0.0.1:5097/realtime/ws"
+    },
+    {
+      "id": "realtimeTicket",
+      "type": "promptString",
+      "description": "Short-lived connection ticket for the .NET client",
+      "password": true
+    },
+    {
+      "id": "loadEndpoint",
+      "type": "promptString",
+      "description": "WebSocket endpoint for the load runner",
+      "default": "ws://127.0.0.1:5097/realtime/ws"
+    },
+    {
+      "id": "loadOrigin",
+      "type": "promptString",
+      "description": "Origin accepted by the gateway",
+      "default": "http://127.0.0.1:5097"
+    },
+    {
+      "id": "loadSessionId",
+      "type": "promptString",
+      "description": "Existing Redis-backed session ID for the load runner",
+      "password": true
+    }
+  ]
+}

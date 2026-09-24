@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "elixir-lsp.elixir-ls",
+    "golang.go",
+    "vscjava.vscode-java-pack",
+    "fwcd.kotlin",
+    "ms-python.python",
+    "shopify.ruby-lsp",
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb",
+    "xdebug.php-debug",
+    "swiftlang.swift-vscode"
+  ]
+}

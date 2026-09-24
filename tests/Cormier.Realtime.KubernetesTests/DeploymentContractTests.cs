@@ -1,6 +1,7 @@
 namespace Cormier.Realtime.KubernetesTests;
 
 using System.Text.Json;
+using System.Xml.Linq;
 
 public sealed class DeploymentContractTests
 {
@@ -492,11 +493,15 @@ public sealed class DeploymentContractTests
         Assert.Contains("secrets.REGISTRY_PASSWORD", promote, StringComparison.Ordinal);
         Assert.DoesNotContain("secrets[", promote, StringComparison.Ordinal);
         Assert.Contains("release-manifest.json", promote, StringComparison.Ordinal);
-        Assert.Contains("\"schemaVersion\":2", publish, StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\":3", publish, StringComparison.Ordinal);
+        Assert.Contains("releaseVersion", publish, StringComparison.Ordinal);
+        Assert.Contains("Package the versioned Helm chart", publish, StringComparison.Ordinal);
+        Assert.Contains("${release_version}", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", promote, StringComparison.Ordinal);
         Assert.Contains("legacyCredentialProvider", promote, StringComparison.Ordinal);
         Assert.Contains("$manifest.schemaVersion -eq 1", promote, StringComparison.Ordinal);
+        Assert.Contains("$manifest.schemaVersion -in @(2, 3)", promote, StringComparison.Ordinal);
         Assert.Contains("sourceCommit", promote, StringComparison.Ordinal);
         Assert.Contains("sha256:[a-f0-9]{64}", promote, StringComparison.Ordinal);
         Assert.Contains("image.digest", promote, StringComparison.Ordinal);
@@ -586,7 +591,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("PACKAGE_REPOSITORY_URL", workflow, StringComparison.Ordinal);
         Assert.Contains("Get-PackageReleaseIntent.ps1 -CurrentRevision $candidateSha -PreviousRevision $parent", workflow, StringComparison.Ordinal);
         Assert.Contains("Get-RevisionFile -Revision $CurrentRevision", releaseIntent, StringComparison.Ordinal);
-        Assert.Contains("Every coordinated NuGet and npm package version must match", releaseIntent, StringComparison.Ordinal);
+        Assert.Contains("Every coordinated release version must match", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("A coordinated release must change every package version", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("VersionChanged = $changed.Count -eq $current.Count", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("'--source', $UpstreamPackageSource", build, StringComparison.Ordinal);
@@ -615,6 +620,60 @@ public sealed class DeploymentContractTests
         Assert.Contains("SetUnixFileMode", publish, StringComparison.Ordinal);
         Assert.Contains("Duplicate versions are not skipped", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--skip-duplicate", publish, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FirstPartyReleaseVersionsAreCoordinated()
+    {
+        var props = XDocument.Parse(Read("Directory.Build.props"));
+        var releaseVersion = props.Descendants("ApplicationVersion").Single().Value;
+        foreach (var property in new[]
+        {
+            "ContainerVersion",
+            "ContractsVersion",
+            "RedisAdapterVersion",
+            "AspNetCoreIntegrationVersion",
+            "DotNetClientVersion",
+            "BrowserPackageVersion",
+            "HelmChartVersion",
+        })
+        {
+            Assert.Equal(releaseVersion, props.Descendants(property).Single().Value);
+        }
+
+        var releaseMarkers = new Dictionary<string, string>
+        {
+            ["helm/realtime-gateway/Chart.yaml"] = $"version: {releaseVersion}\nappVersion: \"{releaseVersion}\"",
+            ["helm/realtime-gateway/values.yaml"] = $"tag: \"{releaseVersion}\"",
+            ["bootstrap/config.example.json"] = $"\"tag\": \"{releaseVersion}\"",
+            ["sdk/typescript/package.json"] = $"\"version\": \"{releaseVersion}\"",
+            ["sdk/typescript/src/protocol.ts"] = $"SDK_VERSION = \"{releaseVersion}\"",
+            ["examples/node-express/package.json"] = $"\"version\": \"{releaseVersion}\"",
+            ["examples/java-spring-boot/pom.xml"] = $"<version>{releaseVersion}</version>",
+            ["examples/kotlin-ktor/build.gradle.kts"] = $"version = \"{releaseVersion}\"",
+            ["examples/rust-axum/Cargo.toml"] = $"version = \"{releaseVersion}\"",
+            ["examples/elixir-phoenix/mix.exs"] = $"version: \"{releaseVersion}\"",
+            ["examples/python-fastapi/pyproject.toml"] = $"version = \"{releaseVersion}\"",
+            ["scripts/Bootstrap-Realtime.ps1"] = $"Version: {releaseVersion}",
+            ["scripts/Deploy-Realtime.ps1"] = $"Version: {releaseVersion}",
+            ["scripts/Build-RealtimePackages.ps1"] = $"Version: {releaseVersion}",
+            ["scripts/Publish-RealtimePackages.ps1"] = $"Version: {releaseVersion}",
+            ["scripts/Test-BrowserPackage.ps1"] = $"Version: {releaseVersion}",
+            ["scripts/Invoke-RealtimeEdgeFailureTest.ps1"] = $"Version: {releaseVersion}",
+        };
+        foreach (var (path, marker) in releaseMarkers)
+        {
+            Assert.Contains(marker, Read(path).Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        }
+
+        foreach (var example in new[]
+        {
+            "elixir-phoenix", "go-gin", "java-spring-boot", "kotlin-ktor", "node-express",
+            "php-laravel", "python-fastapi", "ruby-rails", "rust-axum", "swift-vapor",
+        })
+        {
+            Assert.Contains($"## {releaseVersion}", Read($"examples/{example}/CHANGELOG.md"), StringComparison.Ordinal);
+        }
     }
 
     private static string Read(string relative)

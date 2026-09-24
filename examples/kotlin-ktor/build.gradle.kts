@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.cormier.realtime.examples"
-version = "0.1.0"
+version = "1.0.2-beta"
 
 repositories { mavenCentral() }
 

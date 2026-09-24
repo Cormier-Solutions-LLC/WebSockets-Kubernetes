@@ -1,6 +1,6 @@
 [project]
 name = "cormier-realtime-example-fastapi"
-version = "0.1.0"
+version = "1.0.2-beta"
 description = "Minimal FastAPI reference adapter for Cormier.Realtime"
 requires-python = "==3.14.*"
 dependencies = [

@@ -2,7 +2,7 @@
 .SYNOPSIS
     Validates the coordinated package version and detects a release change.
 .DESCRIPTION
-    Reads the five NuGet versions and the npm version, requires one valid semantic version across all six,
+    Reads the application, container, Helm, five NuGet, and npm versions and requires one semantic version,
     and optionally reads the candidate from and compares it with Git revisions. A release change is valid only when every package
     version changed together. The script returns one object and performs no registry or repository mutation.
 #>
@@ -28,11 +28,14 @@ function Get-PackageVersions {
     $package = $PackageJsonText | ConvertFrom-Json
     $versions = [ordered]@{}
     foreach ($name in @(
+        'ApplicationVersion',
+        'ContainerVersion',
         'ContractsVersion',
         'DotNetClientVersion',
         'RedisAdapterVersion',
         'AspNetCoreIntegrationVersion',
-        'BrowserPackageVersion'
+        'BrowserPackageVersion',
+        'HelmChartVersion'
     )) {
         $node = $props.SelectSingleNode("//${name}")
         if ($null -eq $node -or [string]::IsNullOrWhiteSpace($node.InnerText)) {
@@ -56,7 +59,7 @@ function Assert-CoordinatedVersion {
     $unique = @($Versions.Values | Sort-Object -Unique)
     if ($unique.Count -ne 1) {
         $detail = ($Versions.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
-        throw "Every coordinated NuGet and npm package version must match: ${detail}"
+        throw "Every coordinated release version must match: ${detail}"
     }
     if ($unique[0] -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
         throw "Package version '$($unique[0])' is not valid semantic versioning."

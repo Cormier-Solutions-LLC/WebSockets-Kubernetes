@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
 - Build prerequisite: with Node.js 22+, run `npm --prefix sdk/typescript ci` and `npm --prefix sdk/typescript run build` from the repository root to generate both `sdk/typescript/dist` and `examples/shared-web/dist` before image construction. `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the container's readable UI profile with the same SDK.

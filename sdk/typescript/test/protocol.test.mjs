@@ -18,7 +18,7 @@ const fixtureNow = new Date("2026-08-30T17:00:30.000Z");
 test("language-neutral fixtures match the exported protocol identity", () => {
   assert.equal(fixtures.protocolVersion, PROTOCOL_VERSION);
   assert.equal(fixtures.subprotocol, WEBSOCKET_SUBPROTOCOL);
-  assert.equal(SDK_VERSION, "1.0.1-beta");
+  assert.equal(SDK_VERSION, "1.0.2-beta");
 });
 
 test("all golden client and server envelopes validate", () => {

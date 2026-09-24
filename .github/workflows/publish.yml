@@ -23,6 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 2
           ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -60,15 +61,43 @@ jobs:
           test -n "$source_ref"
           normalized_repository=$(printf '%s' "$IMAGE_REPOSITORY" | tr '[:upper:]' '[:lower:]')
           target_ref="${CONTAINER_REGISTRY}/${normalized_repository}:${SOURCE_SHA}"
+          release_version=$(sed -n "s/.*<ApplicationVersion[^>]*>\([^<]*\)<\/ApplicationVersion>.*/\1/p" Directory.Build.props)
+          container_version=$(sed -n "s/.*<ContainerVersion[^>]*>\([^<]*\)<\/ContainerVersion>.*/\1/p" Directory.Build.props)
+          chart_version=$(sed -n 's/^version: //p' helm/realtime-gateway/Chart.yaml)
+          chart_app_version=$(sed -n 's/^appVersion: "\([^"]*\)"/\1/p' helm/realtime-gateway/Chart.yaml)
+          npm_version=$(node -p "require('./sdk/typescript/package.json').version")
+          test -n "$release_version"
+          printf '%s' "$release_version" | grep --quiet --extended-regexp '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          test "$container_version" = "$release_version"
+          test "$chart_version" = "$release_version"
+          test "$chart_app_version" = "$release_version"
+          test "$npm_version" = "$release_version"
+          previous_version=$(git show "${SOURCE_SHA}^:Directory.Build.props" | sed -n "s/.*<ApplicationVersion[^>]*>\([^<]*\)<\/ApplicationVersion>.*/\1/p")
+          is_release=false
+          if [ "$previous_version" != "$release_version" ]; then
+            is_release=true
+          fi
           docker tag "$source_ref" "$target_ref"
           docker push "$target_ref"
+          if [ "$is_release" = 'true' ]; then
+            release_ref="${CONTAINER_REGISTRY}/${normalized_repository}:${release_version}"
+            docker tag "$source_ref" "$release_ref"
+            docker push "$release_ref"
+          fi
           digest=$(docker buildx imagetools inspect "$target_ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
           test -n "$digest"
           archive_sha=$(sha256sum artifacts/cormier-realtime-gateway.tar.gz | cut -d' ' -f1)
-          printf '{"schemaVersion":2,"sourceCommit":"%s","image":"%s","credentialProvider":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$REGISTRY_CREDENTIAL_PROVIDER" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
+          printf '{"schemaVersion":3,"releaseVersion":"%s","versionRelease":%s,"sourceCommit":"%s","image":"%s","credentialProvider":"%s","digest":"%s","archiveSha256":"%s","ciRunId":%s}\n' "$release_version" "$is_release" "$SOURCE_SHA" "${CONTAINER_REGISTRY}/${normalized_repository}" "$REGISTRY_CREDENTIAL_PROVIDER" "$digest" "$archive_sha" "${{ github.event.workflow_run.id }}" > artifacts/release-manifest.json
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "is_release=$is_release" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+      - name: Package the versioned Helm chart
+        if: steps.publish.outputs.is_release == 'true'
+        run: helm package helm/realtime-gateway --destination artifacts
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ github.event.workflow_run.head_sha }}
-          path: artifacts/release-manifest.json
+          path: |
+            artifacts/release-manifest.json
+            artifacts/realtime-gateway-*.tgz
           if-no-files-found: error

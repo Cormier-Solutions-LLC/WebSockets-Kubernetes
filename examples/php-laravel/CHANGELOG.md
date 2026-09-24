@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
 - Current launch clarification: direct FrankenPHP runs must export `PUBLIC_SCHEME` from `PUBLIC_ORIGIN`; the container startup script does this automatically. Generate both SDK and shared UI output trees before building the image.

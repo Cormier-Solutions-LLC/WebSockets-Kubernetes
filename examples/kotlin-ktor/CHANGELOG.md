@@ -2,7 +2,7 @@
 
 Operator-visible features, fixes, security/configuration changes, breaking behavior, and required actions are recorded here.
 
-## Unreleased
+## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.
 - Current build prerequisite: generate both `sdk/typescript/dist` and `examples/shared-web/dist` through the SDK build before testing or packaging. Containers select the optimized UI; `SHARED_ASSET_ROOT=/app/shared-web/readable` selects the readable profile with the same SDK.

@@ -53,7 +53,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | go-redis | 9.21.0 | `go.mod` pin |
 | coder/websocket | 1.8.15 | `go.mod` pin |
 | Go module graph | `go.mod` and `go.sum` | Read-only, reproducible resolution |
-| Cormier.Realtime SDK / protocol / gateway | 0.1.0 / 1.0 / 0.1.x | Canonical assets and external gateway |
+| Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 | Container bases | Go 1.27.1 Alpine / Alpine 3.24 | Digest-pinned |
 

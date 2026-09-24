@@ -90,7 +90,7 @@
       "cormier.realtime.redis": {
         "type": "Project",
         "dependencies": {
-          "Cormier.Realtime.Contracts": "[1.0.1-beta, )",
+          "Cormier.Realtime.Contracts": "[1.0.2-beta, )",
           "StackExchange.Redis": "[3.1.31, )"
         }
       }

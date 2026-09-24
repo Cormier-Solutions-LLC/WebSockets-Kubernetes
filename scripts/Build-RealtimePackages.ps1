@@ -5,7 +5,7 @@
     Uses isolated staging and promotes only byte-identical repeatable artifacts. Network endpoints are explicit
     configuration. WhatIf prints the plan without invoking build tools or changing output.
 .NOTES
-    Version: 1.0.0
+    Version: 1.0.2-beta
     Project: Cormier.Realtime
     Requires: PowerShell 7, .NET SDK 10, Node.js 22 or later, npm, and Git.
     Outputs: artifacts/packages/<commit> by default and a redacted log beneath .logs.

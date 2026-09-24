@@ -520,6 +520,7 @@ public sealed class DeploymentContractTests
     public void PackagePromotionUsesOneVerifiedImmutableCandidate()
     {
         var workflow = Read(".github/workflows/packages.yml");
+        var releaseIntent = Read("scripts/Get-PackageReleaseIntent.ps1");
         var ciWorkflow = Read(".github/workflows/ci.yml");
         var build = Read("scripts/Build-RealtimePackages.ps1");
         var publish = Read("scripts/Publish-RealtimePackages.ps1");
@@ -542,7 +543,10 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("github.com", props, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains("environment: package-production", workflow, StringComparison.Ordinal);
-        Assert.Contains("group: package-promotion-${{ github.repository }}-${{ github.sha }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("workflow_run:", workflow, StringComparison.Ordinal);
+        Assert.Contains("workflows: [Realtime gateway CI]", workflow, StringComparison.Ordinal);
+        Assert.Contains("WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}", workflow, StringComparison.Ordinal);
+        Assert.Contains("group: package-promotion-${{ github.repository }}-${{ needs['release-intent'].outputs.candidate_sha }}", workflow, StringComparison.Ordinal);
         Assert.Contains("cancel-in-progress: false", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/attest-build-provenance@", workflow, StringComparison.Ordinal);
         Assert.Contains("Attest exact immutable package candidate", workflow, StringComparison.Ordinal);
@@ -552,13 +556,16 @@ public sealed class DeploymentContractTests
         Assert.Contains("actions: read", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet pack", workflow, StringComparison.Ordinal);
         Assert.Contains("resume_run_id:", workflow, StringComparison.Ordinal);
-        Assert.Contains("github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
+        Assert.Contains("Manual package publication is restricted to the main branch.", workflow, StringComparison.Ordinal);
+        Assert.Contains("needs['release-intent'].outputs.should_publish == 'true'", workflow, StringComparison.Ordinal);
+        Assert.Contains("needs['release-intent'].outputs.publish_npm", workflow, StringComparison.Ordinal);
         Assert.Contains("PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}", workflow, StringComparison.Ordinal);
         Assert.Contains("PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("inputs.nuget_source", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("inputs.npm_registry", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("$prior.head_sha -ne $env:EXPECTED_SHA", workflow, StringComparison.Ordinal);
+        Assert.Contains("$prior.event -notin @('workflow_dispatch', 'workflow_run')", workflow, StringComparison.Ordinal);
         Assert.Contains("include-hidden-files: true", workflow, StringComparison.Ordinal);
         Assert.Contains("${{ github.run_attempt }}", workflow, StringComparison.Ordinal);
         Assert.Contains("candidate_artifact_name", workflow, StringComparison.Ordinal);
@@ -568,6 +575,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("@parameters", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("@arguments", workflow, StringComparison.Ordinal);
         Assert.Contains("PACKAGE_REPOSITORY_URL", workflow, StringComparison.Ordinal);
+        Assert.Contains("Get-PackageReleaseIntent.ps1 -PreviousRevision $parent", workflow, StringComparison.Ordinal);
+        Assert.Contains("Every coordinated NuGet and npm package version must match", releaseIntent, StringComparison.Ordinal);
+        Assert.Contains("A coordinated release must change every package version", releaseIntent, StringComparison.Ordinal);
+        Assert.Contains("VersionChanged = $changed.Count -eq $current.Count", releaseIntent, StringComparison.Ordinal);
         Assert.Contains("'--source', $UpstreamPackageSource", build, StringComparison.Ordinal);
         Assert.Contains("always() && hashFiles('artifacts/cormier-realtime-gateway.tar.gz') != ''", ciWorkflow, StringComparison.Ordinal);
 

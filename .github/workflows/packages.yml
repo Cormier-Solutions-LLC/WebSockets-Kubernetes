@@ -10,7 +10,9 @@ on:
       - 'sdk/typescript/**'
       - 'scripts/*Package*.ps1'
       - 'docs/package-release.md'
-  push:
+  workflow_run:
+    workflows: [Realtime gateway CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -33,7 +35,79 @@ permissions:
   contents: read
 
 jobs:
+  release-intent:
+    runs-on: ubuntu-latest
+    outputs:
+      candidate_sha: ${{ steps.release.outputs.candidate_sha }}
+      publish_npm: ${{ steps.release.outputs.publish_npm }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      resume_run_id: ${{ steps.release.outputs.resume_run_id }}
+      should_build: ${{ steps.release.outputs.should_build }}
+      should_publish: ${{ steps.release.outputs.should_publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      - name: Select coordinated package release
+        id: release
+        shell: pwsh
+        env:
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+          DISPATCH_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          DISPATCH_RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
+          WORKFLOW_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          $candidateSha = if ($env:EVENT_NAME -eq 'workflow_run') { $env:WORKFLOW_HEAD_SHA } else { $env:EVENT_SHA }
+          if ($candidateSha -notmatch '^[a-f0-9]{40}$') {
+            throw 'The selected package candidate commit is invalid.'
+          }
+          $intent = & ./scripts/Get-PackageReleaseIntent.ps1
+          $shouldBuild = $env:EVENT_NAME -ne 'workflow_run'
+          $dispatchPublishRequested = $env:EVENT_NAME -eq 'workflow_dispatch' -and $env:DISPATCH_PUBLISH -eq 'true'
+          if ($dispatchPublishRequested -and $env:EVENT_REF -ne 'refs/heads/main') {
+            throw 'Manual package publication is restricted to the main branch.'
+          }
+          $shouldPublish = $dispatchPublishRequested
+          $publishNpm = $shouldPublish -and $env:DISPATCH_PUBLISH_NPM -eq 'true'
+          $resumeRunId = if ($env:EVENT_NAME -eq 'workflow_dispatch') { $env:DISPATCH_RESUME_RUN_ID } else { '' }
+
+          if ($env:EVENT_NAME -eq 'workflow_run') {
+            if ($env:WORKFLOW_CONCLUSION -eq 'success' -and
+                $env:WORKFLOW_EVENT -eq 'push' -and
+                $env:WORKFLOW_HEAD_BRANCH -eq 'main') {
+              $parent = (& git rev-parse "$candidateSha^").Trim()
+              if ($LASTEXITCODE -ne 0 -or $parent -notmatch '^[a-f0-9]{40}$') {
+                throw 'Unable to resolve the first parent of the successful main-branch CI commit.'
+              }
+              $intent = & ./scripts/Get-PackageReleaseIntent.ps1 -PreviousRevision $parent
+              $shouldBuild = $intent.VersionChanged
+              $shouldPublish = $shouldBuild
+              $publishNpm = $false
+            }
+          }
+
+          "candidate_sha=$candidateSha" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "publish_npm=$($publishNpm.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "release_version=$($intent.Version)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "resume_run_id=$resumeRunId" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "should_build=$($shouldBuild.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "should_publish=$($shouldPublish.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "### Package release intent" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          "- Candidate: ``$candidateSha``" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          "- Version: ``$($intent.Version)``" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          "- Build: ``$shouldBuild``" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          "- Publish NuGet: ``$shouldPublish``" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
   package-candidate:
+    if: needs['release-intent'].outputs.should_build == 'true'
+    needs: release-intent
     runs-on: ubuntu-latest
     outputs:
       candidate_artifact_name: ${{ steps.artifact_names.outputs.candidate_artifact }}
@@ -53,10 +127,14 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs['release-intent'].outputs.candidate_sha }}
       - name: Select attempt-specific artifact names
         id: artifact_names
         shell: pwsh
-        run: '"candidate_artifact=cormier-realtime-packages-${{ github.sha }}-${{ github.run_attempt }}" | Add-Content -LiteralPath $env:GITHUB_OUTPUT'
+        env:
+          CANDIDATE_SHA: ${{ needs['release-intent'].outputs.candidate_sha }}
+        run: '"candidate_artifact=cormier-realtime-packages-$env:CANDIDATE_SHA-${{ github.run_attempt }}" | Add-Content -LiteralPath $env:GITHUB_OUTPUT'
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -82,7 +160,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cormier-realtime-package-build-${{ github.sha }}-${{ github.run_attempt }}
+          name: cormier-realtime-package-build-${{ needs['release-intent'].outputs.candidate_sha }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 30
           include-hidden-files: true
@@ -103,7 +181,7 @@ jobs:
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: artifacts/packages
-          artifact-name: cormier-realtime-packages-sbom-${{ github.sha }}-${{ github.run_attempt }}.spdx.json
+          artifact-name: cormier-realtime-packages-sbom-${{ needs['release-intent'].outputs.candidate_sha }}-${{ github.run_attempt }}.spdx.json
           output-file: artifacts/packages.spdx.json
           format: spdx-json
       - name: Upload package scan
@@ -125,12 +203,12 @@ jobs:
             artifacts/packages.spdx.json
 
   publish-candidate:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
-    needs: package-candidate
+    if: needs['release-intent'].outputs.should_publish == 'true'
+    needs: [release-intent, package-candidate]
     runs-on: ubuntu-latest
     environment: package-production
     concurrency:
-      group: package-promotion-${{ github.repository }}-${{ github.sha }}
+      group: package-promotion-${{ github.repository }}-${{ needs['release-intent'].outputs.candidate_sha }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -143,7 +221,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ needs['release-intent'].outputs.candidate_sha }}
         run: |
           $runs = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$env:EXPECTED_SHA&status=completed" | ConvertFrom-Json
           $trusted = @($runs.workflow_runs | Where-Object {
@@ -157,12 +235,12 @@ jobs:
           }
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs['release-intent'].outputs.candidate_sha }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - uses: actions/setup-node@v4
-        if: inputs.publish_npm
+        if: needs['release-intent'].outputs.publish_npm == 'true'
         with:
           node-version: 24
           registry-url: ${{ vars.NPM_REGISTRY }}
@@ -171,8 +249,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ github.sha }}
-          REQUESTED_RUN_ID: ${{ inputs.resume_run_id }}
+          EXPECTED_SHA: ${{ needs['release-intent'].outputs.candidate_sha }}
+          REQUESTED_RUN_ID: ${{ needs['release-intent'].outputs.resume_run_id }}
           CURRENT_RUN_ID: ${{ github.run_id }}
           CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
           CURRENT_CANDIDATE_ARTIFACT: ${{ needs['package-candidate'].outputs.candidate_artifact_name }}
@@ -190,7 +268,7 @@ jobs:
             $prior = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:REQUESTED_RUN_ID" | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0 -or
                 $prior.path -ne '.github/workflows/packages.yml' -or
-                $prior.event -ne 'workflow_dispatch' -or
+                $prior.event -notin @('workflow_dispatch', 'workflow_run') -or
                 $prior.status -ne 'completed' -or
                 $prior.head_sha -ne $env:EXPECTED_SHA) {
               throw 'The selected resume run is not a completed package workflow for this exact commit.'
@@ -257,7 +335,7 @@ jobs:
         env:
           NUGET_USER: ${{ secrets.NUGET_USER }}
           PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
-          INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          INPUT_PUBLISH_NPM: ${{ needs['release-intent'].outputs.publish_npm }}
           PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) {
@@ -298,7 +376,7 @@ jobs:
           NUGET_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           PROTECTED_NUGET_SOURCE: ${{ vars.NUGET_SOURCE }}
-          INPUT_PUBLISH_NPM: ${{ inputs.publish_npm }}
+          INPUT_PUBLISH_NPM: ${{ needs['release-intent'].outputs.publish_npm }}
           PROTECTED_NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
         run: |
           $candidate = Get-ChildItem artifacts/packages -Directory | Select-Object -First 1
@@ -317,7 +395,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cormier-realtime-package-promotion-${{ github.sha }}-c${{ steps.resume.outputs.candidate_attempt }}-r${{ github.run_attempt }}
+          name: cormier-realtime-package-promotion-${{ needs['release-intent'].outputs.candidate_sha }}-c${{ steps.resume.outputs.candidate_attempt }}-r${{ github.run_attempt }}
           if-no-files-found: ignore
           retention-days: 30
           path: artifacts/package-promotion
@@ -325,7 +403,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cormier-realtime-package-promotion-logs-${{ github.sha }}-${{ github.run_attempt }}
+          name: cormier-realtime-package-promotion-logs-${{ needs['release-intent'].outputs.candidate_sha }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 30
           include-hidden-files: true

@@ -5,7 +5,7 @@ This package exposes the generated Cormier.Realtime browser SDK as ASP.NET Core 
 It targets `net10.0` and references the ASP.NET Core shared framework. Install it in a .NET 10 web host from your configured NuGet source:
 
 ```text
-dotnet add package Cormier.Realtime.Browser --version 1.0.2-beta
+dotnet add package Cormier.Realtime.Browser --version 1.0.3-beta
 ```
 
 Enable static file serving in the consuming host, as in the repository's clean-consumer check:

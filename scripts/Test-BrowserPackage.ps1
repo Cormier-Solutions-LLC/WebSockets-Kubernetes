@@ -2,14 +2,14 @@
 .SYNOPSIS
     Packs and validates the Cormier.Realtime.Browser static-web-asset package.
 .NOTES
-    Version: 1.0.2-beta
+    Version: 1.0.3-beta
     Requires: PowerShell 7 and .NET SDK 10
     Outputs: Isolated temporary package feed and clean consumer; removed after validation.
 #>
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$BrowserPackageVersion = '1.0.2-beta',
+    [string]$BrowserPackageVersion = '1.0.3-beta',
     [string]$PackageSource,
     [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE
 )

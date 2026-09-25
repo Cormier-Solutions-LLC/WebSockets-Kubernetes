@@ -5,7 +5,7 @@
     Never rebuilds package bytes. NuGet is the default promotion surface; npm publication is opt-in and requires
     explicit registry approval. WhatIf validates and prints the promotion plan without requiring credentials.
 .NOTES
-    Version: 1.0.2-beta
+    Version: 1.0.3-beta
     Project: Cormier.Realtime
     Requires: PowerShell 7, .NET SDK 10, Node.js/npm only when PublishNpm is selected.
     Inputs: CandidatePath, configured registry endpoints, and credential-bearing environment variables. CI supplies

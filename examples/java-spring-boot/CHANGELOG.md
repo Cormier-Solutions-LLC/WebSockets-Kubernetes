@@ -2,6 +2,10 @@
 
 Operator-visible changes to the Java/Spring Boot reference application are recorded here. Entries identify features, fixes, security/configuration impact, breaking behavior, and required operator action.
 
+## 1.0.3-beta - 2026-09-25
+
+- See the coordinated release notes in `docs/release-notes/1.0.3-beta.md`.
+
 ## 1.0.2-beta - 2026-09-24
 
 - Production containers now use the centralized optimized web profile with deterministic hashes, SRI, and a readable rollback profile.

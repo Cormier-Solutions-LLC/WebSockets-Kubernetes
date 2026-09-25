@@ -6,7 +6,7 @@
   evidence, injects one bounded failure, restores state in a finally block, and proves
   full replica recovery. Private keys and credential values are never read.
 .NOTES
-  Version: 1.0.2-beta
+  Version: 1.0.3-beta
   Requires: PowerShell 7.4 or later, kubectl, curl, and an approved non-production cluster.
   Standard: refs/scripts-standard-v4.2.md
 #>

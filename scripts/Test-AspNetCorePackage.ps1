@@ -1,11 +1,11 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$AspNetCoreIntegrationVersion = '1.0.2-beta',
+    [string]$AspNetCoreIntegrationVersion = '1.0.3-beta',
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$ContractsVersion = '1.0.2-beta',
+    [string]$ContractsVersion = '1.0.3-beta',
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
-    [string]$RedisAdapterVersion = '1.0.2-beta',
+    [string]$RedisAdapterVersion = '1.0.3-beta',
     [string]$PackageSource,
     [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE
 )

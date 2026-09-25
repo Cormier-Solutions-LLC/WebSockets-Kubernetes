@@ -22,7 +22,7 @@ The repository also contains the shared protocol contracts, Redis integration, .
 
 ## Prerequisites
 
-The pinned development SDK is .NET `10.0.303` with roll-forward to a compatible .NET 10 feature band. Node.js 22 or later is required for the bootstrap engine and TypeScript SDK. PowerShell 7 is supported on Windows, Linux, and macOS; the Bash wrapper requires Bash 5 or later on Linux or macOS. Native AOT publishing also requires the platform compiler toolchain.
+The pinned development SDK is .NET `10.0.303` with roll-forward to a compatible .NET 10 feature band. The bootstrap engine supports Node.js 22 or later; SDK, package, and reference-application builds pin Node.js 26.10.0 with npm 12.1.0. PowerShell 7 is supported on Windows, Linux, and macOS; the Bash wrapper requires Bash 5 or later on Linux or macOS. Native AOT publishing also requires the platform compiler toolchain.
 
 Git is required by the lifecycle automation. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis fixture. Cluster operations additionally require the tools and access described in the [bootstrap guide](docs/bootstrap.md).
 
@@ -83,7 +83,7 @@ dotnet publish ./src/Cormier.Realtime.Gateway -c Release -r $runtimeIdentifier -
 
 CI restores locked dependencies, builds and tests the solution, validates clean package consumers and both bootstrap topologies, checks Helm and Kubernetes output, runs cross-browser and reference-stack scenarios, publishes and smoke-tests a Linux x64 Native AOT executable and rootless read-only OCI image, scans artifacts, and emits an SBOM and immutable build evidence.
 
-Application, container, NuGet package, npm package, Helm chart, scripts, and reference applications are coordinated at `1.0.2-beta`. The authoritative .NET and chart properties are controlled in `Directory.Build.props`; the TypeScript package version is in `sdk/typescript/package.json`. See the [package release policy](docs/package-release.md) for compatibility, reproducible package candidates, guarded promotion, and rollback.
+Application, container, NuGet package, npm package, Helm chart, scripts, and reference applications are coordinated at `1.0.3-beta`. The authoritative .NET and chart properties are controlled in `Directory.Build.props`; the TypeScript package version is in `sdk/typescript/package.json`. See the [package release policy](docs/package-release.md) for compatibility, reproducible package candidates, guarded promotion, and rollback.
 
 ## Clients and protocol
 

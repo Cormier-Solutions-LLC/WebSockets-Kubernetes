@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pipelineVersion": "1.1.0",
   "package": "@cormier/realtime",
-  "version": "1.0.2-beta",
+  "version": "1.0.3-beta",
   "defaults": {
     "development": "readable",
     "support": "readable",
@@ -39,15 +39,15 @@
         {
           "path": "readable/index.html",
           "bytes": 2051,
-          "gzipBytes": 948,
-          "sha256": "104aa1a38a54d6500785ad916f9c01627effcda35e7994b553f6291e1998bc1b",
-          "integrity": "sha384-OffKawHxm6GNA1tPq7/BA94NWBKG/UguzMWplP5rfAIr+kWDTsIPekZwZFUjT7wY"
+          "gzipBytes": 950,
+          "sha256": "494c3f6709c811ab8e1b9ce719c2df4026a7fe4fa826a1cd0b0aa3161fa4bec2",
+          "integrity": "sha384-LsG5qsTyS6wWwCxqG5VUlmuzAlswcP0PJ4EtgtVvPag7nWFfm77g6vCk2Krk+gGI"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "8a1a5663b66e586d76c76a06606e4bde58cda6be61d7a83e1d4c109e2031b505",
-        "integrity": "sha384-BcAbYxHWXcopU+gvadhX9G7WwugancYXp/S3s8kIZ3Gcp8rQzt7+Mx13wTaFdeNK"
+        "sha256": "0c28e4514b03ec92eff353324f0e0576cab89b10e5dc7dd50a0b84794d4872b7",
+        "integrity": "sha384-ZFmyk6R7F0BgN9f3Mh0Y8MU6H5MQO5L2aEsqsefwRFYWswkA0ot8BKMF6UUg4Wsh"
       }
     },
     "optimized": {
@@ -70,8 +70,8 @@
           "path": "optimized/index.html",
           "bytes": 1920,
           "gzipBytes": 935,
-          "sha256": "0976ee89d15bdbc80974ff8b60a1615ca93ecb6119c884c0e61317b8325bddf5",
-          "integrity": "sha384-kl2ixyLVl9jyWygj7pfGepITM04++jPQ+XYbeCyDssSCftVh3vM15xiAFYI1UZFk"
+          "sha256": "1789d992c948954d193d00e366b32749f0e7e5d60c5ab380fe949c014b0391f6",
+          "integrity": "sha384-0avWlGRa19CnTWwGd5ACmxfBJe8tbI5EOS1sP8mhqaAzvO1q1G6WKh+ohjC/oR8D"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -90,8 +90,8 @@
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "67065bc9ddad0c742983891b3c9a9e2bd3667bb353a9288e10a024a3a0f93613",
-        "integrity": "sha384-iHP101VXMhrLZLIN2eOgdfM1Flp6jwJ3Gj3zClPdLFdthpVW7MeYGBsrUSvf/9gT"
+        "sha256": "4837b47a7f3dec30f0049af35e31f9bd4f7dfe350b9999b3a79f9353cd135231",
+        "integrity": "sha384-Qx0XNjEFpVih3be2vOOHf601pa+VjhcKNoJwEikadJ8W1J4OLM/DRseScp8B/zfG"
       }
     }
   },

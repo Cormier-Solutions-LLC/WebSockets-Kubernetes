@@ -36,6 +36,7 @@ permissions:
 
 env:
   DOTNET_INSTALL_DIR: ${{ vars.CI_DOTNET_INSTALL_DIR || '/home/runner/.dotnet' }}
+  NPM_VERSION: 12.1.0
   CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
   CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
 
@@ -166,11 +167,16 @@ jobs:
             10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
+      - name: Install pinned npm
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build and verify immutable package candidate
         shell: pwsh
         env:
@@ -265,11 +271,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux' && needs['release-intent'].outputs.publish_npm == 'true'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         if: needs['release-intent'].outputs.publish_npm == 'true'
         with:
-          node-version: 24
+          node-version: 26.10.0
           registry-url: ${{ vars.NPM_REGISTRY }}
+      - name: Install pinned npm
+        if: needs['release-intent'].outputs.publish_npm == 'true'
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Select resumable promotion evidence
         id: resume
         shell: pwsh

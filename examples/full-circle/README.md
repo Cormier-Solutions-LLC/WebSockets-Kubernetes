@@ -9,7 +9,7 @@ In Development, the application enables the loopback-only operator workflow and 
 ## Prerequisites
 
 - .NET SDK 10
-- Node.js 22 or later and npm
+- Node.js 26.10.0 and npm 12.1.0
 - PowerShell 7 or Bash
 - Docker with Docker Compose for the automatically managed local Redis dependency
 - Chromium for browser validation (`npx playwright install chromium` from `sdk/typescript`)

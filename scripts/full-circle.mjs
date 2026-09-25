@@ -90,6 +90,12 @@ async function command(file, args, options = {}) {
   });
 }
 
+async function installSdkDependencies() {
+  await command(executable("npm"), ["ci", "--ignore-scripts"], {
+    cwd: resolve(repositoryRoot, "sdk/typescript"),
+  });
+}
+
 async function verifyRedis() {
   await command("node", [resolve(repositoryRoot, "sdk/typescript/scripts/redis-fixtures.mjs"), "ping"], {
     cwd: resolve(repositoryRoot, "sdk/typescript"),
@@ -162,10 +168,10 @@ async function buildPackageConsumer() {
   const consumerLockGraph = JSON.parse(await readFile(consumerLockTemplate, "utf8"));
   const targetGraph = consumerLockGraph.dependencies?.["net10.0"];
   for (const [packageId, packageFile] of [
-    ["Cormier.Realtime.AspNetCore", "Cormier.Realtime.AspNetCore.1.0.2-beta.nupkg"],
-    ["Cormier.Realtime.Browser", "Cormier.Realtime.Browser.1.0.2-beta.nupkg"],
-    ["Cormier.Realtime.Contracts", "Cormier.Realtime.Contracts.1.0.2-beta.nupkg"],
-    ["Cormier.Realtime.Redis", "Cormier.Realtime.Redis.1.0.2-beta.nupkg"],
+    ["Cormier.Realtime.AspNetCore", "Cormier.Realtime.AspNetCore.1.0.3-beta.nupkg"],
+    ["Cormier.Realtime.Browser", "Cormier.Realtime.Browser.1.0.3-beta.nupkg"],
+    ["Cormier.Realtime.Contracts", "Cormier.Realtime.Contracts.1.0.3-beta.nupkg"],
+    ["Cormier.Realtime.Redis", "Cormier.Realtime.Redis.1.0.3-beta.nupkg"],
   ]) {
     if (targetGraph?.[packageId] === undefined) {
       throw new Error(`The committed consumer lock is missing ${packageId}.`);
@@ -193,9 +199,12 @@ async function buildPackageConsumer() {
 }
 
 try {
+  // Every lifecycle path reaches the Redis fixture helper, including cleanup after
+  // an earlier bootstrap failure on a fresh runner. Install its locked dependency
+  // graph before the first ping so cleanup remains independently repeatable.
+  await installSdkDependencies();
   if (["bootstrap", "update", "recover"].includes(action)) {
     await ensureDependencies();
-    await command(executable("npm"), ["ci", "--ignore-scripts"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     await command(executable("npm"), ["run", "build", "--silent"], { cwd: resolve(repositoryRoot, "sdk/typescript") });
     const projectConfig = await writeProjectReferenceConfig();
     await command("dotnet", ["restore", "examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj", "--locked-mode", "--configfile", projectConfig], { env: upstreamPackageEnvironment });

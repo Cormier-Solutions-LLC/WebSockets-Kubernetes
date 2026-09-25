@@ -40,7 +40,7 @@ class ReferenceConfigTest < Minitest::Test
   end
 
   def test_rejects_invalid_heartbeat_intervals
-    [nil, "4999", "300001", "not-an-integer"].each do |heartbeat|
+    [ nil, "4999", "300001", "not-an-integer" ].each do |heartbeat|
       environment = values.merge("HEARTBEAT_INTERVAL_MILLISECONDS" => heartbeat)
       assert_raises(ArgumentError) { ReferenceConfig.load(environment) }
     end

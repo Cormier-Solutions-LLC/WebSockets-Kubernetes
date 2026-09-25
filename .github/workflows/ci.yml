@@ -49,11 +49,16 @@ jobs:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Pull Prometheus validation image
+        run: bash scripts/pull-ci-image.sh "$CI_PROMETHEUS_IMAGE"
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Install Bash analysis prerequisite
@@ -148,11 +153,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Test shared contract on Windows
         env:
           BOOTSTRAP_SKIP_LIFECYCLE: '1'
@@ -172,11 +180,14 @@ jobs:
         profile: [non-ha, ha]
     steps:
       - uses: actions/checkout@v4
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Exercise lifecycle with failure injection
         env:
           BOOTSTRAP_TEST_SHELLS: ${{ matrix.shell }}
@@ -193,6 +204,8 @@ jobs:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Pull Prometheus validation image
+        run: bash scripts/pull-ci-image.sh "$CI_PROMETHEUS_IMAGE"
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v4
@@ -202,13 +215,16 @@ jobs:
             10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Restore TypeScript SDK dependencies
@@ -418,6 +434,9 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
@@ -426,7 +445,7 @@ jobs:
             examples/node-express/package-lock.json
             sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -487,13 +506,16 @@ jobs:
           java-version: '25'
           cache: maven
           cache-dependency-path: examples/java-spring-boot/pom.xml
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -550,13 +572,16 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v5
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -608,13 +633,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
         with:
           toolchain: 1.98.1
@@ -675,13 +703,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.1
@@ -740,13 +771,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: 1.20.4
@@ -810,13 +844,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -877,13 +914,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -939,13 +979,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -1001,13 +1044,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -1072,13 +1118,16 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Install pinned PowerShell
         if: matrix.shell == 'pwsh'
         run: bash scripts/setup-ci-powershell.sh

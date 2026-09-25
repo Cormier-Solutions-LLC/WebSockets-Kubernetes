@@ -4,6 +4,7 @@ FROM ${NODE_IMAGE}
 WORKDIR /app
 COPY examples/node-express/package.json examples/node-express/package-lock.json ./
 RUN apk upgrade --no-cache \
+    && npm install --global npm@12.1.0 \
     && npm ci --omit=dev \
     && npm cache clean --force \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx

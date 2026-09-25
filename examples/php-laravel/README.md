@@ -8,7 +8,7 @@ This non-production adapter demonstrates a minimal Laravel front end for Cormier
 - Laravel 13.31.0 and Predis 3.6.0 from `composer.lock`
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
 - FrankenPHP 1.12.7 for the documented direct or container run
-- Node.js 22+ and npm to generate both `sdk/typescript/dist` and `examples/shared-web/dist`: run `npm ci` then `npm run build` in `sdk/typescript`.
+- Node.js 26.10.0 and npm 12.1.0 to generate both `sdk/typescript/dist` and `examples/shared-web/dist`: run `npm ci` then `npm run build` in `sdk/typescript`.
 
 Supply every `.env.example` value externally, replace `SESSION_SECRET`, and adjust all endpoints and ports for the target environment; the application does not load `.env.example` automatically. Laravel may load a local `.env`, so keep any real values outside source control. `PUBLIC_ROOT=public` supports this documented working-directory launch and can be replaced with an absolute deployment path. From this directory run `composer install` and then `php artisan app:preflight`. Before direct startup, export `PUBLIC_SCHEME` as the validated origin scheme (`http` or `https`); in PowerShell use `$env:PUBLIC_SCHEME = ([uri]$env:PUBLIC_ORIGIN).Scheme`. Then run `frankenphp run --config Caddyfile --adapter caddyfile`. Unlike the container startup script, this direct command does not run preflight or derive the scheme for you. The repeatable gate is:
 

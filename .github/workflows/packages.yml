@@ -167,13 +167,16 @@ jobs:
             10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 26.10.0
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Build and verify immutable package candidate
         shell: pwsh
         env:
@@ -268,6 +271,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux' && needs['release-intent'].outputs.publish_npm == 'true'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v4
         if: needs['release-intent'].outputs.publish_npm == 'true'
         with:
@@ -275,7 +281,7 @@ jobs:
           registry-url: ${{ vars.NPM_REGISTRY }}
       - name: Install pinned npm
         if: needs['release-intent'].outputs.publish_npm == 'true'
-        run: npm install --global "npm@$NPM_VERSION"
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Select resumable promotion evidence
         id: resume
         shell: pwsh

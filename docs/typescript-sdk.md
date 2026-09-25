@@ -51,7 +51,7 @@ During a rolling upgrade, retain protocol `1.0` on every gateway until all brows
 
 ## Build and verification
 
-Node.js 22 or later, the repository's pinned .NET SDK, Redis 7.4, and current Playwright browser engines are required for the full local suite:
+Node.js 26.10.0, npm 12.1.0, the repository's pinned .NET SDK, Redis 7.4, and current Playwright browser engines are required for the full local suite:
 
 ```powershell
 dotnet build .\Cormier.Realtime.sln --configuration Release

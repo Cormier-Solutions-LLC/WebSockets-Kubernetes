@@ -22,7 +22,7 @@ The repository also contains the shared protocol contracts, Redis integration, .
 
 ## Prerequisites
 
-The pinned development SDK is .NET `10.0.303` with roll-forward to a compatible .NET 10 feature band. Node.js 22 or later is required for the bootstrap engine and TypeScript SDK. PowerShell 7 is supported on Windows, Linux, and macOS; the Bash wrapper requires Bash 5 or later on Linux or macOS. Native AOT publishing also requires the platform compiler toolchain.
+The pinned development SDK is .NET `10.0.303` with roll-forward to a compatible .NET 10 feature band. The bootstrap engine supports Node.js 22 or later; SDK, package, and reference-application builds pin Node.js 26.10.0 with npm 12.1.0. PowerShell 7 is supported on Windows, Linux, and macOS; the Bash wrapper requires Bash 5 or later on Linux or macOS. Native AOT publishing also requires the platform compiler toolchain.
 
 Git is required by the lifecycle automation. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis fixture. Cluster operations additionally require the tools and access described in the [bootstrap guide](docs/bootstrap.md).
 

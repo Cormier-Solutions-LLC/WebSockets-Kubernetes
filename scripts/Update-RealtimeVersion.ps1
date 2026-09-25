@@ -75,6 +75,27 @@ function Get-TrackedMatches {
     return @($matches | Where-Object { -not (Test-HistoricalPath $_) } | Sort-Object -Unique)
 }
 
+function ConvertTo-PythonVersion {
+    param([Parameter(Mandatory)][string]$SemanticVersion)
+
+    if ($SemanticVersion -notmatch '^(?<base>[0-9]+\.[0-9]+\.[0-9]+)(?:-(?<label>[0-9A-Za-z]+)(?:\.(?<number>[0-9]+))?)?$') {
+        throw "Version '$SemanticVersion' cannot be represented by the Python reference package."
+    }
+    if ([string]::IsNullOrWhiteSpace($Matches['label'])) {
+        return $Matches['base']
+    }
+
+    $number = if ([string]::IsNullOrWhiteSpace($Matches['number'])) { '0' } else { $Matches['number'] }
+    $label = switch ($Matches['label'].ToLowerInvariant()) {
+        { $_ -in @('a', 'alpha') } { 'a'; break }
+        { $_ -in @('b', 'beta') } { 'b'; break }
+        { $_ -in @('c', 'pre', 'preview', 'rc') } { 'rc'; break }
+        'dev' { '.dev'; break }
+        default { throw "Prerelease label '$($Matches['label'])' is not supported by the Python reference package." }
+    }
+    return "$($Matches['base'])$label$number"
+}
+
 function Set-TextFile {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -99,7 +120,21 @@ if (Test-Path -LiteralPath $releaseNotesPath) {
     throw "Release notes already exist at '$releaseNotesRelativePath'."
 }
 
-$versionFiles = @(Get-TrackedMatches $currentVersion)
+$pythonLockRelativePath = 'examples/python-fastapi/uv.lock'
+$pythonLockPath = Join-Path $repositoryRoot $pythonLockRelativePath
+$currentPythonVersion = ConvertTo-PythonVersion $currentVersion
+$targetPythonVersion = ConvertTo-PythonVersion $Version
+$pythonLockContent = [IO.File]::ReadAllText($pythonLockPath)
+$pythonLockPattern = '(?ms)(\[\[package\]\]\s+name = "cormier-realtime-example-fastapi"\s+version = ")' +
+    [regex]::Escape($currentPythonVersion) + '("\s+source = \{ virtual = "\." \})'
+$pythonLockMatch = [regex]::Match($pythonLockContent, $pythonLockPattern)
+if (-not $pythonLockMatch.Success) {
+    throw "The Python project entry in '$pythonLockRelativePath' does not use expected version '$currentPythonVersion'. Run uv lock and retry."
+}
+$updatedPythonLockContent = $pythonLockContent.Remove($pythonLockMatch.Groups[1].Index + $pythonLockMatch.Groups[1].Length, $currentPythonVersion.Length).
+    Insert($pythonLockMatch.Groups[1].Index + $pythonLockMatch.Groups[1].Length, $targetPythonVersion)
+
+$versionFiles = @(Get-TrackedMatches $currentVersion | Where-Object { $_ -ne $pythonLockRelativePath })
 if ($versionFiles.Count -eq 0) {
     throw "No active tracked files contain version '$currentVersion'."
 }
@@ -128,6 +163,7 @@ $changelogUpdates = foreach ($relativePath in $changelogFiles) {
 
 Write-Output "Coordinated version: $currentVersion -> $Version"
 Write-Output "Active version files: $($versionFiles.Count)"
+Write-Output "Python lock version: $currentPythonVersion -> $targetPythonVersion"
 Write-Output "Reference changelogs: $($changelogFiles.Count)"
 Write-Output "Release notes: $releaseNotesRelativePath"
 
@@ -141,6 +177,10 @@ foreach ($relativePath in $versionFiles) {
         }
         Set-TextFile -Path $path -Content $updated
     }
+}
+
+if ($PSCmdlet.ShouldProcess($pythonLockRelativePath, "Replace Python project version $currentPythonVersion with $targetPythonVersion")) {
+    Set-TextFile -Path $pythonLockPath -Content $updatedPythonLockContent
 }
 
 foreach ($update in $changelogUpdates) {
@@ -181,6 +221,6 @@ if (-not $WhatIfPreference) {
     if (-not [StringComparer]::Ordinal.Equals([string]$intent.Version, $Version)) {
         throw "Release intent reported '$($intent.Version)' instead of '$Version'."
     }
-    Write-Output "Updated $($versionFiles.Count) active files, $($changelogFiles.Count) changelogs, and $releaseNotesRelativePath."
+    Write-Output "Updated $($versionFiles.Count) active files, the Python lockfile, $($changelogFiles.Count) changelogs, and $releaseNotesRelativePath."
     Write-Output 'Next: edit the generated release notes and changelog summaries, regenerate/validate artifacts, and review the complete diff.'
 }

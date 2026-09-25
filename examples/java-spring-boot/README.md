@@ -7,7 +7,7 @@ This small, non-production adapter demonstrates a Spring Boot front end for Corm
 - Java 25 (the Maven compiler release is configured in `pom.xml`)
 - Redis 7.4 or a compatible configured service
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis instance/session prefixes
-- Node.js 22+ and npm; generate `sdk/typescript/dist` and `examples/shared-web/dist` with `npm ci` followed by `npm run build` in `sdk/typescript`, before Maven tests or container builds.
+- Node.js 26.10.0 and npm 12.1.0; generate `sdk/typescript/dist` and `examples/shared-web/dist` with `npm ci` followed by `npm run build` in `sdk/typescript`, before Maven tests or container builds.
 
 Ticket and WebSocket routes forward the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single trusted forwarding hop; never trust a public or broader network range.
 

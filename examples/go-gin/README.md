@@ -6,7 +6,7 @@ This non-production adapter demonstrates a Gin front end for Cormier.Realtime. E
 
 - Go 1.27.1
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
-- Node.js 22 or later and npm to regenerate the canonical SDK and shared UI assets. From the repository root, run `npm --prefix sdk/typescript ci` followed by `npm --prefix sdk/typescript run build`. This produces both `sdk/typescript/dist` and `examples/shared-web/dist` required by the container.
+- Node.js 26.10.0 and npm 12.1.0 to regenerate the canonical SDK and shared UI assets. From the repository root, run `npm --prefix sdk/typescript ci` followed by `npm --prefix sdk/typescript run build`. This produces both `sdk/typescript/dist` and `examples/shared-web/dist` required by the container.
 
 For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
 

@@ -9,7 +9,7 @@ This small, non-production adapter demonstrates a coroutine-native Ktor front en
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis prefixes
 
 For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
-Generate `sdk/typescript/dist` and `examples/shared-web/dist` before tests or container builds: with Node.js 22+, run `npm ci` then `npm run build` in `sdk/typescript`.
+Generate `sdk/typescript/dist` and `examples/shared-web/dist` before tests or container builds: with Node.js 26.10.0 and npm 12.1.0, run `npm ci` then `npm run build` in `sdk/typescript`.
 
 Supply every value shown in `.env.example`; it is a fixture and is not loaded automatically. From `examples/kotlin-ktor` on PowerShell:
 

@@ -4,7 +4,7 @@ This small adapter demonstrates a non-production Node.js/Express front end for C
 
 ## Prerequisites and local run
 
-- Node.js 24.x (`package.json` declares `>=24.0.0 <25`; the container pins 24.20.0) and npm. The engine declaration alone is not a runtime rejection.
+- Node.js 26.x (`package.json` declares `>=26.10.0 <27`; the container pins 26.10.0) and npm 12.1.0. The engine declaration alone is not a runtime rejection.
 - Redis 7.4 or a compatible configured service
 - A running Cormier.Realtime 0.1.x gateway configured to trust `PUBLIC_ORIGIN` and use the same Redis instance/session prefixes
 - Generated SDK and shared UI assets: run `npm ci` then `npm run build` in `sdk/typescript` to produce `sdk/typescript/dist` and `examples/shared-web/dist`.
@@ -66,14 +66,14 @@ This is a teaching adapter, not a production identity system or reverse proxy. `
 
 | Component | Repository pin / compatibility | Status |
 | --- | --- | --- |
-| Node.js | 24.20.0 | Supported example runtime |
+| Node.js | 26.10.0 | Supported example runtime |
 | Express | 5.2.1 | Supported example framework |
 | express-session | 1.19.0 | Supported middleware; MemoryStore is non-production |
 | Cormier.Realtime browser SDK | 1.0.3-beta | Canonical generated shared JavaScript |
 | Cormier.Realtime protocol | 1.0 | Supported wire protocol |
 | Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
 | Redis | 7.4 | Tested session service |
-| Container base | Node 24.20.0 Alpine, pinned OCI index digest | Reproducible multi-platform base |
+| Container base | Node 26.10.0 Alpine, pinned OCI index digest | Reproducible multi-platform base |
 
 The stack-specific runtime is six source files and 583 nonblank lines before tests; canonical HTML, CSS, JavaScript, protocol fixtures, and generated SDK files are excluded. Review this number when functionality changes so adapter duplication stays visible.
 

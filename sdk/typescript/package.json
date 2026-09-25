@@ -3,6 +3,7 @@
   "version": "1.0.3-beta",
   "description": "Browser and TypeScript client for Cormier.Realtime",
   "license": "MIT",
+  "packageManager": "npm@12.1.0",
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -30,7 +31,8 @@
     "typecheck": "tsc --noEmit"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=26.10.0 <27",
+    "npm": "12.1.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

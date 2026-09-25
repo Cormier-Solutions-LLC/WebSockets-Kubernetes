@@ -67,7 +67,7 @@ Default client limits are 128 queued commands, 128 pending acknowledgements, a t
 
 ## Build and verification
 
-Node.js 22 or newer is required. Run these commands from `sdk/typescript`. Browser integration tests additionally require a Release-built .NET 10 gateway and a reachable disposable Redis selected by `REDIS_TEST_ENDPOINT`; the Playwright configuration launches two gateway processes with `--no-build --no-restore` plus local proxy/static servers. Build the gateway from the repository root with `dotnet restore --locked-mode` and `dotnet build --configuration Release --no-restore` before the browser step.
+Node.js 26.10.0 and npm 12.1.0 are the pinned SDK toolchain. Run these commands from `sdk/typescript`. Browser integration tests additionally require a Release-built .NET 10 gateway and a reachable disposable Redis selected by `REDIS_TEST_ENDPOINT`; the Playwright configuration launches two gateway processes with `--no-build --no-restore` plus local proxy/static servers. Build the gateway from the repository root with `dotnet restore --locked-mode` and `dotnet build --configuration Release --no-restore` before the browser step.
 
 ```console
 npm ci

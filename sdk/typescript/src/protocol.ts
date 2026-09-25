@@ -1,4 +1,4 @@
-export const SDK_VERSION = "1.0.2-beta" as const;
+export const SDK_VERSION = "1.0.3-beta" as const;
 export const PROTOCOL_VERSION = "1.0" as const;
 export const WEBSOCKET_SUBPROTOCOL = "cormier.realtime.v1" as const;
 

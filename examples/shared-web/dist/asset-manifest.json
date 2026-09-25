@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pipelineVersion": "1.1.0",
   "package": "@cormier/realtime",
-  "version": "1.0.2-beta",
+  "version": "1.0.3-beta",
   "defaults": {
     "development": "readable",
     "support": "readable",

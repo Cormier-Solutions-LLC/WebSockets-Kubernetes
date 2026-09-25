@@ -35,7 +35,7 @@
     Reports planned external operations without running restore or build.
 
 .NOTES
-    Version: 1.0.2-beta
+    Version: 1.0.3-beta
     Project: Cormier Realtime Gateway
     Requires: PowerShell 7.x, .NET SDK 10.x, Git
     Output: .logs/Bootstrap-Realtime-<timestamp>.log

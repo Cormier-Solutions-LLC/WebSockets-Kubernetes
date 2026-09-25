@@ -9,7 +9,7 @@
   },
   "image": {
     "repository": "registry.example.com/cormier/realtime-gateway",
-    "tag": "1.0.2-beta",
+    "tag": "1.0.3-beta",
     "digest": "",
     "pullPolicy": "IfNotPresent",
     "pullSecretName": ""

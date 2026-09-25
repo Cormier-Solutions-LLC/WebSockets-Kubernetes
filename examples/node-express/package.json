@@ -1,6 +1,6 @@
 {
   "name": "@cormier/realtime-example-node-express",
-  "version": "1.0.2-beta",
+  "version": "1.0.3-beta",
   "private": true,
   "description": "Minimal Node.js and Express reference adapter for Cormier.Realtime",
   "license": "MIT",

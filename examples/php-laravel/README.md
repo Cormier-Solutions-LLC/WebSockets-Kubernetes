@@ -54,7 +54,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Laravel / Predis | 13.31.0 / 3.6.0 | Exact locked application dependencies |
 | Composer / dependency graph | 2.10.3 / `composer.lock` | Locked; audit required |
 | FrankenPHP | 1.12.7 | Digest-pinned amd64/arm64-capable image |
-| Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
+| Cormier.Realtime SDK / protocol / gateway | 1.0.3-beta / 1.0 / 1.0.3-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
 The adapter has 15 stack-specific PHP/configuration/test files and 756 nonblank lines. Generated dependencies, shared assets/fixtures, lock/build metadata, and documentation are excluded. Recalculate after changes.

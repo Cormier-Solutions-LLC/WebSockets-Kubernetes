@@ -69,7 +69,7 @@ This is a teaching adapter, not a production identity system or reverse proxy. `
 | Node.js | 24.20.0 | Supported example runtime |
 | Express | 5.2.1 | Supported example framework |
 | express-session | 1.19.0 | Supported middleware; MemoryStore is non-production |
-| Cormier.Realtime browser SDK | 1.0.2-beta | Canonical generated shared JavaScript |
+| Cormier.Realtime browser SDK | 1.0.3-beta | Canonical generated shared JavaScript |
 | Cormier.Realtime protocol | 1.0 | Supported wire protocol |
 | Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
 | Redis | 7.4 | Tested session service |

@@ -499,6 +499,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("contents: write", publish, StringComparison.Ordinal);
         Assert.Contains("Publish the Helm chart in the public GitHub release", publish, StringComparison.Ordinal);
         Assert.Contains("gh release create", publish, StringComparison.Ordinal);
+        Assert.Contains("gh release edit \"$tag\" --draft=false", publish, StringComparison.Ordinal);
         Assert.Contains("docs/release-notes/${RELEASE_VERSION}.md", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("--clobber", publish, StringComparison.Ordinal);
         Assert.Contains("${release_version}", publish, StringComparison.Ordinal);
@@ -679,6 +680,23 @@ public sealed class DeploymentContractTests
         {
             Assert.Contains($"## {releaseVersion}", Read($"examples/{example}/CHANGELOG.md"), StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void VersionUpdaterChangesActiveSurfacesAndPreservesHistory()
+    {
+        var updater = Read("scripts/Update-RealtimeVersion.ps1");
+
+        Assert.Contains("SupportsShouldProcess", updater, StringComparison.Ordinal);
+        Assert.Contains("[ValidatePattern", updater, StringComparison.Ordinal);
+        Assert.Contains("Get-CoordinatedVersion", updater, StringComparison.Ordinal);
+        Assert.Contains("git -C $repositoryRoot grep -Il --fixed-strings", updater, StringComparison.Ordinal);
+        Assert.Contains("docs/release-notes/", updater, StringComparison.Ordinal);
+        Assert.Contains("/CHANGELOG.md", updater, StringComparison.Ordinal);
+        Assert.Contains("refs/", updater, StringComparison.Ordinal);
+        Assert.Contains("Get-PackageReleaseIntent.ps1", updater, StringComparison.Ordinal);
+        Assert.DoesNotContain("git add", updater, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("git commit", updater, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Read(string relative)

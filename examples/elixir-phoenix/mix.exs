@@ -4,7 +4,7 @@ defmodule CormierRealtimeExample.MixProject do
   def project do
     [
       app: :cormier_realtime_example,
-      version: "1.0.2-beta",
+      version: "1.0.3-beta",
       elixir: "~> 1.20.4",
       start_permanent: Mix.env() == :prod,
       deps: deps()

@@ -62,7 +62,7 @@ short-lived Actions artifact is retained only as workflow evidence.
 
 ```sh
 VERSION='<version>'
-gh release download "v${VERSION}" --pattern "realtime-gateway-${VERSION}.tgz"
+gh release download "${VERSION}" --pattern "realtime-gateway-${VERSION}.tgz"
 helm upgrade --install "$RELEASE_NAME" "./realtime-gateway-${VERSION}.tgz" \
   --namespace "$NAMESPACE" \
   --create-namespace \

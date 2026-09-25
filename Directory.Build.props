@@ -1,13 +1,13 @@
 <Project>
   <PropertyGroup>
-    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1.0.2-beta</ApplicationVersion>
-    <ContainerVersion Condition="'$(ContainerVersion)' == ''">1.0.2-beta</ContainerVersion>
-    <ContractsVersion Condition="'$(ContractsVersion)' == ''">1.0.2-beta</ContractsVersion>
-    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">1.0.2-beta</RedisAdapterVersion>
-    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.2-beta</AspNetCoreIntegrationVersion>
-    <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.2-beta</DotNetClientVersion>
-    <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.2-beta</BrowserPackageVersion>
-    <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">1.0.2-beta</HelmChartVersion>
+    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1.0.3-beta</ApplicationVersion>
+    <ContainerVersion Condition="'$(ContainerVersion)' == ''">1.0.3-beta</ContainerVersion>
+    <ContractsVersion Condition="'$(ContractsVersion)' == ''">1.0.3-beta</ContractsVersion>
+    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">1.0.3-beta</RedisAdapterVersion>
+    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.3-beta</AspNetCoreIntegrationVersion>
+    <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.3-beta</DotNetClientVersion>
+    <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.3-beta</BrowserPackageVersion>
+    <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">1.0.3-beta</HelmChartVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
     <Authors>Cormier</Authors>

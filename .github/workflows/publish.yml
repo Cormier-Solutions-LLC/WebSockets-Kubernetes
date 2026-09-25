@@ -101,7 +101,7 @@ jobs:
           RELEASE_VERSION: ${{ steps.publish.outputs.release_version }}
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          tag="v${RELEASE_VERSION}"
+          tag="${RELEASE_VERSION}"
           chart="artifacts/realtime-gateway-${RELEASE_VERSION}.tgz"
           notes="docs/release-notes/${RELEASE_VERSION}.md"
           test -f "$chart"
@@ -115,6 +115,13 @@ jobs:
             fi
             if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep --fixed-strings --line-regexp --quiet release-manifest.json; then
               gh release upload "$tag" artifacts/release-manifest.json
+            fi
+            if [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = 'true' ]; then
+              if [[ "$RELEASE_VERSION" == *-* ]]; then
+                gh release edit "$tag" --draft=false --prerelease
+              else
+                gh release edit "$tag" --draft=false --latest
+              fi
             fi
           else
             release_flags=()

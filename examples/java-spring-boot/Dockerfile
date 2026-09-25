@@ -10,7 +10,7 @@ RUN mvn --batch-mode package -DskipTests
 FROM ${JAVA_IMAGE}
 RUN apk upgrade --no-cache
 WORKDIR /app
-COPY --from=build /source/target/java-spring-boot-1.0.2-beta.jar ./application.jar
+COPY --from=build /source/target/java-spring-boot-1.0.3-beta.jar ./application.jar
 COPY examples/shared-web/dist ./shared-web
 COPY sdk/typescript/dist ./sdk
 ENV SHARED_ASSET_ROOT=/app/shared-web/optimized

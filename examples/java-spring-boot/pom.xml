@@ -10,7 +10,7 @@
   </parent>
   <groupId>com.cormier.realtime.examples</groupId>
   <artifactId>java-spring-boot</artifactId>
-  <version>1.0.2-beta</version>
+  <version>1.0.3-beta</version>
   <name>Cormier.Realtime Java Spring Boot example</name>
   <properties>
     <java.version>25</java.version>

@@ -298,6 +298,10 @@ public sealed class DiagnosticsContractTests
         Assert.Contains("redis-cli", compose, StringComparison.Ordinal);
         Assert.Contains("\"up\", \"--detach\", \"--wait\"", lifecycle, StringComparison.Ordinal);
         Assert.Contains("externalRedisEndpoint === undefined", lifecycle, StringComparison.Ordinal);
+        Assert.Contains("await installSdkDependencies();", lifecycle, StringComparison.Ordinal);
+        Assert.True(
+            lifecycle.IndexOf("await installSdkDependencies();", StringComparison.Ordinal) <
+            lifecycle.IndexOf("if ([\"bootstrap\", \"update\", \"recover\"].includes(action))", StringComparison.Ordinal));
 
         Assert.Equal(
             "127.0.0.1:16379",

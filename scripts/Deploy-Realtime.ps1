@@ -22,7 +22,7 @@
 .PARAMETER Force
   Required for Remove and RestoreRedis.
 .NOTES
-  Version: 1.0.2-beta
+  Version: 1.0.3-beta
   Requires: PowerShell 7, Helm 4.2.0, kubectl, Git, a reachable Kubernetes cluster
   Standard: refs/scripts-standard-v4.2.md
 #>

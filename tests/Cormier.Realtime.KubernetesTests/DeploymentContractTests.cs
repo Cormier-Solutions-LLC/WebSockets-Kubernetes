@@ -496,6 +496,12 @@ public sealed class DeploymentContractTests
         Assert.Contains("\"schemaVersion\":3", publish, StringComparison.Ordinal);
         Assert.Contains("releaseVersion", publish, StringComparison.Ordinal);
         Assert.Contains("Package the versioned Helm chart", publish, StringComparison.Ordinal);
+        Assert.Contains("contents: write", publish, StringComparison.Ordinal);
+        Assert.Contains("Publish the Helm chart in the public GitHub release", publish, StringComparison.Ordinal);
+        Assert.Contains("gh release create", publish, StringComparison.Ordinal);
+        Assert.Contains("gh release edit \"$tag\" --draft=false", publish, StringComparison.Ordinal);
+        Assert.Contains("docs/release-notes/${RELEASE_VERSION}.md", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("--clobber", publish, StringComparison.Ordinal);
         Assert.Contains("${release_version}", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", promote, StringComparison.Ordinal);
@@ -674,6 +680,81 @@ public sealed class DeploymentContractTests
         {
             Assert.Contains($"## {releaseVersion}", Read($"examples/{example}/CHANGELOG.md"), StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void VersionUpdaterChangesActiveSurfacesAndPreservesHistory()
+    {
+        var updater = Read("scripts/Update-RealtimeVersion.ps1");
+
+        Assert.Contains("SupportsShouldProcess", updater, StringComparison.Ordinal);
+        Assert.Contains("[ValidatePattern", updater, StringComparison.Ordinal);
+        Assert.Contains("Get-CoordinatedVersion", updater, StringComparison.Ordinal);
+        Assert.Contains("ConvertTo-PythonVersion", updater, StringComparison.Ordinal);
+        Assert.Contains("examples/python-fastapi/uv.lock", updater, StringComparison.Ordinal);
+        Assert.Contains("cormier-realtime-example-fastapi", updater, StringComparison.Ordinal);
+        Assert.Contains("git -C $repositoryRoot grep -Il --fixed-strings", updater, StringComparison.Ordinal);
+        Assert.Contains("docs/release-notes/", updater, StringComparison.Ordinal);
+        Assert.Contains("/CHANGELOG.md", updater, StringComparison.Ordinal);
+        Assert.Contains("refs/", updater, StringComparison.Ordinal);
+        Assert.Contains("Get-PackageReleaseIntent.ps1", updater, StringComparison.Ordinal);
+        Assert.DoesNotContain("git add", updater, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("git commit", updater, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NodeAndNpmToolchainsArePinnedTogether()
+    {
+        const string nodeVersion = "26.10.0";
+        const string npmVersion = "12.1.0";
+        using var sdkPackage = JsonDocument.Parse(Read("sdk/typescript/package.json"));
+        using var examplePackage = JsonDocument.Parse(Read("examples/node-express/package.json"));
+        var ci = Read(".github/workflows/ci.yml");
+        var packages = Read(".github/workflows/packages.yml");
+        var dockerfile = Read("examples/node-express/Dockerfile");
+
+        foreach (var package in new[] { sdkPackage.RootElement, examplePackage.RootElement })
+        {
+            Assert.Equal($"npm@{npmVersion}", package.GetProperty("packageManager").GetString());
+            Assert.Equal($">={nodeVersion} <27", package.GetProperty("engines").GetProperty("node").GetString());
+            Assert.Equal(npmVersion, package.GetProperty("engines").GetProperty("npm").GetString());
+        }
+
+        Assert.Contains($"NPM_VERSION: {npmVersion}", ci, StringComparison.Ordinal);
+        Assert.Equal(
+            ci.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            ci.Split("name: Install pinned npm", StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            ci.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            ci.Split("name: Install Node runtime prerequisites", StringSplitOptions.None).Length - 1);
+        Assert.Contains("npm@${{ env.NPM_VERSION }}", ci, StringComparison.Ordinal);
+        Assert.DoesNotContain("node-version: 24", ci, StringComparison.Ordinal);
+        Assert.Contains($"node-version: {nodeVersion}", ci, StringComparison.Ordinal);
+        Assert.Contains($"node:{nodeVersion}-alpine@sha256:", ci, StringComparison.Ordinal);
+        Assert.Contains($"node:{nodeVersion}-alpine@sha256:", dockerfile, StringComparison.Ordinal);
+
+        Assert.Contains($"NPM_VERSION: {npmVersion}", packages, StringComparison.Ordinal);
+        Assert.Equal(
+            packages.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            packages.Split("name: Install pinned npm", StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            packages.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            packages.Split("name: Install Node runtime prerequisites", StringSplitOptions.None).Length - 1);
+        Assert.Contains("npm@${{ env.NPM_VERSION }}", packages, StringComparison.Ordinal);
+        Assert.DoesNotContain("node-version: 24", packages, StringComparison.Ordinal);
+        Assert.Contains($"node-version: {nodeVersion}", packages, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PrometheusValidationImageIsPulledWithRetries()
+    {
+        var ci = Read(".github/workflows/ci.yml");
+        var pullScript = Read("scripts/pull-ci-image.sh");
+
+        Assert.Equal(2, ci.Split("bash scripts/pull-ci-image.sh \"$CI_PROMETHEUS_IMAGE\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("docker pull \"$image\"", pullScript, StringComparison.Ordinal);
+        Assert.Contains("CI_IMAGE_PULL_ATTEMPTS:-3", pullScript, StringComparison.Ordinal);
+        Assert.Contains("sleep \"$delay\"", pullScript, StringComparison.Ordinal);
     }
 
     private static string Read(string relative)

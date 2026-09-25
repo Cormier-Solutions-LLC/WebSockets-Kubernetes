@@ -16,7 +16,7 @@ The compatibility baseline is .NET Standard 2.0. CI restores, executes, and smok
 
 ## Supported development platforms
 
-The repository supports Windows, Linux, and macOS development with PowerShell 7, plus Bash 5 or later on Linux and macOS, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, and Node.js 22 or newer. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.
+The repository supports Windows, Linux, and macOS development with PowerShell 7, plus Bash 5 or later on Linux and macOS, .NET SDK 10.0.303 or a later compatible .NET 10 feature band, Node.js 26.10.0, and npm 12.1.0. Native AOT publishing additionally requires the platform compiler toolchain. Docker is optional for normal builds and required for local OCI runtime verification and the documented Redis test fixture.
 
 ## Bootstrap
 

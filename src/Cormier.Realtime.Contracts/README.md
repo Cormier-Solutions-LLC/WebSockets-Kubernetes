@@ -2,7 +2,7 @@
 
 Runtime-neutral, versioned wire contracts shared by the Cormier.Realtime gateway and clients. The package targets .NET Standard 2.0 and .NET 10, includes source-generated JSON metadata, and preserves camel-case compatibility with the TypeScript SDK and language-neutral fixtures.
 
-Install from your approved NuGet source with `dotnet add package Cormier.Realtime.Contracts --version 1.0.2-beta`. The .NET Standard target depends on System.Text.Json `[10.0.12,11.0.0)`; the .NET 10 target uses its framework implementation. No ASP.NET Core or Redis runtime is required by this package.
+Install from your approved NuGet source with `dotnet add package Cormier.Realtime.Contracts --version 1.0.3-beta`. The .NET Standard target depends on System.Text.Json `[10.0.12,11.0.0)`; the .NET 10 target uses its framework implementation. No ASP.NET Core or Redis runtime is required by this package.
 
 Use `RealtimeJsonSerializerContext` for source-generated, camel-case serialization and `ProtocolValidator` for envelope validation. Serialization does not itself validate or authorize a message:
 

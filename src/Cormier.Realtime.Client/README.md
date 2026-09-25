@@ -2,7 +2,7 @@
 
 `Cormier.Realtime.Client` is the runtime-neutral .NET Standard 2.0 client for the Cormier.Realtime WebSocket protocol. It has no ASP.NET Core hosting dependency and can be consumed by .NET 8, .NET 10, and other runtimes that implement .NET Standard 2.0 and support the package dependency graph.
 
-Install from your approved NuGet source with `dotnet add package Cormier.Realtime.Client --version 1.0.2-beta`. The following example assumes application-owned `configuration`, `cancellationToken`, and `ApplicationAuthenticationProvider`; that provider is not a package type. It must acquire valid session/ticket material and supply the Origin/header configuration required by the target gateway.
+Install from your approved NuGet source with `dotnet add package Cormier.Realtime.Client --version 1.0.3-beta`. The following example assumes application-owned `configuration`, `cancellationToken`, and `ApplicationAuthenticationProvider`; that provider is not a package type. It must acquire valid session/ticket material and supply the Origin/header configuration required by the target gateway.
 
 ```csharp
 using System.Text.Json;

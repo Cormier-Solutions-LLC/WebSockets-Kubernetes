@@ -9,7 +9,7 @@ This small, non-production adapter demonstrates a coroutine-native Ktor front en
 - A Cormier.Realtime 0.1.x gateway that trusts `PUBLIC_ORIGIN` and uses the same Redis prefixes
 
 For ticket and WebSocket relays, the adapter forwards the scheme from validated `PUBLIC_ORIGIN` in `X-Forwarded-Proto`. Configure the gateway's `Proxy:TrustedNetworks` with only the adapter network CIDR so it accepts that single forwarding hop; never trust public or broader ranges.
-Generate `sdk/typescript/dist` and `examples/shared-web/dist` before tests or container builds: with Node.js 22+, run `npm ci` then `npm run build` in `sdk/typescript`.
+Generate `sdk/typescript/dist` and `examples/shared-web/dist` before tests or container builds: with Node.js 26.10.0 and npm 12.1.0, run `npm ci` then `npm run build` in `sdk/typescript`.
 
 Supply every value shown in `.env.example`; it is a fixture and is not loaded automatically. From `examples/kotlin-ktor` on PowerShell:
 
@@ -67,7 +67,7 @@ This is a teaching adapter, not a production identity system or general-purpose 
 | Ktor | 3.5.2 | Pinned server/client/WebSocket framework |
 | Gradle wrapper | 9.7.1 | Checksum-pinned; dependency locking enabled |
 | Lettuce | 7.6.0 | Pinned Redis client |
-| Cormier.Realtime browser SDK / protocol | 1.0.2-beta / 1.0 | Canonical generated SDK and wire contract |
+| Cormier.Realtime browser SDK / protocol | 1.0.3-beta / 1.0 | Canonical generated SDK and wire contract |
 | Cormier.Realtime gateway | 0.1.x repository build | Required external dependency |
 | Redis | 7.4 | Tested session service |
 | Container bases | Gradle 9.7.1 JDK 25; Temurin 25 JRE Alpine | Both OCI indexes are digest-pinned |

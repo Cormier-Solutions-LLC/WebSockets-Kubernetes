@@ -35,7 +35,7 @@ No sticky session or load-balancer affinity is required. The browser matrix incl
 
 The compatibility floor is ES2022 in maintained evergreen browsers. CI uses the exact engines pinned by Playwright:
 
-| Family | CI engine for SDK 1.0.2-beta | Consumption tested |
+| Family | CI engine for SDK 1.0.3-beta | Consumption tested |
 |---|---:|---|
 | Chromium (Chrome and Edge lineage) | 153 | readable/minified ESM and IIFE |
 | Firefox | 155 | readable/minified ESM and IIFE |
@@ -51,7 +51,7 @@ During a rolling upgrade, retain protocol `1.0` on every gateway until all brows
 
 ## Build and verification
 
-Node.js 22 or later, the repository's pinned .NET SDK, Redis 7.4, and current Playwright browser engines are required for the full local suite:
+Node.js 26.10.0, npm 12.1.0, the repository's pinned .NET SDK, Redis 7.4, and current Playwright browser engines are required for the full local suite:
 
 ```powershell
 dotnet build .\Cormier.Realtime.sln --configuration Release

@@ -53,7 +53,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | Axum | 0.8.9 | Supported framework |
 | Redis crate | 1.7.0 | Supported async session client |
 | Cargo graph | 219 locked packages | `Cargo.lock` required on every build |
-| Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
+| Cormier.Realtime SDK / protocol / gateway | 1.0.3-beta / 1.0 / 1.0.3-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 | Container bases | Rust 1.98.1 Alpine / Alpine 3.24 | Digest-pinned |
 

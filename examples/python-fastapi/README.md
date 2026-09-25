@@ -55,7 +55,7 @@ This is a teaching adapter, not a production identity system or general reverse 
 | FastAPI / Uvicorn | 0.141.1 / 0.52.4 | Exact locked application dependencies |
 | Redis / HTTPX / WebSockets / Pydantic Settings | 8.1.0 / 0.28.1 / 17.1 / 2.15.0 | Exact locked clients/configuration |
 | Python graph | `uv.lock` | Locked; local audit required |
-| Cormier.Realtime SDK / protocol / gateway | 1.0.2-beta / 1.0 / 1.0.2-beta | Canonical assets and external gateway |
+| Cormier.Realtime SDK / protocol / gateway | 1.0.3-beta / 1.0 / 1.0.3-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
 
 The adapter has seven stack-specific Python/test files and 819 nonblank lines. Generated environments, shared assets/fixtures, lock/build metadata, browser harness configuration, and documentation are excluded. Recalculate after changes.

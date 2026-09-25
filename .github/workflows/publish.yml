@@ -8,7 +8,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -94,6 +94,46 @@ jobs:
       - name: Package the versioned Helm chart
         if: steps.publish.outputs.is_release == 'true'
         run: helm package helm/realtime-gateway --destination artifacts
+      - name: Publish the Helm chart in the public GitHub release
+        if: steps.publish.outputs.is_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.publish.outputs.release_version }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tag="${RELEASE_VERSION}"
+          chart="artifacts/realtime-gateway-${RELEASE_VERSION}.tgz"
+          notes="docs/release-notes/${RELEASE_VERSION}.md"
+          test -f "$chart"
+          test -f "$notes"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            target=$(gh release view "$tag" --json targetCommitish --jq .targetCommitish)
+            test "$target" = "$SOURCE_SHA"
+            if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep --fixed-strings --line-regexp --quiet "$(basename "$chart")"; then
+              gh release upload "$tag" "$chart"
+            fi
+            if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep --fixed-strings --line-regexp --quiet release-manifest.json; then
+              gh release upload "$tag" artifacts/release-manifest.json
+            fi
+            if [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = 'true' ]; then
+              if [[ "$RELEASE_VERSION" == *-* ]]; then
+                gh release edit "$tag" --draft=false --prerelease
+              else
+                gh release edit "$tag" --draft=false --latest
+              fi
+            fi
+          else
+            release_flags=()
+            if [[ "$RELEASE_VERSION" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create "$tag" "$chart" artifacts/release-manifest.json \
+              --target "$SOURCE_SHA" \
+              --title "Cormier Realtime ${RELEASE_VERSION}" \
+              --notes-file "$notes" \
+              "${release_flags[@]}"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ github.event.workflow_run.head_sha }}

@@ -13,6 +13,8 @@ Cormier.Realtime produces five NuGet packages and one npm tarball from one immut
 
 The NuGet IDs are the supported public identities. The npm name is a candidate identity and the release workflow does not publish it unless an approved registry and npm token are supplied explicitly. The gateway application/container and Helm chart have separate release workflows and are not included in this package candidate. Package IDs, versions, and registry endpoints are release configuration; no customer or deployment name is part of an artifact identity.
 
+After successful `main` CI for a coordinated version change, the gateway publish workflow pushes the tested container archive, packages the versioned Helm chart, and attaches the chart plus `release-manifest.json` to the version's GitHub Release. In a public repository those release assets are publicly downloadable; the Actions artifact remains workflow evidence rather than the distribution endpoint.
+
 ## Versioning and compatibility
 
 Each artifact owns its semantic version. A breaking public API or protocol-support change increments its major version; an additive feature increments minor; a compatible correction increments patch. Prerelease labels identify candidates. Build metadata may carry an immutable source revision but is ignored when calculating compatibility ceilings and normalized out of NuGet filenames.
@@ -24,6 +26,13 @@ Deprecated APIs remain for at least one minor release unless a security correcti
 ## Build and inspect locally
 
 Use PowerShell 7 and supply network identities as configuration:
+
+```powershell
+./scripts/Update-RealtimeVersion.ps1 -Version <semantic-version> -WhatIf
+./scripts/Update-RealtimeVersion.ps1 -Version <semantic-version>
+```
+
+The updater changes active coordinated-version surfaces and creates new changelog and release-note entries without rewriting historical entries. Review and replace the generated summary placeholders before building the candidate.
 
 ```powershell
 ./scripts/Build-RealtimePackages.ps1 `

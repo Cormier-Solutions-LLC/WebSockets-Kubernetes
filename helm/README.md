@@ -53,6 +53,25 @@ helm upgrade --install "$RELEASE_NAME" ./helm/realtime-gateway \
   --atomic --wait
 ```
 
+For an official version, download the public `realtime-gateway-<version>.tgz`
+asset from that version's GitHub Release and use its path in place of
+`./helm/realtime-gateway`. The release also includes `release-manifest.json`,
+which binds the coordinated version and source commit to the published gateway
+image evidence. Release assets are public when this repository is public; the
+short-lived Actions artifact is retained only as workflow evidence.
+
+```sh
+VERSION='<version>'
+gh release download "v${VERSION}" --pattern "realtime-gateway-${VERSION}.tgz"
+helm upgrade --install "$RELEASE_NAME" "./realtime-gateway-${VERSION}.tgz" \
+  --namespace "$NAMESPACE" \
+  --create-namespace \
+  --values "$VALUES_FILE" \
+  --set-string image.repository="$IMAGE_REPOSITORY" \
+  --set-string image.digest="$IMAGE_DIGEST" \
+  --atomic --wait
+```
+
 For managed Redis gateway values, use `cluster/redis/managed-gateway-values.example.yaml` as the baseline. For external Redis, use `cluster/redis/external-values.example.yaml`.
 
 ## Naming

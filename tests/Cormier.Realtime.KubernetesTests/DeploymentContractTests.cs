@@ -496,6 +496,11 @@ public sealed class DeploymentContractTests
         Assert.Contains("\"schemaVersion\":3", publish, StringComparison.Ordinal);
         Assert.Contains("releaseVersion", publish, StringComparison.Ordinal);
         Assert.Contains("Package the versioned Helm chart", publish, StringComparison.Ordinal);
+        Assert.Contains("contents: write", publish, StringComparison.Ordinal);
+        Assert.Contains("Publish the Helm chart in the public GitHub release", publish, StringComparison.Ordinal);
+        Assert.Contains("gh release create", publish, StringComparison.Ordinal);
+        Assert.Contains("docs/release-notes/${RELEASE_VERSION}.md", publish, StringComparison.Ordinal);
+        Assert.DoesNotContain("--clobber", publish, StringComparison.Ordinal);
         Assert.Contains("${release_version}", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", publish, StringComparison.Ordinal);
         Assert.Contains("credentialProvider", promote, StringComparison.Ordinal);

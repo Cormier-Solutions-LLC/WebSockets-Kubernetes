@@ -163,9 +163,237 @@ var RealtimeQueueError = class extends RealtimeError {
   }
 };
 
-// src/client.ts
-var OPEN = 1;
+// src/transport.ts
 var CONNECTING = 0;
+var OPEN = 1;
+var CLOSING = 2;
+var CLOSED = 3;
+function event(type) {
+  return { type };
+}
+function closeEvent(code, reason, wasClean) {
+  return { type: "close", code, reason, wasClean };
+}
+function createTransportSocket(websocketUrl, protocol, options) {
+  const transports = options.transports ?? ["websocket"];
+  if (transports.length === 0) throw new TypeError("At least one transport is required.");
+  const factories = transports.map((transport) => {
+    if (transport === "websocket") {
+      return () => (options.webSocketFactory ?? ((url, selectedProtocol) => new WebSocket(url, selectedProtocol)))(
+        websocketUrl,
+        protocol
+      );
+    }
+    const configuration = options.httpStreaming;
+    if (configuration === void 0) {
+      throw new TypeError("httpStreaming is required when the http-streaming transport is selected.");
+    }
+    return () => new HttpStreamingSocket(websocketUrl, configuration);
+  });
+  return factories.length === 1 ? factories[0]() : new InitializingFallbackSocket(factories);
+}
+var InitializingFallbackSocket = class {
+  constructor(factories) {
+    this.factories = factories;
+    queueMicrotask(() => this.tryNext());
+  }
+  factories;
+  binaryType = "arraybuffer";
+  onopen = null;
+  onmessage = null;
+  onerror = null;
+  onclose = null;
+  socket;
+  index = 0;
+  state = CONNECTING;
+  opened = false;
+  get readyState() {
+    return this.state;
+  }
+  get transport() {
+    return this.socket?.transport ?? (this.opened ? "websocket" : void 0);
+  }
+  send(data) {
+    if (!this.opened || this.socket === void 0) throw new DOMException("The connection is not open.", "InvalidStateError");
+    this.socket.send(data);
+  }
+  close(code, reason) {
+    this.state = CLOSING;
+    this.socket?.close(code, reason);
+    if (this.socket === void 0) {
+      this.state = CLOSED;
+      this.onclose?.(closeEvent(code ?? 1e3, reason ?? "", true));
+    }
+  }
+  tryNext() {
+    if (this.state !== CONNECTING) return;
+    let candidate;
+    try {
+      candidate = this.factories[this.index]();
+    } catch {
+      this.advance();
+      return;
+    }
+    candidate.binaryType = this.binaryType;
+    this.socket = candidate;
+    candidate.onopen = (opened) => {
+      this.opened = true;
+      this.state = OPEN;
+      this.onopen?.(opened);
+    };
+    candidate.onmessage = (message) => this.onmessage?.(message);
+    candidate.onerror = (failure) => {
+      if (this.opened) {
+        this.onerror?.(failure);
+      } else if (this.state === CONNECTING) {
+        candidate.onclose = null;
+        candidate.close();
+        this.advance();
+      }
+    };
+    candidate.onclose = (closed) => {
+      if (!this.opened && this.state === CONNECTING) {
+        this.advance();
+        return;
+      }
+      this.state = CLOSED;
+      this.onclose?.(closed);
+    };
+  }
+  advance() {
+    this.socket = void 0;
+    this.index += 1;
+    if (this.index < this.factories.length) {
+      queueMicrotask(() => this.tryNext());
+      return;
+    }
+    this.state = CLOSED;
+    this.onerror?.(event("error"));
+    this.onclose?.(closeEvent(1006, "transport_initialization_failed", false));
+  }
+};
+var HttpStreamingSocket = class {
+  transport = "http-streaming";
+  binaryType = "arraybuffer";
+  onopen = null;
+  onmessage = null;
+  onerror = null;
+  onclose = null;
+  state = CONNECTING;
+  controller = new AbortController();
+  fetcher;
+  baseUrl;
+  connectionId;
+  connectionToken;
+  sendTail = Promise.resolve();
+  constructor(websocketUrl, options) {
+    this.fetcher = options.fetch ?? globalThis.fetch;
+    if (this.fetcher === void 0) throw new TypeError("HTTP streaming requires the Fetch API.");
+    this.baseUrl = new URL(options.url.toString(), globalThis.location?.href);
+    if (this.baseUrl.protocol !== "http:" && this.baseUrl.protocol !== "https:") {
+      throw new TypeError("The HTTP streaming URL must use http or https.");
+    }
+    const source = new URL(websocketUrl, globalThis.location?.href);
+    for (const name of ["ticket", "reconnect"]) {
+      const value = source.searchParams.get(name);
+      if (value !== null) this.baseUrl.searchParams.set(name, value);
+    }
+    void this.start();
+  }
+  get readyState() {
+    return this.state;
+  }
+  send(data) {
+    if (this.state !== OPEN || this.connectionId === void 0 || this.connectionToken === void 0) {
+      throw new DOMException("The connection is not open.", "InvalidStateError");
+    }
+    const id = this.connectionId;
+    const token = this.connectionToken;
+    this.sendTail = this.sendTail.then(async () => {
+      const response = await this.fetcher(this.connectionUrl(id, "messages"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Cormier-Connection": token },
+        body: data,
+        signal: this.controller.signal
+      });
+      if (!response.ok) throw new Error(`HTTP streaming send failed (${response.status}).`);
+    }).catch(() => this.fail("send_failed"));
+  }
+  close(code = 1e3, reason = "") {
+    if (this.state >= CLOSING) return;
+    this.state = CLOSING;
+    const id = this.connectionId;
+    const token = this.connectionToken;
+    if (id !== void 0 && token !== void 0) {
+      void this.fetcher(this.connectionUrl(id), {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "X-Cormier-Connection": token },
+        keepalive: true
+      }).catch(() => void 0);
+    }
+    this.controller.abort();
+    this.state = CLOSED;
+    this.onclose?.(closeEvent(code, reason, true));
+  }
+  async start() {
+    try {
+      const connectUrl = new URL(this.baseUrl);
+      connectUrl.pathname = `${connectUrl.pathname.replace(/\/$/u, "")}/connect`;
+      const response = await this.fetcher(connectUrl, {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+        signal: this.controller.signal
+      });
+      if (!response.ok) throw new Error(`HTTP streaming connection failed (${response.status}).`);
+      const value = await response.json();
+      if (!this.isConnectionResponse(value)) throw new Error("HTTP streaming connection response was invalid.");
+      this.connectionId = value.connectionId;
+      this.connectionToken = value.connectionToken;
+      this.state = OPEN;
+      this.onopen?.(event("open"));
+      await this.poll();
+    } catch (error) {
+      if (!this.controller.signal.aborted) this.fail(error instanceof Error ? error.message : "connection_failed");
+    }
+  }
+  async poll() {
+    while (this.state === OPEN && this.connectionId !== void 0 && this.connectionToken !== void 0) {
+      const response = await this.fetcher(this.connectionUrl(this.connectionId, "poll"), {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json", "X-Cormier-Connection": this.connectionToken },
+        signal: this.controller.signal
+      });
+      if (response.status === 204) continue;
+      if (!response.ok) throw new Error(`HTTP fallback poll failed (${response.status}).`);
+      const message = await response.text();
+      if (message.length > 0) this.onmessage?.({ type: "message", data: message });
+    }
+  }
+  connectionUrl(id, suffix) {
+    const url = new URL(this.baseUrl);
+    url.search = "";
+    url.pathname = `${url.pathname.replace(/\/$/u, "")}/connections/${encodeURIComponent(id)}${suffix ? `/${suffix}` : ""}`;
+    return url;
+  }
+  fail(reason) {
+    if (this.state === CLOSED) return;
+    this.onerror?.(event("error"));
+    this.controller.abort();
+    this.state = CLOSED;
+    this.onclose?.(closeEvent(1006, reason, false));
+  }
+  isConnectionResponse(value) {
+    return typeof value === "object" && value !== null && typeof value.connectionId === "string" && typeof value.connectionToken === "string";
+  }
+};
+
+// src/client.ts
+var OPEN2 = 1;
+var CONNECTING2 = 0;
 var defaultReconnect = {
   enabled: true,
   initialDelayMilliseconds: 500,
@@ -208,6 +436,16 @@ var RealtimeClient = class {
       ...options
     };
     this.reconnectOptions = { ...defaultReconnect, ...options.reconnect };
+    const transports = options.transports ?? ["websocket"];
+    if (transports.length === 0 || new Set(transports).size !== transports.length) {
+      throw new TypeError("transports must contain one or more unique transport names.");
+    }
+    if (transports.some((transport) => transport !== "websocket" && transport !== "http-streaming")) {
+      throw new TypeError("transports contains an unsupported transport.");
+    }
+    if (transports.includes("http-streaming") && options.httpStreaming === void 0) {
+      throw new TypeError("httpStreaming is required when the http-streaming transport is selected.");
+    }
     this.assertPositiveInteger(this.options.maximumQueuedCommands, "maximumQueuedCommands");
     this.assertPositiveInteger(this.options.maximumPendingCommands, "maximumPendingCommands");
     this.assertPositiveInteger(this.options.commandTimeoutMilliseconds, "commandTimeoutMilliseconds");
@@ -229,6 +467,9 @@ var RealtimeClient = class {
   get desiredSubscriptions() {
     return [...this.subscriptions.keys()];
   }
+  get activeTransport() {
+    return this.stateValue === "open" ? this.socket?.transport ?? "websocket" : void 0;
+  }
   on(type, listener) {
     let listeners = this.listeners.get(type);
     if (listeners === void 0) {
@@ -239,7 +480,7 @@ var RealtimeClient = class {
     return () => listeners?.delete(listener);
   }
   async connect(signal) {
-    if (this.stateValue === "open" && this.socket?.readyState === OPEN) {
+    if (this.stateValue === "open" && this.socket?.readyState === OPEN2) {
       return;
     }
     if (this.connectPromise !== void 0) {
@@ -288,7 +529,7 @@ var RealtimeClient = class {
     this.rejectQueued(new RealtimeConnectionError("The client disconnected.", "client_disconnect"));
     const socket = this.socket;
     this.socket = void 0;
-    if (socket !== void 0 && (socket.readyState === OPEN || socket.readyState === CONNECTING)) {
+    if (socket !== void 0 && (socket.readyState === OPEN2 || socket.readyState === CONNECTING2)) {
       socket.close(code, reason);
     }
     this.setState("closed");
@@ -361,8 +602,7 @@ var RealtimeClient = class {
     if (generation !== this.generation || this.intentionalClose) {
       throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
     }
-    const factory = this.options.webSocketFactory ?? ((url, protocol) => new WebSocket(url, protocol));
-    const socket = factory(connectionUrl, WEBSOCKET_SUBPROTOCOL);
+    const socket = createTransportSocket(connectionUrl, WEBSOCKET_SUBPROTOCOL, this.options);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
     await new Promise((resolve, reject) => {
@@ -390,7 +630,7 @@ var RealtimeClient = class {
           this.serverReconnectAdvice = void 0;
           connectionEstablished = true;
           this.setState("open");
-          if (generation !== this.generation || this.intentionalClose || socket.readyState !== OPEN) {
+          if (generation !== this.generation || this.intentionalClose || socket.readyState !== OPEN2) {
             throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
           }
           this.startHeartbeat();
@@ -402,13 +642,13 @@ var RealtimeClient = class {
             const normalized = this.normalizeError(error);
             this.rejectQueued(normalized);
             reject(normalized);
-            if (socket.readyState === OPEN) {
+            if (socket.readyState === OPEN2) {
               socket.close(4e3, "subscription_restore_failed");
             }
           }
         });
       };
-      socket.onmessage = (event) => this.handleMessage(event);
+      socket.onmessage = (event2) => this.handleMessage(event2);
       socket.onerror = () => {
         if (!settled) {
           settled = true;
@@ -416,13 +656,13 @@ var RealtimeClient = class {
           reject(new RealtimeConnectionError("The WebSocket connection failed."));
         }
       };
-      socket.onclose = (event) => {
+      socket.onclose = (event2) => {
         signal?.removeEventListener("abort", abort);
         if (!settled) {
           settled = true;
-          reject(new RealtimeConnectionError(`The WebSocket closed during connection (${event.code}).`));
+          reject(new RealtimeConnectionError(`The WebSocket closed during connection (${event2.code}).`));
         }
-        this.handleClose(event, generation, connectionEstablished || reconnecting);
+        this.handleClose(event2, generation, connectionEstablished || reconnecting);
       };
     });
   }
@@ -477,7 +717,7 @@ var RealtimeClient = class {
       return Promise.reject(signal.reason instanceof Error ? signal.reason : new DOMException("The command was cancelled.", "AbortError"));
     }
     return new Promise((resolve, reject) => {
-      if (this.socket?.readyState === OPEN && this.stateValue === "open") {
+      if (this.socket?.readyState === OPEN2 && this.stateValue === "open") {
         this.transmit({ envelope, resolve, reject, ...signal === void 0 ? {} : { signal } });
         return;
       }
@@ -512,7 +752,7 @@ var RealtimeClient = class {
       return;
     }
     const socket = this.socket;
-    if (socket?.readyState !== OPEN) {
+    if (socket?.readyState !== OPEN2) {
       if (!queueWhenUnavailable) {
         command.reject(new RealtimeConnectionError("The connection closed before the command could be sent.", "connection_closed"));
       } else if (this.queued.length >= this.options.maximumQueuedCommands) {
@@ -548,14 +788,14 @@ var RealtimeClient = class {
       }
     }
   }
-  handleMessage(event) {
-    if (typeof event.data !== "string") {
+  handleMessage(event2) {
+    if (typeof event2.data !== "string") {
       this.emit("error", new RealtimeError("The server sent a non-text message.", "invalid_message_type"));
       return;
     }
     let parsed;
     try {
-      parsed = JSON.parse(event.data);
+      parsed = JSON.parse(event2.data);
     } catch {
       this.emit("error", new RealtimeError("The server sent malformed JSON.", "invalid_envelope"));
       return;
@@ -594,23 +834,23 @@ var RealtimeClient = class {
       pending.resolve(envelope);
     }
   }
-  handleClose(event, generation, allowReconnect) {
+  handleClose(event2, generation, allowReconnect) {
     if (generation !== this.generation) {
       return;
     }
     this.stopHeartbeat();
     this.socket = void 0;
-    const expected = this.intentionalClose || event.code === closeCodes.normal;
-    this.rejectPending(new RealtimeConnectionError(`The WebSocket closed (${event.code}).`, "connection_closed"));
+    const expected = this.intentionalClose || event2.code === closeCodes.normal;
+    this.rejectPending(new RealtimeConnectionError(`The WebSocket closed (${event2.code}).`, "connection_closed"));
     this.setState("closed");
-    this.emit("close", { code: event.code, reason: event.reason, expected });
+    this.emit("close", { code: event2.code, reason: event2.reason, expected });
     if (expected || !allowReconnect || !this.reconnectOptions.enabled || generation !== this.generation) {
       return;
     }
     this.scheduleReconnect();
   }
   scheduleReconnect() {
-    if (this.reconnectTimer !== void 0 || this.intentionalClose || this.socket?.readyState === OPEN) {
+    if (this.reconnectTimer !== void 0 || this.intentionalClose || this.socket?.readyState === OPEN2) {
       return;
     }
     if (this.reconnectAttempt >= this.reconnectOptions.maximumAttempts) {
@@ -729,7 +969,7 @@ var RealtimeClient = class {
     });
   }
   assertOpenGeneration(generation) {
-    if (generation !== this.generation || this.socket?.readyState !== OPEN) {
+    if (generation !== this.generation || this.socket?.readyState !== OPEN2) {
       throw new RealtimeConnectionError("The connection closed during subscription restoration.", "connection_closed");
     }
   }
@@ -820,14 +1060,14 @@ var RealtimeClient = class {
   abortError(signal) {
     return signal.reason instanceof Error ? signal.reason : new DOMException("The command was cancelled.", "AbortError");
   }
-  emit(type, event) {
+  emit(type, event2) {
     for (const listener of this.listeners.get(type) ?? []) {
-      this.invokeListener(listener, event);
+      this.invokeListener(listener, event2);
     }
   }
-  invokeListener(listener, event) {
+  invokeListener(listener, event2) {
     try {
-      listener(event);
+      listener(event2);
     } catch {
     }
   }
@@ -1032,6 +1272,7 @@ export {
   WEBSOCKET_SUBPROTOCOL,
   closeCodes,
   createEnvelope,
+  createTransportSocket,
   messageTypes,
   protocolErrorCodes,
   validateClientEnvelope,

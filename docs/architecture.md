@@ -16,6 +16,7 @@ Both hosting modes use the same protocol, Redis, diagnostics, metrics, and confi
 - **`Cormier.Realtime.Gateway`** is the standalone composition root and lifecycle host.
 - **`Cormier.Realtime.Client`** is the .NET Standard 2.0 client, including transport abstraction, authentication refresh, bounded queues, request correlation, heartbeats, reconnect, and subscription restoration.
 - **`sdk/typescript`** is the canonical TypeScript/browser client and deterministic ESM/IIFE asset pipeline. **`Cormier.Realtime.Browser`** packages those browser artifacts for ASP.NET Core consumers.
+- **`Cormier.Realtime.HttpFallback`** is an optional ASP.NET Core transport package. It maps authenticated HTTP command and long-poll/stream endpoints while reusing the gateway's dispatcher, connection registry, authorization, and Redis delivery path.
 - **Helm, bootstrap, cluster, observability, and load assets** turn the runtime contracts into validated deployment plans, Kubernetes resources, telemetry, runbooks, and repeatable test workloads.
 - **Tests and examples** verify unit behavior, the hosted HTTP/WebSocket system, .NET clients, Kubernetes/rendered contracts, load-harness behavior, clean package consumers, browsers, and alternative server stacks.
 

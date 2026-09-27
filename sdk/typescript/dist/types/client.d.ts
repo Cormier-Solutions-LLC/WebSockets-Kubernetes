@@ -1,16 +1,7 @@
 import { type JsonValue, type ServerMessageEnvelope } from "./protocol.js";
 import { RealtimeError } from "./errors.js";
+import { type HttpStreamingOptions, type RealtimeTransport, type WebSocketLike } from "./transport.js";
 export type RealtimeClientState = "idle" | "connecting" | "open" | "reconnecting" | "closing" | "closed";
-export interface WebSocketLike {
-    readonly readyState: number;
-    binaryType: BinaryType;
-    onopen: ((event: Event) => void) | null;
-    onmessage: ((event: MessageEvent) => void) | null;
-    onerror: ((event: Event) => void) | null;
-    onclose: ((event: CloseEvent) => void) | null;
-    send(data: string): void;
-    close(code?: number, reason?: string): void;
-}
 export interface SessionAuthentication {
     readonly kind: "session";
 }
@@ -36,6 +27,8 @@ export interface RealtimeClientOptions {
     readonly maximumMessageBytes?: number;
     readonly heartbeatIntervalMilliseconds?: number;
     readonly reconnect?: ReconnectOptions;
+    readonly transports?: readonly RealtimeTransport[];
+    readonly httpStreaming?: HttpStreamingOptions;
     readonly webSocketFactory?: (url: string, protocol: string) => WebSocketLike;
     readonly random?: () => number;
 }
@@ -72,6 +65,7 @@ export declare class RealtimeClient {
     constructor(options: RealtimeClientOptions);
     get state(): RealtimeClientState;
     get desiredSubscriptions(): readonly string[];
+    get activeTransport(): RealtimeTransport | undefined;
     on<TKey extends keyof RealtimeClientEvents>(type: TKey, listener: Listener<TKey>): () => void;
     connect(signal?: AbortSignal): Promise<void>;
     disconnect(code?: number, reason?: string): Promise<void>;

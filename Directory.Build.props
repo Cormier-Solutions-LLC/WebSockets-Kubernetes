@@ -7,6 +7,7 @@
     <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.4-beta</AspNetCoreIntegrationVersion>
     <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.4-beta</DotNetClientVersion>
     <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.4-beta</BrowserPackageVersion>
+    <HttpFallbackVersion Condition="'$(HttpFallbackVersion)' == ''">1.0.4-beta</HttpFallbackVersion>
     <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">1.0.4-beta</HelmChartVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
@@ -25,6 +26,8 @@
     <ContractsCompatibilityUpperBound Condition="'$(ContractsCompatibilityUpperBound)' == ''">$([System.Version]::Parse('$(ContractsVersionCore)').Major).$([MSBuild]::Add($([System.Version]::Parse('$(ContractsVersionCore)').Minor), 1)).0</ContractsCompatibilityUpperBound>
     <RedisAdapterVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(RedisAdapterVersion)', '[-+].*$', ''))</RedisAdapterVersionCore>
     <RedisAdapterCompatibilityUpperBound Condition="'$(RedisAdapterCompatibilityUpperBound)' == ''">$([System.Version]::Parse('$(RedisAdapterVersionCore)').Major).$([MSBuild]::Add($([System.Version]::Parse('$(RedisAdapterVersionCore)').Minor), 1)).0</RedisAdapterCompatibilityUpperBound>
+    <AspNetCoreIntegrationVersionCore>$([System.Text.RegularExpressions.Regex]::Replace('$(AspNetCoreIntegrationVersion)', '[-+].*$', ''))</AspNetCoreIntegrationVersionCore>
+    <AspNetCoreIntegrationCompatibilityUpperBound Condition="'$(AspNetCoreIntegrationCompatibilityUpperBound)' == ''">$([System.Version]::Parse('$(AspNetCoreIntegrationVersionCore)').Major).$([MSBuild]::Add($([System.Version]::Parse('$(AspNetCoreIntegrationVersionCore)').Minor), 1)).0</AspNetCoreIntegrationCompatibilityUpperBound>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

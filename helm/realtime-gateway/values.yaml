@@ -33,6 +33,7 @@ ingressRoute:
   entryPoint: websecure
   host: ""
   path: /realtime/ws
+  fallbackPath: /realtime/http
   tlsSecretName: ""
 
 observability:

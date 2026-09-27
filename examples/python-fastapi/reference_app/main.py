@@ -12,7 +12,7 @@ import httpx
 import redis.asyncio as redis
 import websockets
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -107,6 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.wait_for(client.ping(), timeout=5)
             for path in (
                 configured.SHARED_ASSET_ROOT / "index.html",
+                configured.SHARED_ASSET_ROOT / "fallback.html",
+                configured.SHARED_ASSET_ROOT / "failover.html",
                 configured.SHARED_ASSET_ROOT / "app.css",
                 configured.SHARED_ASSET_ROOT / "app.js",
                 configured.SDK_ASSET_ROOT / "cormier-realtime.iife.js",
@@ -158,6 +160,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/")
     async def index() -> FileResponse:
         return asset(configured.SHARED_ASSET_ROOT, "index.html", "text/html")
+
+    @app.get("/fallback.html")
+    async def fallback() -> FileResponse:
+        return asset(configured.SHARED_ASSET_ROOT, "fallback.html", "text/html")
+
+    @app.get("/failover.html")
+    async def failover() -> FileResponse:
+        return asset(configured.SHARED_ASSET_ROOT, "failover.html", "text/html")
 
     @app.get("/app.css")
     async def css() -> FileResponse:
@@ -308,6 +318,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"code": "service_unavailable", "message": "The reference application dependency is unavailable."}, 503
             )
         return Response(bytes(response_body), status_code, media_type=content_type)
+
+    @app.api_route("/realtime/http/{path:path}", methods=["GET", "POST", "DELETE"])
+    async def http_fallback(path: str, request: Request) -> StreamingResponse:
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAXIMUM_BODY_BYTES:
+                raise HTTPException(413, detail="The request body is too large.")
+            body.extend(chunk)
+        headers = {
+            name: request.headers[name]
+            for name in ("host", "origin", "cookie", "content-type", "x-cormier-connection")
+            if name in request.headers
+        }
+        headers.update(public_forwarding_headers(configured))
+        query = f"?{request.url.query}" if request.url.query else ""
+        outbound = request.app.state.http.build_request(
+            request.method,
+            f"{configured.GATEWAY_URL}/realtime/http/{path}{query}",
+            content=bytes(body),
+            headers=headers,
+        )
+        try:
+            upstream = await request.app.state.http.send(outbound, stream=True)
+        except httpx.HTTPError:
+            raise HTTPException(503, detail="The reference application dependency is unavailable.") from None
+
+        async def chunks() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in upstream.aiter_bytes():
+                    yield chunk
+            finally:
+                await upstream.aclose()
+
+        response_headers = {"Cache-Control": "no-store"}
+        if content_type := upstream.headers.get("content-type"):
+            response_headers["Content-Type"] = content_type
+        return StreamingResponse(chunks(), status_code=upstream.status_code, headers=response_headers)
 
     @app.websocket("/realtime/ws")
     async def websocket_proxy(browser: WebSocket) -> None:

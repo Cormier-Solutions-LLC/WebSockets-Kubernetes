@@ -481,6 +481,13 @@
       "cormier.realtime.gateway": {
         "type": "Project",
         "dependencies": {
+          "Cormier.Realtime.AspNetCore": "[1.0.4-beta, )",
+          "Cormier.Realtime.HttpFallback": "[1.0.4-beta, )"
+        }
+      },
+      "cormier.realtime.httpfallback": {
+        "type": "Project",
+        "dependencies": {
           "Cormier.Realtime.AspNetCore": "[1.0.4-beta, )"
         }
       },

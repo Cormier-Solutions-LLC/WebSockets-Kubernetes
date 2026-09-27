@@ -331,7 +331,7 @@ export function renderValues(config, profile) {
     fullnameOverride: names.release,
     gateway: { allowedOrigins: config.ingress.allowedOrigins, trustedNetworks: config.networking.trustedProxyCidrs, shutdownDrainSeconds: 25 },
     image: config.image,
-    ingressRoute: { enabled: config.ingress.enabled, entryPoint: config.ingress.entryPoint, host: config.ingress.host, path: "/realtime/ws", tlsSecretName: config.ingress.tlsSecretName },
+    ingressRoute: { enabled: config.ingress.enabled, entryPoint: config.ingress.entryPoint, host: config.ingress.host, path: "/realtime/ws", fallbackPath: "/realtime/http", tlsSecretName: config.ingress.tlsSecretName },
     observability: {
       cluster: config.observability.cluster,
       environment: config.environment.name,

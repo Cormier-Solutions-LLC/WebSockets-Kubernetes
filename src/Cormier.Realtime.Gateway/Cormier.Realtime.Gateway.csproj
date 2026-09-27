@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
+    <ProjectReference Include="..\Cormier.Realtime.HttpFallback\Cormier.Realtime.HttpFallback.csproj" />
   </ItemGroup>
   
 </Project>

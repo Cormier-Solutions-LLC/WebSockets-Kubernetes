@@ -42,6 +42,30 @@ For an npm consumer, install `@cormier/realtime` from your configured approved r
 
 Ticket mode POSTs to `/realtime/tickets` resolved against the WebSocket origin before every connection attempt, using Fetch `credentials: "include"`. Override `authentication.endpoint` or inject `authentication.fetch` when needed. Prefer same-origin hosting; any cross-origin deployment must deliberately configure browser cookie/CORS and gateway Origin policy. The ticket is placed in the WebSocket handshake URL and is not returned as a ticket field in library event/error callbacks. Do not log WebSocket URLs at the edge or in a custom transport because ticket query parameters are credential material. Do not supply the reserved `reconnect` query parameter yourself.
 
+## Optional HTTP fallback
+
+Install and map `Cormier.Realtime.HttpFallback` on the gateway, then choose an ordered transport list. HTTP can be primary:
+
+```js
+new RealtimeClient({
+  url: "/realtime/ws",
+  transports: ["http-streaming"],
+  httpStreaming: { url: "/realtime/http" },
+});
+```
+
+Or it can take over only when WebSocket initialization fails:
+
+```js
+new RealtimeClient({
+  url: "/realtime/ws",
+  transports: ["websocket", "http-streaming"],
+  httpStreaming: { url: "/realtime/http" },
+});
+```
+
+The switch occurs only before a transport opens. An established transport that later disconnects follows the normal reconnect policy. `activeTransport` reports the current selection. The HTTP endpoint is explicit configuration and must be forwarded by any application adapter or ingress that sits in front of the gateway.
+
 ## Behavior
 
 - `connect`, `publish`, `subscribe`, `unsubscribe`, `ping`, and `disconnect` use the `cormier.realtime.v1` subprotocol.

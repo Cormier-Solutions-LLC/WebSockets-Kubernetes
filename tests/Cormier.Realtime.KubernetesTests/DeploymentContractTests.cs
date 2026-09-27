@@ -127,7 +127,7 @@ public sealed class DeploymentContractTests
         var certificate = Read("cluster/edge/development/certificate.yaml");
 
         Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
-        Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)", route, StringComparison.Ordinal);
+        Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && (Path(`{{ .Values.ingressRoute.path }}`) || PathPrefix(`{{ .Values.ingressRoute.fallbackPath }}/`))", route, StringComparison.Ordinal);
         Assert.Contains(".Values.ingressRoute.entryPoint", route, StringComparison.Ordinal);
         Assert.Contains("flushInterval: \"-1ms\"", route, StringComparison.Ordinal);
         Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);

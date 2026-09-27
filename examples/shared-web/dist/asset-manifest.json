@@ -31,23 +31,37 @@
         },
         {
           "path": "readable/app.js",
-          "bytes": 4438,
-          "gzipBytes": 1468,
-          "sha256": "e5192ced9e9fc57484c8f9fda9daa1ca05c61654dccc21c9ece763617d2c9e59",
-          "integrity": "sha384-sLUKrfjAA7X6a5nkuUts00nGhgoiOGoheDwBpBK+Zowa5mTLAEJrJnmvi/FgKCDH"
+          "bytes": 5654,
+          "gzipBytes": 1796,
+          "sha256": "b55a5909319788e855229897d7fb3696f08175a58491433de5cc84fbe8007230",
+          "integrity": "sha384-/I2KveMUGVks6tQwdUTKhSf9ngizXZpJ5O4IZ9h5Ml1ySd9zCdIY9utLKgdmPjE9"
         },
         {
           "path": "readable/index.html",
-          "bytes": 2051,
-          "gzipBytes": 950,
-          "sha256": "494c3f6709c811ab8e1b9ce719c2df4026a7fe4fa826a1cd0b0aa3161fa4bec2",
-          "integrity": "sha384-LsG5qsTyS6wWwCxqG5VUlmuzAlswcP0PJ4EtgtVvPag7nWFfm77g6vCk2Krk+gGI"
+          "bytes": 2466,
+          "gzipBytes": 1112,
+          "sha256": "9ef3d5da8fae910ab5e99380ba85c7865ba027e11cf5426af6044107f635af63",
+          "integrity": "sha384-ftJHDBmlJhQKFEXDlxEVVLwyzwcYZ3637IhtyO2//UxjteRWj2S3rCYEyFZrPknS"
+        },
+        {
+          "path": "readable/fallback.html",
+          "bytes": 2466,
+          "gzipBytes": 1112,
+          "sha256": "9ef3d5da8fae910ab5e99380ba85c7865ba027e11cf5426af6044107f635af63",
+          "integrity": "sha384-ftJHDBmlJhQKFEXDlxEVVLwyzwcYZ3637IhtyO2//UxjteRWj2S3rCYEyFZrPknS"
+        },
+        {
+          "path": "readable/failover.html",
+          "bytes": 2466,
+          "gzipBytes": 1112,
+          "sha256": "9ef3d5da8fae910ab5e99380ba85c7865ba027e11cf5426af6044107f635af63",
+          "integrity": "sha384-ftJHDBmlJhQKFEXDlxEVVLwyzwcYZ3637IhtyO2//UxjteRWj2S3rCYEyFZrPknS"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "0c28e4514b03ec92eff353324f0e0576cab89b10e5dc7dd50a0b84794d4872b7",
-        "integrity": "sha384-ZFmyk6R7F0BgN9f3Mh0Y8MU6H5MQO5L2aEsqsefwRFYWswkA0ot8BKMF6UUg4Wsh"
+        "sha256": "9c053a1be7e0cbb33e49a80788b6b6ed91bed17d70e2d6d7476ab42072d88285",
+        "integrity": "sha384-V5bLHjwFcllU4l84Dqbweiy5d9m5J3w6T487oo0ie7H66wpBBqysxGAjbYc5O69a"
       }
     },
     "optimized": {
@@ -61,17 +75,31 @@
         },
         {
           "path": "optimized/app.js",
-          "bytes": 3027,
-          "gzipBytes": 1197,
-          "sha256": "e6b51a38e48977da0fffbe49c33549ce7616d3fd80ab704ac6288c1d8e89dd99",
-          "integrity": "sha384-65lHdfH0kTk6drcJLnyLkNwYpnroO3xhCQooHEYdEMV3KFW2yFqzipf5XVdqKIqs"
+          "bytes": 3891,
+          "gzipBytes": 1472,
+          "sha256": "21be17fd8ff0e31d65fd23a0cd7f55a943a6fd5e0b66b1bde696664721a9dee5",
+          "integrity": "sha384-Nn43oHOWwSdHBcpsM+xzelkhNvfvfOy/lFTrcoN82B8YocZkuujEsnEzlLPd1U69"
         },
         {
           "path": "optimized/index.html",
-          "bytes": 1920,
-          "gzipBytes": 935,
-          "sha256": "1789d992c948954d193d00e366b32749f0e7e5d60c5ab380fe949c014b0391f6",
-          "integrity": "sha384-0avWlGRa19CnTWwGd5ACmxfBJe8tbI5EOS1sP8mhqaAzvO1q1G6WKh+ohjC/oR8D"
+          "bytes": 2305,
+          "gzipBytes": 1091,
+          "sha256": "4067569b2dc979860fae3a16410065e42926e1dbb28e02edd6677d2879934aa5",
+          "integrity": "sha384-1pHo8Rff+fiNCdPZX4fhjcybCJsx1Ffqa8NzAG8Y4n0EmZ6ayO6hjOuKgnZTlMtP"
+        },
+        {
+          "path": "optimized/fallback.html",
+          "bytes": 2305,
+          "gzipBytes": 1091,
+          "sha256": "4067569b2dc979860fae3a16410065e42926e1dbb28e02edd6677d2879934aa5",
+          "integrity": "sha384-1pHo8Rff+fiNCdPZX4fhjcybCJsx1Ffqa8NzAG8Y4n0EmZ6ayO6hjOuKgnZTlMtP"
+        },
+        {
+          "path": "optimized/failover.html",
+          "bytes": 2305,
+          "gzipBytes": 1091,
+          "sha256": "4067569b2dc979860fae3a16410065e42926e1dbb28e02edd6677d2879934aa5",
+          "integrity": "sha384-1pHo8Rff+fiNCdPZX4fhjcybCJsx1Ffqa8NzAG8Y4n0EmZ6ayO6hjOuKgnZTlMtP"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -82,16 +110,16 @@
         },
         {
           "path": "source-maps/optimized/app.js.map",
-          "bytes": 8076,
-          "gzipBytes": 2749,
-          "sha256": "63a8cd90d10d2c1ebb690a23a80d80125f65b0abf2c7090ea33b64cfbd5d3a22",
-          "integrity": "sha384-ESPEazASMuLUByJwFGoXsMqxxp94M4RCpllA2JwAFw8YnhaKIA/9vMKiSrhM1AK/"
+          "bytes": 10022,
+          "gzipBytes": 3314,
+          "sha256": "424438498cdb5f7b5df581a5057a30c4a8570cff0d7cb07ed8eb6b51f75a6b40",
+          "integrity": "sha384-5/d83bQZwPZ/j1UqyEkNi/KvwpBJ0ZJo9bWmbikZ8my+vndv8mnV1hqwcVzUjtu9"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "4837b47a7f3dec30f0049af35e31f9bd4f7dfe350b9999b3a79f9353cd135231",
-        "integrity": "sha384-Qx0XNjEFpVih3be2vOOHf601pa+VjhcKNoJwEikadJ8W1J4OLM/DRseScp8B/zfG"
+        "sha256": "1b10fa07f68a59aa2fc40b9c1f36539933c42aa405cc76eb6c882961b1695025",
+        "integrity": "sha384-sCP4vmMw2TSFzsWgsIesBZgTUvu8mpL5MAsX6of+b8zk6xvhL9SzkQ/Wv2wq+NRf"
       }
     }
   },

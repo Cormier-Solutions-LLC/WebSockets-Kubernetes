@@ -188,11 +188,33 @@ test("serves only the canonical shared UI and generated SDK", async () => {
   const context = fixture();
   const page = await request(context.app).get("/").expect(200);
   assert.match(page.text, /Cormier\.Realtime full circle/);
+  assert.match((await request(context.app).get("/fallback.html").expect(200)).text, /HTTP streaming/);
+  assert.match((await request(context.app).get("/failover.html").expect(200)).text, /transport failover/);
   assert.match((await request(context.app).get("/app.js").expect(200)).text, /CormierRealtime\.RealtimeClient/);
   const sdk = await request(context.app)
     .get("/_content/Cormier.Realtime.Browser/cormier-realtime.iife.js")
     .expect(200);
   assert.match(sdk.text, /CormierRealtime/);
+});
+
+test("forwards HTTP fallback requests without stripping their mounted path", async () => {
+  const context = fixture();
+  await request(context.app)
+    .post("/realtime/http/connections/connection-a/messages?mode=test")
+    .set("X-Cormier-Connection", "connection-token")
+    .set("Content-Type", "application/json")
+    .send({ type: "ping" })
+    .expect(202, { forwarded: true });
+
+  assert.equal(context.proxyCalls.length, 1);
+  assert.equal(context.proxyCalls[0].path, "/realtime/http/connections/connection-a/messages?mode=test");
+  assert.deepEqual(context.proxyCalls[0].options, {
+    target: context.config.gatewayUrl,
+    changeOrigin: false,
+    xfwd: false,
+    prependPath: true,
+    headers: { "x-forwarded-proto": "http" },
+  });
 });
 
 test("returns generic dependency failures and logs no sensitive values", async () => {

@@ -5,6 +5,7 @@ using Cormier.Realtime.AspNetCore;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Example.FullCircle;
 using Cormier.Realtime.Gateway;
+using Cormier.Realtime.HttpFallback;
 using Cormier.Realtime.Redis;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.FileProviders;
@@ -45,6 +46,7 @@ builder.Services.AddOptions<FullCircleOptions>()
     .Validate(options => options.AllowedUsers is { Length: > 0 } && options.AllowedUsers.All(IsSafeScope), "FullCircle:AllowedUsers must contain safe fixture identifiers.")
     .ValidateOnStart();
 builder.Services.AddRealtimeGateway(builder.Configuration);
+builder.Services.AddRealtimeHttpFallback(builder.Configuration);
 var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
 if (diagnosticsEnabled)
 {
@@ -89,6 +91,7 @@ if (developmentSharedAssets is null)
     app.MapStaticAssets();
 }
 app.MapRealtimeGateway();
+app.MapRealtimeHttpFallback();
 app.MapRealtimeDiagnostics();
 
 app.MapPost("/api/login", async (LoginRequest request, HttpContext context, IOptions<FullCircleOptions> settings,

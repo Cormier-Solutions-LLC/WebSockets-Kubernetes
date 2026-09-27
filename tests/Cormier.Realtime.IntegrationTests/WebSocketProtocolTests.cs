@@ -21,6 +21,69 @@ namespace Cormier.Realtime.IntegrationTests;
 public sealed class WebSocketProtocolTests
 {
     [Fact]
+    public async Task HttpFallbackPollReturnsCorrelatedAcknowledgment()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+        using var poll = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/poll");
+        poll.Headers.Add("X-Cormier-Connection", token);
+        var pollResponse = client.SendAsync(poll);
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/messages");
+        message.Headers.Add("X-Cormier-Connection", token);
+        message.Content = JsonContent.Create(Envelope(ProtocolMessageTypes.Ping, "http-correlation-1"),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        using var accepted = await client.SendAsync(message);
+        using var received = await pollResponse;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var response = await received.Content.ReadFromJsonAsync(
+            RealtimeJsonSerializerContext.Default.ServerMessageEnvelope,
+            timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+        Assert.Equal(ProtocolMessageTypes.Acknowledge, response?.Type);
+        Assert.Equal("http-correlation-1", response?.CorrelationId);
+        using var close = new HttpRequestMessage(HttpMethod.Delete, $"/realtime/http/connections/{id}");
+        close.Headers.Add("X-Cormier-Connection", token);
+        using var closed = await client.SendAsync(close);
+        Assert.Equal(HttpStatusCode.NoContent, closed.StatusCode);
+    }
+
+    [Fact]
+    public async Task HttpFallbackConnectionTokenIsRequired()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+
+        using var response = await client.PostAsync(
+            $"/realtime/http/connections/{id}/poll",
+            content: null,
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        using var close = new HttpRequestMessage(HttpMethod.Delete, $"/realtime/http/connections/{id}");
+        close.Headers.Add("X-Cormier-Connection", token);
+        using var closed = await client.SendAsync(close);
+        Assert.Equal(HttpStatusCode.NoContent, closed.StatusCode);
+    }
+
+    [Fact]
     public async Task AuthorizedPublishReturnsCorrelatedAcknowledgment()
     {
         await using var factory = new RealtimeFactory();

@@ -25,6 +25,9 @@
       "login",
       "logout",
       "state",
+      "transport",
+      "transport-controls",
+      "disable-websocket",
       "route",
       "payload",
       "connect",
@@ -57,7 +60,7 @@
     ]
   },
   "budgets": {
-    "optimizedBytes": 8192,
-    "optimizedGzipBytes": 4096
+    "optimizedBytes": 12288,
+    "optimizedGzipBytes": 6144
   }
 }

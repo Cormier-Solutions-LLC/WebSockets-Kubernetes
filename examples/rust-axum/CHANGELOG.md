@@ -2,6 +2,10 @@
 
 Operator-visible changes to the Rust/Axum reference application are recorded here. Entries identify features, fixes, security/configuration impact, breaking behavior, and required operator action.
 
+## 1.0.4-beta - 2026-09-27
+
+- See the coordinated release notes in `docs/release-notes/1.0.4-beta.md`.
+
 ## 1.0.3-beta - 2026-09-25
 
 - See the coordinated release notes in `docs/release-notes/1.0.3-beta.md`.

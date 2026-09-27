@@ -2,6 +2,10 @@
 
 Operator-visible features, fixes, security/configuration changes, breaking behavior, and required actions are recorded here.
 
+## 1.0.4-beta - 2026-09-27
+
+- See the coordinated release notes in `docs/release-notes/1.0.4-beta.md`.
+
 ## 1.0.3-beta - 2026-09-25
 
 - See the coordinated release notes in `docs/release-notes/1.0.3-beta.md`.

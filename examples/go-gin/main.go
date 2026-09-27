@@ -204,7 +204,7 @@ func (a *App) router() http.Handler {
 func (a *App) httpFallback(c *gin.Context) {
 	target := *a.config.GatewayURL
 	proxy := &httputil.ReverseProxy{
-		Transport: a.client.Transport,
+		Transport:     a.client.Transport,
 		FlushInterval: -1,
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(&target)

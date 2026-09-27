@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Gateway;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace Cormier.Realtime.HttpFallback;
@@ -15,7 +16,8 @@ internal sealed class HttpFallbackConnectionManager(
     RealtimeOptions realtimeOptions,
     HttpFallbackOptions options,
     GatewayState gatewayState,
-    GatewayMetrics metrics)
+    GatewayMetrics metrics,
+    ILogger<HttpFallbackConnectionManager> logger)
 {
     private readonly ConcurrentDictionary<string, State> _connections = new(StringComparer.Ordinal);
 
@@ -138,6 +140,7 @@ internal sealed class HttpFallbackConnectionManager(
         }
         catch (OperationCanceledException) when (state.Lifetime.IsCancellationRequested)
         {
+            HttpFallbackLog.BackgroundCancelled(logger, state.Id);
         }
     }
 

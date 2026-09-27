@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Cormier.Realtime.HttpFallback;
@@ -66,7 +67,7 @@ public static class HttpFallbackHostingExtensions
     }
 
     private static async Task StreamAsync(string connectionId, HttpContext context,
-        HttpFallbackConnectionManager manager)
+        HttpFallbackConnectionManager manager, ILogger<HttpFallbackConnectionManager> logger)
     {
         if (!TryGet(context, connectionId, manager, out var state) || !state.TryAttachStream())
         {
@@ -88,6 +89,7 @@ public static class HttpFallbackHostingExtensions
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
+            HttpFallbackLog.StreamAborted(logger, connectionId);
         }
         finally
         {
@@ -208,4 +210,19 @@ public static class HttpFallbackHostingExtensions
             foreach (var builder in builders) builder.Add(convention);
         }
     }
+}
+
+internal static partial class HttpFallbackLog
+{
+    [LoggerMessage(
+        EventId = 5000,
+        Level = LogLevel.Debug,
+        Message = "HTTP fallback connection {ConnectionId} background operation was cancelled.")]
+    public static partial void BackgroundCancelled(ILogger logger, string connectionId);
+
+    [LoggerMessage(
+        EventId = 5001,
+        Level = LogLevel.Debug,
+        Message = "HTTP fallback connection {ConnectionId} streaming request was cancelled by the client.")]
+    public static partial void StreamAborted(ILogger logger, string connectionId);
 }

@@ -178,7 +178,12 @@ async fn http_fallback(
     url.set_path(uri.path());
     url.set_query(uri.query());
     let mut outbound = state.http.request(method, url).body(body);
-    for name in [header::HOST, header::ORIGIN, header::COOKIE, header::CONTENT_TYPE] {
+    for name in [
+        header::HOST,
+        header::ORIGIN,
+        header::COOKIE,
+        header::CONTENT_TYPE,
+    ] {
         if let Some(value) = headers.get(&name) {
             outbound = outbound.header(name, value);
         }
@@ -190,7 +195,9 @@ async fn http_fallback(
     let upstream = outbound.send().await.map_err(|_| AppError::unavailable())?;
     let status = upstream.status();
     let content_type = upstream.headers().get(header::CONTENT_TYPE).cloned();
-    let mut response = Response::builder().status(status).header(header::CACHE_CONTROL, "no-store");
+    let mut response = Response::builder()
+        .status(status)
+        .header(header::CACHE_CONTROL, "no-store");
     if let Some(value) = content_type {
         response = response.header(header::CONTENT_TYPE, value);
     }

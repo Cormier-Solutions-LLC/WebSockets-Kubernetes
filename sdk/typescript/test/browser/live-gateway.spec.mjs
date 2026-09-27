@@ -76,7 +76,7 @@ for (const artifact of [
 test("plain HTML loads the generated direct script and establishes a session-issued ticket connection", async ({ page, context }) => {
   await context.addCookies([sessionCookie]);
   await page.goto("/examples/browser/index.html");
-  await expect(page.locator("#status")).toHaveText("open");
+  await expect(page.locator("#status")).toHaveText("open (websocket)");
 });
 
 test("single-use and expired tickets are rejected without credential disclosure", async ({ page, context }) => {

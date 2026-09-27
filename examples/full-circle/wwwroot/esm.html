@@ -11,6 +11,7 @@
     <h1>Cormier.Realtime full circle</h1>
     <p>ESM module: <strong id="esm-state">loading</strong></p>
     <p id="diagnostics">Loading application details…</p>
+    <section id="transport-controls" hidden></section>
     <section>
       <h2>Session</h2>
       <label>Tenant <input id="tenant" value="tenant-a" autocomplete="off"></label>
@@ -20,6 +21,7 @@
     <section>
       <h2>Realtime</h2>
       <p>State: <strong id="state">idle</strong></p>
+      <p>Active transport: <strong id="transport">none</strong></p>
       <label>Route <input id="route" value="topics/orders"></label>
       <label>Payload <input id="payload" value='{"message":"hello"}'></label>
       <button id="connect">Connect</button><button id="disconnect">Disconnect</button>

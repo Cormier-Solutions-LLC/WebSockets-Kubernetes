@@ -39,15 +39,15 @@
         {
           "path": "readable/index.html",
           "bytes": 2051,
-          "gzipBytes": 950,
-          "sha256": "494c3f6709c811ab8e1b9ce719c2df4026a7fe4fa826a1cd0b0aa3161fa4bec2",
-          "integrity": "sha384-LsG5qsTyS6wWwCxqG5VUlmuzAlswcP0PJ4EtgtVvPag7nWFfm77g6vCk2Krk+gGI"
+          "gzipBytes": 951,
+          "sha256": "f54c0aefd88edae6900340e5bedf3f7b8973fcd1d9964d83f69a3513e1d490ab",
+          "integrity": "sha384-1f34STst1VNDlX3/ZV1uUorfeK7O72E0xNUtLXbaMwyL2fdobVwUSx6cjBoKPBdW"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "0c28e4514b03ec92eff353324f0e0576cab89b10e5dc7dd50a0b84794d4872b7",
-        "integrity": "sha384-ZFmyk6R7F0BgN9f3Mh0Y8MU6H5MQO5L2aEsqsefwRFYWswkA0ot8BKMF6UUg4Wsh"
+        "sha256": "0ea6fc14f9ff6c909fb592135e0876357005ebf0c6ec2aec0065778019ccbfbb",
+        "integrity": "sha384-dONRinQj+1BofOEbIgkhK7XdSE8YelXY9dGXEBZ582jBGN0p2zR1eIX6NIZheq7G"
       }
     },
     "optimized": {
@@ -69,9 +69,9 @@
         {
           "path": "optimized/index.html",
           "bytes": 1920,
-          "gzipBytes": 935,
-          "sha256": "1789d992c948954d193d00e366b32749f0e7e5d60c5ab380fe949c014b0391f6",
-          "integrity": "sha384-0avWlGRa19CnTWwGd5ACmxfBJe8tbI5EOS1sP8mhqaAzvO1q1G6WKh+ohjC/oR8D"
+          "gzipBytes": 936,
+          "sha256": "ee07b0d43c248e4b9e9310233bd0c9259a68c639d1ac489768e4b8296b6dfc7c",
+          "integrity": "sha384-JKoA8akimqM8gxjOcKjWR8NInqjTcHaa+O17QlrOeDx5i8pITAqIsT9qTWQF4w1h"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -90,8 +90,8 @@
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "4837b47a7f3dec30f0049af35e31f9bd4f7dfe350b9999b3a79f9353cd135231",
-        "integrity": "sha384-Qx0XNjEFpVih3be2vOOHf601pa+VjhcKNoJwEikadJ8W1J4OLM/DRseScp8B/zfG"
+        "sha256": "d6548ff25dc9416fd5ae6b77a3c79270a42edcb6b9682e9fb87e71b677a9ccd7",
+        "integrity": "sha384-iOCU/JNVEAQT+zCxagnwz7IxM0UG6Qpf4w13vUSktdaa+mT1T3oXKi+QMq7dQTUu"
       }
     }
   },

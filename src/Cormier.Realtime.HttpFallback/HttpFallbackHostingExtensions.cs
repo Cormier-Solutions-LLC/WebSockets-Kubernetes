@@ -36,17 +36,22 @@ public static class HttpFallbackHostingExtensions
     public static IEndpointConventionBuilder MapRealtimeHttpFallback(this IEndpointRouteBuilder endpoints)
     {
         var options = endpoints.ServiceProvider.GetRequiredService<HttpFallbackOptions>();
-        var connect = endpoints.MapPost($"{options.BasePath}/connect", ConnectAsync);
-        var stream = endpoints.MapGet($"{options.BasePath}/connections/{{connectionId}}/stream", StreamAsync);
-        var messages = endpoints.MapPost($"{options.BasePath}/connections/{{connectionId}}/messages", MessagesAsync);
-        var poll = endpoints.MapPost($"{options.BasePath}/connections/{{connectionId}}/poll", PollAsync);
-        var close = endpoints.MapDelete($"{options.BasePath}/connections/{{connectionId}}", CloseAsync);
+        var connect = endpoints.MapPost($"{options.BasePath}/connect", (RequestDelegate)ConnectAsync);
+        var stream = endpoints.MapGet($"{options.BasePath}/connections/{{connectionId}}/stream",
+            (RequestDelegate)StreamAsync);
+        var messages = endpoints.MapPost($"{options.BasePath}/connections/{{connectionId}}/messages",
+            (RequestDelegate)MessagesAsync);
+        var poll = endpoints.MapPost($"{options.BasePath}/connections/{{connectionId}}/poll",
+            (RequestDelegate)PollAsync);
+        var close = endpoints.MapDelete($"{options.BasePath}/connections/{{connectionId}}",
+            (RequestDelegate)CloseAsync);
         return new CompositeBuilder(connect, stream, messages, poll, close);
     }
 
-    private static async Task ConnectAsync(HttpContext context, RealtimeAuthenticator authenticator,
-        HttpFallbackConnectionManager manager)
+    private static async Task ConnectAsync(HttpContext context)
     {
+        var authenticator = context.RequestServices.GetRequiredService<RealtimeAuthenticator>();
+        var manager = context.RequestServices.GetRequiredService<HttpFallbackConnectionManager>();
         var authentication = await authenticator.AuthenticateAsync(context, context.RequestAborted);
         if (!authentication.Succeeded)
         {
@@ -66,9 +71,11 @@ public static class HttpFallbackHostingExtensions
             context.RequestAborted);
     }
 
-    private static async Task StreamAsync(string connectionId, HttpContext context,
-        HttpFallbackConnectionManager manager, ILogger<HttpFallbackConnectionManager> logger)
+    private static async Task StreamAsync(HttpContext context)
     {
+        var connectionId = GetConnectionId(context);
+        var manager = context.RequestServices.GetRequiredService<HttpFallbackConnectionManager>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<HttpFallbackConnectionManager>>();
         if (!TryGet(context, connectionId, manager, out var state) || !state.TryAttachStream())
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -97,9 +104,11 @@ public static class HttpFallbackHostingExtensions
         }
     }
 
-    private static async Task MessagesAsync(string connectionId, HttpContext context,
-        HttpFallbackConnectionManager manager, RealtimeOptions options)
+    private static async Task MessagesAsync(HttpContext context)
     {
+        var connectionId = GetConnectionId(context);
+        var manager = context.RequestServices.GetRequiredService<HttpFallbackConnectionManager>();
+        var options = context.RequestServices.GetRequiredService<RealtimeOptions>();
         if (!TryGet(context, connectionId, manager, out var state))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -148,9 +157,11 @@ public static class HttpFallbackHostingExtensions
         context.Response.StatusCode = StatusCodes.Status202Accepted;
     }
 
-    private static async Task PollAsync(string connectionId, HttpContext context,
-        HttpFallbackConnectionManager manager, HttpFallbackOptions options)
+    private static async Task PollAsync(HttpContext context)
     {
+        var connectionId = GetConnectionId(context);
+        var manager = context.RequestServices.GetRequiredService<HttpFallbackConnectionManager>();
+        var options = context.RequestServices.GetRequiredService<HttpFallbackOptions>();
         if (!TryGet(context, connectionId, manager, out var state))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -187,9 +198,10 @@ public static class HttpFallbackHostingExtensions
         }
     }
 
-    private static async Task CloseAsync(string connectionId, HttpContext context,
-        HttpFallbackConnectionManager manager)
+    private static async Task CloseAsync(HttpContext context)
     {
+        var connectionId = GetConnectionId(context);
+        var manager = context.RequestServices.GetRequiredService<HttpFallbackConnectionManager>();
         if (!TryGet(context, connectionId, manager, out var state))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -202,6 +214,9 @@ public static class HttpFallbackHostingExtensions
     private static bool TryGet(HttpContext context, string id, HttpFallbackConnectionManager manager,
         out HttpFallbackConnectionManager.State state) =>
         manager.TryGet(id, context.Request.Headers["X-Cormier-Connection"].ToString(), out state!);
+
+    private static string GetConnectionId(HttpContext context) =>
+        context.Request.RouteValues["connectionId"]?.ToString() ?? string.Empty;
 
     private sealed class CompositeBuilder(params IEndpointConventionBuilder[] builders) : IEndpointConventionBuilder
     {

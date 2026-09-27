@@ -59,7 +59,7 @@ defmodule CormierRealtimeExample.Web do
 
   defp route("GET", [asset], conn, config)
        when asset in ["app.css", "app.js", "fallback.html", "failover.html"],
-    do: send_asset(conn, Path.join(config.shared_asset_root, asset))
+       do: send_asset(conn, Path.join(config.shared_asset_root, asset))
 
   defp route("GET", ["_content", "Cormier.Realtime.Browser", asset], conn, config) do
     if Regex.match?(~r/^[A-Za-z0-9._-]+$/, asset),
@@ -221,9 +221,12 @@ defmodule CormierRealtimeExample.Web do
     with {:ok, body, conn} <- read_bounded_body(conn),
          {:ok, response} <-
            Req.request(
-             method: if(method == "GET", do: :get, else: if(method == "POST", do: :post, else: :delete)),
-             url: config.gateway_url <> conn.request_path <>
-               if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
+             method:
+               if(method == "GET", do: :get, else: if(method == "POST", do: :post, else: :delete)),
+             url:
+               config.gateway_url <>
+                 conn.request_path <>
+                 if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
              body: body,
              headers: forward_headers(conn, config),
              connect_options: [timeout: 5_000],

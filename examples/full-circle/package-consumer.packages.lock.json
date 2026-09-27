@@ -25,6 +25,15 @@
         "resolved": "1.0.4-beta",
         "contentHash": "iCgXeSVPndIu2jxJWcY2TapX7bLA/V1PA6CZH0bJXvBNH09vuzyMjgSBpn93yTntEa1/QDWd9Q7aWIFg1btuJg=="
       },
+      "Cormier.Realtime.HttpFallback": {
+        "type": "Direct",
+        "requested": "[1.0.4-beta, )",
+        "resolved": "1.0.4-beta",
+        "contentHash": "placeholder",
+        "dependencies": {
+          "Cormier.Realtime.AspNetCore": "[1.0.4-beta, 1.1.0)"
+        }
+      },
       "Cormier.Realtime.Redis": {
         "type": "Transitive",
         "resolved": "1.0.4-beta",

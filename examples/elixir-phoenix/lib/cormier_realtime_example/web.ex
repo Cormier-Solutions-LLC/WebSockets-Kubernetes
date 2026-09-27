@@ -57,7 +57,8 @@ defmodule CormierRealtimeExample.Web do
   defp route("GET", [], conn, config),
     do: send_asset(conn, Path.join(config.shared_asset_root, "index.html"))
 
-  defp route("GET", [asset], conn, config) when asset in ["app.css", "app.js", "fallback.html", "failover.html"],
+  defp route("GET", [asset], conn, config)
+       when asset in ["app.css", "app.js", "fallback.html", "failover.html"],
     do: send_asset(conn, Path.join(config.shared_asset_root, asset))
 
   defp route("GET", ["_content", "Cormier.Realtime.Browser", asset], conn, config) do

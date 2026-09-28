@@ -19,5 +19,5 @@ export interface RealtimeTransportOptions {
     readonly httpStreaming?: HttpStreamingOptions;
     readonly webSocketFactory?: (url: string, protocol: string) => WebSocketLike;
 }
-export declare function createTransportSocket(websocketUrl: string, protocol: string, options: RealtimeTransportOptions): WebSocketLike;
+export declare function createTransportSocket(websocketUrl: string, protocol: string, options: RealtimeTransportOptions, nextConnectionUrl?: () => Promise<string>): WebSocketLike;
 //# sourceMappingURL=transport.d.ts.map

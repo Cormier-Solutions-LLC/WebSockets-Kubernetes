@@ -47,6 +47,7 @@ struct AppState {
     config: Config,
     store: SessionStore,
     http: Client,
+    stream_http: Client,
     stopping: tokio::sync::watch::Receiver<bool>,
     relays: Arc<RelayTracker>,
 }
@@ -108,11 +109,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15))
         .build()?;
+    let stream_http = Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .build()?;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let state = Arc::new(AppState {
         config: config.clone(),
         store,
         http,
+        stream_http,
         stopping: shutdown_rx,
         relays: Arc::new(RelayTracker::default()),
     });
@@ -177,7 +182,12 @@ async fn http_fallback(
     let mut url = state.config.gateway_url.clone();
     url.set_path(uri.path());
     url.set_query(uri.query());
-    let mut outbound = state.http.request(method, url).body(body);
+    let client = if method == Method::GET && uri.path().ends_with("/stream") {
+        &state.stream_http
+    } else {
+        &state.http
+    };
+    let mut outbound = client.request(method, url).body(body);
     for name in [
         header::HOST,
         header::ORIGIN,

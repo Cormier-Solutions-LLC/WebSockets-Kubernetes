@@ -84,6 +84,45 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task HttpFallbackRejectsOverlappingReceiversAndCommandsAfterClose()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+
+        using var firstPoll = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/poll");
+        firstPoll.Headers.Add("X-Cormier-Connection", token);
+        var activePoll = client.SendAsync(firstPoll);
+        await Task.Delay(100);
+
+        using var secondPoll = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/poll");
+        secondPoll.Headers.Add("X-Cormier-Connection", token);
+        using var conflict = await client.SendAsync(secondPoll);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+
+        using var close = new HttpRequestMessage(HttpMethod.Delete, $"/realtime/http/connections/{id}");
+        close.Headers.Add("X-Cormier-Connection", token);
+        using var closed = await client.SendAsync(close);
+        Assert.Equal(HttpStatusCode.NoContent, closed.StatusCode);
+        using var completedPoll = await activePoll;
+        Assert.Equal(HttpStatusCode.Gone, completedPoll.StatusCode);
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/messages");
+        message.Headers.Add("X-Cormier-Connection", token);
+        message.Content = JsonContent.Create(Envelope(ProtocolMessageTypes.Ping, "after-close"),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        using var rejected = await client.SendAsync(message);
+        Assert.Equal(HttpStatusCode.NotFound, rejected.StatusCode);
+    }
+
+    [Fact]
     public async Task AuthorizedPublishReturnsCorrelatedAcknowledgment()
     {
         await using var factory = new RealtimeFactory();

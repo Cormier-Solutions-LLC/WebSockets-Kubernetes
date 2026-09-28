@@ -69,6 +69,8 @@ export function createApp({ config, redisClient, proxy, logger = console, ticket
     limit: 120,
     standardHeaders: "draft-8",
     legacyHeaders: false,
+    skip: (request) => request.get("x-cormier-connection") !== undefined
+      && /^\/realtime\/http\/connections\/[^/]+\/(?:poll|stream)$/u.test(request.path),
     message: { code: "rate_limited", message: "Too many requests." },
   }));
   app.use(session({

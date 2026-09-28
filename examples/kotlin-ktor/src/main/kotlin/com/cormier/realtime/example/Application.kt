@@ -3,6 +3,7 @@ package com.cormier.realtime.example
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
@@ -274,12 +275,13 @@ private suspend fun proxyHttpFallback(
     upstreamMethod: HttpMethod,
 ) {
     val body = readLimitedBody(call.receiveChannel())
+    val streaming = upstreamMethod == HttpMethod.Get && call.request.path().endsWith("/stream")
     client.prepareRequest(config.gatewayUrl.resolve(call.request.uri).toString()) {
         method = upstreamMethod
         timeout {
-            requestTimeoutMillis = 40_000
+            requestTimeoutMillis = if (streaming) HttpTimeoutConfig.INFINITE_TIMEOUT_MS else 40_000
             connectTimeoutMillis = 5_000
-            socketTimeoutMillis = 40_000
+            socketTimeoutMillis = if (streaming) HttpTimeoutConfig.INFINITE_TIMEOUT_MS else 40_000
         }
         header(HttpHeaders.Host, call.request.header(HttpHeaders.Host))
         header(HttpHeaders.Origin, call.request.header(HttpHeaders.Origin))

@@ -137,7 +137,7 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 60 * time.Second}
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 35 * time.Second, IdleConnTimeout: 60 * time.Second}
 	app := &App{config: config, store: store, client: &http.Client{Transport: transport, Timeout: 15 * time.Second}, connections: newWebsocketRegistry()}
 	server := &http.Server{Addr: net.JoinHostPort(config.ListenHost, fmt.Sprintf("%d", config.Port)), Handler: app.router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	listener, err := net.Listen("tcp", server.Addr)

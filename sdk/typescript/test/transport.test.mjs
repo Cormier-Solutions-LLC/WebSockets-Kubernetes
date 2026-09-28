@@ -63,6 +63,45 @@ test("initial WebSocket failure falls through to HTTP streaming", async () => {
   await client.disconnect();
 });
 
+test("ticket failover obtains a fresh single-use ticket for the next transport", async () => {
+  const harness = httpHarness();
+  let ticketRequests = 0;
+  const client = new RealtimeClient({
+    url: "https://gateway.example/realtime/ws",
+    authentication: {
+      kind: "ticket",
+      fetch: async () => Response.json({
+        ticket: `fallback-ticket-${String(++ticketRequests).padStart(32, "0")}`,
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      }),
+    },
+    transports: ["websocket", "http-streaming"],
+    webSocketFactory: () => { throw new Error("disabled for test"); },
+    httpStreaming: { url: "https://gateway.example/realtime/http", fetch: harness.fetch },
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+
+  await client.connect();
+  assert.equal(ticketRequests, 2);
+  const connect = harness.requests.find(({ url }) => url.pathname.endsWith("/connect"));
+  assert.equal(connect.url.searchParams.get("ticket"), "fallback-ticket-00000000000000000000000000000002");
+  await client.disconnect();
+});
+
+test("a synchronous HTTP fetch failure is observed after handlers are attached", async () => {
+  const client = new RealtimeClient({
+    url: "https://gateway.example/realtime/ws",
+    transports: ["http-streaming"],
+    httpStreaming: {
+      url: "https://gateway.example/realtime/http",
+      fetch: () => { throw new Error("synchronous fetch failure"); },
+    },
+    heartbeatIntervalMilliseconds: 60_000,
+  });
+
+  await assert.rejects(client.connect(), /connection failed/i);
+});
+
 test("HTTP streaming selection requires explicit endpoint configuration", () => {
   assert.throws(
     () => new RealtimeClient({ url: "https://gateway.example/realtime/ws", transports: ["http-streaming"] }),

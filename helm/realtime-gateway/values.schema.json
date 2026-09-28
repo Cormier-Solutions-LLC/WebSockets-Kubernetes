@@ -99,13 +99,14 @@
     "service": { "type": "object", "required": ["port", "targetPort"], "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "targetPort": { "type": "integer", "minimum": 1024, "maximum": 65535 } } },
     "ingressRoute": {
       "type": "object",
-      "required": ["enabled", "entryPoint", "host", "path", "fallbackPath", "tlsSecretName"],
+      "required": ["enabled", "entryPoint", "host", "path", "fallbackPath", "affinityCookieName", "tlsSecretName"],
       "properties": {
         "enabled": { "type": "boolean" },
         "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "minLength": 1, "maxLength": 63 },
         "host": { "type": "string", "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" },
         "path": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
         "fallbackPath": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
+        "affinityCookieName": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
         "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" }
       },
       "allOf": [

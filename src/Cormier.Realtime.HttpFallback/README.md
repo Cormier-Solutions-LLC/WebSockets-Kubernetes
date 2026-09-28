@@ -12,3 +12,5 @@ app.MapRealtimeHttpFallback();
 ```
 
 Configure `HttpFallback:BasePath` explicitly when `/realtime/http` is not appropriate. `ConnectionTimeoutSeconds` bounds how long a newly created connection may wait for its first receiver, and `PollTimeoutSeconds` bounds each long-poll request. The browser SDK only uses these endpoints when `transports` includes `http-streaming`; installing this package does not change existing WebSocket clients.
+
+Fallback connection state is held by the gateway process. Multi-replica deployments must keep every request for one fallback connection on the same replica; the supplied Traefik `IngressRoute` configures cookie affinity for this purpose. Configure equivalent connection affinity when using a different ingress or load balancer.

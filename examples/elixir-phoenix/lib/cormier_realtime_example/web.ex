@@ -218,6 +218,40 @@ defmodule CormierRealtimeExample.Web do
 
   defp route(method, ["realtime", "http" | _], conn, config)
        when method in ["GET", "POST", "DELETE"] do
+    if method == "GET" and String.ends_with?(conn.request_path, "/stream") do
+      proxy_http_stream(conn, config)
+    else
+      proxy_http_request(method, conn, config)
+    end
+  end
+
+  defp route("GET", ["realtime", "ws"], conn, config) do
+    with :ok <- origin(conn, config),
+         :ok <- websocket_protocol(conn) do
+      state = %{
+        url: websocket_url(config.gateway_url, conn.query_string),
+        origin: config.public_origin,
+        cookie: get_req_header(conn, "cookie") |> List.first(),
+        host: authority(conn),
+        forwarded_proto: CormierRealtimeExample.Config.public_scheme(config),
+        protocol: @protocol
+      }
+
+      conn
+      |> put_resp_header("sec-websocket-protocol", @protocol)
+      |> WebSockAdapter.upgrade(CormierRealtimeExample.ProxySocket, state,
+        timeout: 60_000,
+        max_frame_size: @max_body
+      )
+    else
+      {:error, :origin} -> origin_error(conn)
+      {:error, :protocol} -> protocol_error(conn)
+    end
+  end
+
+  defp route(_, _, conn, _config), do: send_resp(conn, 404, "")
+
+  defp proxy_http_request(method, conn, config) do
     with {:ok, body, conn} <- read_bounded_body(conn),
          {:ok, response} <-
            Req.request(
@@ -247,31 +281,35 @@ defmodule CormierRealtimeExample.Web do
     end
   end
 
-  defp route("GET", ["realtime", "ws"], conn, config) do
-    with :ok <- origin(conn, config),
-         :ok <- websocket_protocol(conn) do
-      state = %{
-        url: websocket_url(config.gateway_url, conn.query_string),
-        origin: config.public_origin,
-        cookie: get_req_header(conn, "cookie") |> List.first(),
-        host: authority(conn),
-        forwarded_proto: CormierRealtimeExample.Config.public_scheme(config),
-        protocol: @protocol
-      }
+  defp proxy_http_stream(conn, config) do
+    with {:ok, response} <-
+           Req.get(
+             config.gateway_url <>
+               conn.request_path <>
+               if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
+             headers: forward_headers(conn, config),
+             connect_options: [timeout: 5_000],
+             receive_timeout: :infinity,
+             into: :self,
+             retry: false
+           ) do
+      content_type = List.first(response.headers["content-type"] || ["application/x-ndjson"])
 
-      conn
-      |> put_resp_header("sec-websocket-protocol", @protocol)
-      |> WebSockAdapter.upgrade(CormierRealtimeExample.ProxySocket, state,
-        timeout: 60_000,
-        max_frame_size: @max_body
-      )
+      streamed =
+        conn
+        |> put_resp_header("content-type", content_type)
+        |> send_chunked(response.status)
+
+      Enum.reduce_while(response.body, streamed, fn data, current ->
+        case chunk(current, data) do
+          {:ok, next} -> {:cont, next}
+          {:error, _reason} -> {:halt, current}
+        end
+      end)
     else
-      {:error, :origin} -> origin_error(conn)
-      {:error, :protocol} -> protocol_error(conn)
+      _ -> unavailable(conn)
     end
   end
-
-  defp route(_, _, conn, _config), do: send_resp(conn, 404, "")
 
   defp origin(conn, config),
     do:

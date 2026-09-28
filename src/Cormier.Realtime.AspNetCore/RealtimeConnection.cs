@@ -182,6 +182,13 @@ public sealed class RealtimeConnection : IAsyncDisposable
                 return false;
             }
 
+            if (Volatile.Read(ref _queuedMessages) >= _options.OutboundQueueCapacity)
+            {
+                _metrics.RecordQueueDrop();
+                Interlocked.Increment(ref _slowConsumerStrikes);
+                return false;
+            }
+
             Interlocked.Increment(ref _queuedMessages);
             _metrics.RecordQueueEnqueued();
             if (!_outbound.Writer.TryWrite(message))
@@ -210,15 +217,16 @@ public sealed class RealtimeConnection : IAsyncDisposable
     {
         await foreach (var message in _outbound.Reader.ReadAllAsync(cancellationToken))
         {
-            RemoveQueuedMessage();
             var started = Stopwatch.GetTimestamp();
-            var payload = JsonSerializer.SerializeToUtf8Bytes(
-                message,
-                RealtimeJsonSerializerContext.Default.ServerMessageEnvelope);
-            await _sendLock.WaitAsync(cancellationToken);
             var outcome = "failure";
+            var lockTaken = false;
             try
             {
+                var payload = JsonSerializer.SerializeToUtf8Bytes(
+                    message,
+                    RealtimeJsonSerializerContext.Default.ServerMessageEnvelope);
+                await _sendLock.WaitAsync(cancellationToken);
+                lockTaken = true;
                 if (!_transport.IsOpen)
                 {
                     return;
@@ -236,7 +244,11 @@ public sealed class RealtimeConnection : IAsyncDisposable
             finally
             {
                 _metrics.RecordHandlerDuration("send", Stopwatch.GetElapsedTime(started), outcome);
-                _sendLock.Release();
+                if (lockTaken)
+                {
+                    _sendLock.Release();
+                }
+                RemoveQueuedMessage();
             }
         }
     }

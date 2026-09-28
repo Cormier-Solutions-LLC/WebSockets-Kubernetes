@@ -29,7 +29,7 @@ internal sealed class HttpFallbackConnectionManager(
         }
         var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-        var transport = new HttpFallbackTransport(realtimeOptions.OutboundQueueCapacity);
+        var transport = new HttpFallbackTransport();
         var connection = new RealtimeConnection(
             transport,
             authentication.Identity!,
@@ -60,7 +60,9 @@ internal sealed class HttpFallbackConnectionManager(
         }
         var expected = Encoding.ASCII.GetBytes(state.Token);
         var supplied = Encoding.ASCII.GetBytes(token);
-        return expected.Length == supplied.Length && CryptographicOperations.FixedTimeEquals(expected, supplied);
+        var tokenValid = expected.Length == supplied.Length &&
+            CryptographicOperations.FixedTimeEquals(expected, supplied);
+        return tokenValid && state.Connection.IsOpen;
     }
 
     public async Task<bool> DispatchAsync(State state, MessageEnvelope envelope, CancellationToken cancellationToken)
@@ -114,10 +116,10 @@ internal sealed class HttpFallbackConnectionManager(
         try
         {
             var sender = state.Connection.RunSenderAsync(state.Lifetime.Token);
-            await Task.Delay(TimeSpan.FromSeconds(options.ConnectionTimeoutSeconds), state.Lifetime.Token);
-            if (!state.StreamAttached)
+            if (!await state.WaitForReceiverAsync(
+                    TimeSpan.FromSeconds(options.ConnectionTimeoutSeconds), state.Lifetime.Token))
             {
-                await CloseAsync(state, "http_stream_timeout", CancellationToken.None);
+                await CloseAsync(state, "http_receiver_timeout", CancellationToken.None);
                 await sender;
                 return;
             }
@@ -178,16 +180,50 @@ internal sealed class HttpFallbackConnectionManager(
         RealtimeConnection connection,
         HttpFallbackTransport transport)
     {
-        private int _streamAttached;
+        private int _receiverMode;
+        private readonly TaskCompletionSource _receiverAttached =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string Id { get; } = id;
         public string Token { get; } = token;
         public RealtimeConnection Connection { get; } = connection;
         public HttpFallbackTransport Transport { get; } = transport;
         public CancellationTokenSource Lifetime { get; } = new();
         public Task Background { get; set; } = Task.CompletedTask;
-        public bool StreamAttached => Volatile.Read(ref _streamAttached) == 1;
-        public bool TryAttachStream() => Interlocked.CompareExchange(ref _streamAttached, 1, 0) == 0;
-        public SemaphoreSlim ReceiveGate { get; } = new(1, 1);
-        public void MarkClientAttached() => Interlocked.Exchange(ref _streamAttached, 1);
+        public SemaphoreSlim InboundGate { get; } = new(1, 1);
+
+        public bool TryAttachStream()
+        {
+            if (Interlocked.CompareExchange(ref _receiverMode, 2, 0) != 0)
+            {
+                return false;
+            }
+            _receiverAttached.TrySetResult();
+            return true;
+        }
+
+        public bool TryBeginPoll()
+        {
+            if (Interlocked.CompareExchange(ref _receiverMode, 1, 0) != 0)
+            {
+                return false;
+            }
+            _receiverAttached.TrySetResult();
+            return true;
+        }
+
+        public void EndPoll() => Interlocked.CompareExchange(ref _receiverMode, 0, 1);
+
+        public async Task<bool> WaitForReceiverAsync(TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _receiverAttached.Task.WaitAsync(timeout, cancellationToken);
+                return true;
+            }
+            catch (TimeoutException)
+            {
+                return false;
+            }
+        }
     }
 }

@@ -273,7 +273,7 @@ public sealed class ProtocolSecurityTests
         Assert.True(slow.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "sending")));
         var slowSender = slow.RunSenderAsync(senders.Token);
         await slowSocket.SendEntered.WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.True(slow.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "queued")));
+        Assert.False(slow.TryEnqueue(RealtimeDispatcher.Error(null, ProtocolErrorCodes.InternalError, "queued")));
         var fastSender = fast.RunSenderAsync(senders.Token);
 
         var delivery = registry.DeliverAsync(

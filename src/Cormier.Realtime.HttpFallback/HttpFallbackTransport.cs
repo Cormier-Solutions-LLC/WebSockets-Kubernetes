@@ -4,9 +4,9 @@ using Cormier.Realtime.Gateway;
 
 namespace Cormier.Realtime.HttpFallback;
 
-internal sealed class HttpFallbackTransport(int capacity) : IRealtimeServerTransport
+internal sealed class HttpFallbackTransport : IRealtimeServerTransport
 {
-    private readonly Channel<byte[]> _outbound = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(capacity)
+    private readonly Channel<HttpFallbackPayload> _outbound = Channel.CreateBounded<HttpFallbackPayload>(new BoundedChannelOptions(1)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
@@ -17,12 +17,31 @@ internal sealed class HttpFallbackTransport(int capacity) : IRealtimeServerTrans
 
     public bool IsOpen => Volatile.Read(ref _open) == 1;
 
-    public ChannelReader<byte[]> Outbound => _outbound.Reader;
-
     public async ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(!IsOpen, this);
-        await _outbound.Writer.WriteAsync(payload.ToArray(), cancellationToken);
+        var pending = new HttpFallbackPayload(payload.ToArray());
+        await _outbound.Writer.WriteAsync(pending, cancellationToken);
+        await pending.Consumed.Task.WaitAsync(cancellationToken);
+    }
+
+    public ValueTask<HttpFallbackPayload> ReadAsync(CancellationToken cancellationToken) =>
+        _outbound.Reader.ReadAsync(cancellationToken);
+
+    public async IAsyncEnumerable<HttpFallbackPayload> ReadAllAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var pending in _outbound.Reader.ReadAllAsync(cancellationToken))
+        {
+            try
+            {
+                yield return pending;
+            }
+            finally
+            {
+                pending.Complete();
+            }
+        }
     }
 
     public ValueTask CloseAsync(WebSocketCloseStatus status, string description, CancellationToken cancellationToken)
@@ -45,5 +64,11 @@ internal sealed class HttpFallbackTransport(int capacity) : IRealtimeServerTrans
         {
             _outbound.Writer.TryComplete();
         }
+    }
+
+    internal sealed record HttpFallbackPayload(byte[] Payload)
+    {
+        public TaskCompletionSource Consumed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Complete() => Consumed.TrySetResult();
     }
 }

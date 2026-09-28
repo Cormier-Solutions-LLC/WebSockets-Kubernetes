@@ -164,6 +164,31 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task HttpFallbackPendingSendDoesNotBlockRegistryClose()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/messages");
+        message.Headers.Add("X-Cormier-Connection", token);
+        message.Content = JsonContent.Create(Envelope(ProtocolMessageTypes.Ping, "pending-close"),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        using var accepted = await client.SendAsync(message);
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+        await Task.Delay(100);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await factory.Services.GetRequiredService<RealtimeConnectionRegistry>().CloseAllAsync(timeout.Token);
+    }
+
+    [Fact]
     public async Task AuthorizedPublishReturnsCorrelatedAcknowledgment()
     {
         await using var factory = new RealtimeFactory();

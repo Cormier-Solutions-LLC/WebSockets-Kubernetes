@@ -26,6 +26,11 @@ public interface IRealtimeServerTransport : IAsyncDisposable
     void Abort();
 }
 
+internal interface IInterruptibleRealtimeServerTransport
+{
+    void CancelPendingSend();
+}
+
 internal sealed class RealtimeWebSocketServerTransport(WebSocket socket) : IRealtimeServerTransport
 {
     public WebSocket Socket { get; } = socket;
@@ -267,6 +272,10 @@ public sealed class RealtimeConnection : IAsyncDisposable
         try
         {
             _outbound.Writer.TryComplete();
+            if (_transport is IInterruptibleRealtimeServerTransport interruptible)
+            {
+                interruptible.CancelPendingSend();
+            }
             await _sendLock.WaitAsync(cancellationToken);
             lockTaken = true;
             await _transport.CloseAsync(status, description, cancellationToken);

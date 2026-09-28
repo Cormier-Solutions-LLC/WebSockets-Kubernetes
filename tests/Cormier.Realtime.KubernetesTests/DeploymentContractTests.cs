@@ -1,6 +1,7 @@
 namespace Cormier.Realtime.KubernetesTests;
 
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 public sealed class DeploymentContractTests
@@ -55,6 +56,12 @@ public sealed class DeploymentContractTests
         Assert.Equal(1, nonHaAutoscaling.GetProperty("minReplicas").GetProperty("const").GetInt32());
         Assert.Equal(1, nonHaAutoscaling.GetProperty("maxReplicas").GetProperty("const").GetInt32());
         Assert.Contains("Gateway__Topology: {{ .Values.topology", Read("helm/realtime-gateway/templates/configmap.yaml"), StringComparison.Ordinal);
+        var fallbackPathPattern = schema.RootElement.GetProperty("properties")
+            .GetProperty("ingressRoute").GetProperty("properties")
+            .GetProperty("fallbackPath").GetProperty("pattern").GetString()!;
+        Assert.Matches(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/edge/fallback");
+        Assert.DoesNotMatch(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/");
+        Assert.DoesNotMatch(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/edge/");
     }
 
     [Fact]

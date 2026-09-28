@@ -105,7 +105,7 @@
         "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "minLength": 1, "maxLength": 63 },
         "host": { "type": "string", "pattern": "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" },
         "path": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
-        "fallbackPath": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
+        "fallbackPath": { "type": "string", "pattern": "^/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$" },
         "affinityCookieName": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
         "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" }
       },

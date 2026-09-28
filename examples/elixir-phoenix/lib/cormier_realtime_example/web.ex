@@ -302,11 +302,18 @@ defmodule CormierRealtimeExample.Web do
         |> put_resp_header("content-type", content_type)
         |> send_chunked(response.status)
 
-      Enum.reduce_while(response.body, streamed, fn data, current ->
-        case chunk(current, data) do
-          {:ok, next} -> {:cont, next}
-          {:error, _reason} -> {:halt, current}
-        end
+      Enum.reduce_while(response.body, streamed, fn
+        {:data, data}, current ->
+          case chunk(current, data) do
+            {:ok, next} -> {:cont, next}
+            {:error, _reason} -> {:halt, current}
+          end
+
+        {:error, _reason}, current ->
+          {:halt, current}
+
+        _event, current ->
+          {:cont, current}
       end)
     else
       _ -> unavailable(conn)

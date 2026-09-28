@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import { parse, relative, resolve } from "node:path";
 
 const serviceNeedle = "spec:\n  type: {{ .Values.sentinel.service.type }}";
@@ -82,6 +82,28 @@ export async function captureManagedRedisChart({ chart, version, outputDirectory
   return pullManagedRedisChart({ chart, version, outputDirectory, helm, deadline: lifecycleDeadline(timeoutSeconds) });
 }
 
+async function readCachedManagedRedisChart({ chart, version, cacheDirectory }) {
+  validateChartIdentity(chart, version);
+  const cache = resolve(cacheDirectory);
+  const metadata = JSON.parse(await readFile(resolve(cache, "chart-source.json"), "utf8"));
+  if (metadata.chart !== chart || metadata.version !== version || !/^sha256:[a-f0-9]{64}$/.test(metadata.archiveSha256)) {
+    throw new Error("Cached managed Redis chart provenance does not match the installed release.");
+  }
+  const source = resolve(cache, `redis-${version}.tgz`);
+  const bytes = await readFile(source);
+  const actual = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  if (actual !== metadata.archiveSha256) throw new Error("Cached managed Redis chart archive checksum does not match its provenance metadata.");
+  return { archivePath: source, archiveSha256: actual };
+}
+
+export async function copyCachedManagedRedisChart({ chart, version, cacheDirectory, outputDirectory }) {
+  const cached = await readCachedManagedRedisChart({ chart, version, cacheDirectory });
+  const destination = resolve(outputDirectory, `redis-${version}.tgz`);
+  await mkdir(resolve(outputDirectory), { recursive: true });
+  await copyFile(cached.archivePath, destination);
+  return { archivePath: destination, archiveSha256: cached.archiveSha256 };
+}
+
 export async function prepareManagedRedisChart({
   chart,
   version,
@@ -100,9 +122,14 @@ export async function prepareManagedRedisChart({
   await mkdir(destination, { recursive: true });
   await rm(chartDirectory, { recursive: true, force: true });
 
-  const pulled = archivePath
-    ? { archivePath: resolve(archivePath), archiveSha256: `sha256:${createHash("sha256").update(await readFile(resolve(archivePath))).digest("hex")}` }
-    : await pullManagedRedisChart({ chart, version, outputDirectory: destination, helm, deadline });
+  const destinationArchive = resolve(destination, `redis-${version}.tgz`);
+  if (archivePath && resolve(archivePath) !== destinationArchive) await copyFile(resolve(archivePath), destinationArchive);
+  let pulled;
+  if (archivePath) pulled = { archivePath: destinationArchive, archiveSha256: `sha256:${createHash("sha256").update(await readFile(destinationArchive)).digest("hex")}` };
+  else {
+    try { pulled = await readCachedManagedRedisChart({ chart, version, cacheDirectory: destination }); }
+    catch { pulled = await pullManagedRedisChart({ chart, version, outputDirectory: destination, helm, deadline }); }
+  }
   if (pulled.archiveSha256 !== archiveSha256) {
     if (!archivePath) await rm(pulled.archivePath, { force: true });
     throw new Error(`Managed Redis chart archive checksum mismatch: expected ${archiveSha256}, received ${pulled.archiveSha256}.`);
@@ -113,7 +140,7 @@ export async function prepareManagedRedisChart({
   const patched = patchSentinelService(await readFile(servicePath, "utf8"));
   const { atomicWrite } = await import("./bootstrap-contract.mjs");
   await atomicWrite(servicePath, patched);
-  if (!archivePath) await rm(pulled.archivePath, { force: true });
+  await atomicWrite(resolve(destination, "chart-source.json"), `${JSON.stringify({ chart, version, archiveSha256: pulled.archiveSha256 })}\n`);
   return { chartDirectory, servicePath, archiveSha256: pulled.archiveSha256 };
 }
 

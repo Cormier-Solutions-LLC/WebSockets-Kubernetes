@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
-import { captureManagedRedisChart, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
+import { captureManagedRedisChart, copyCachedManagedRedisChart, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -157,6 +157,12 @@ async function assertTarget(plan, config, options, mutation) {
     const pullSecret = await command("kubectl", ["get", "secret", config.image.pullSecretName, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate image pull Secret reference", { ...options, capture: true });
     if (!pullSecret) throw new Error(`Image pull Secret '${config.image.pullSecretName}' does not exist in '${plan.target.namespace}'.`);
   }
+  if (config.redis.mode === "managed") {
+    for (const secretName of config.redis.managedImagePullSecrets ?? []) {
+      const pullSecret = await command("kubectl", ["get", "secret", secretName, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate managed Redis image pull Secret reference", { ...options, capture: true });
+      if (!pullSecret) throw new Error(`Managed Redis image pull Secret '${secretName}' does not exist in '${plan.target.namespace}'.`);
+    }
+  }
   const secret = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate credential Secret reference", { ...options, capture: true });
   if (!secret) throw new Error(`Credential Secret '${config.redis.credentialsSecret}' does not exist in '${plan.target.namespace}'.`);
   const keyListing = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--output", "go-template={{range $key, $_ := .data}}{{$key}}{{\"\\n\"}}{{end}}"], "Validate credential Secret keys", { ...options, capture: true });
@@ -208,14 +214,33 @@ async function saveState(plan, config, options) {
           capturedPlan.managedRedis ??= {};
           capturedPlan.managedRedis.chart = chart;
           capturedPlan.managedRedis.chartVersion = chartVersion;
-          const capturedChart = await captureManagedRedisChart({
-            chart,
-            version: chartVersion,
-            outputDirectory: directory,
-            timeoutSeconds: options.timeoutSeconds,
-          });
-          capturedPlan.managedRedis.chartArchiveSha256 = capturedChart.archiveSha256;
-          capturedPlan.managedRedis.chartArchiveFile = basename(capturedChart.archivePath);
+          let capturedChart;
+          try {
+            capturedChart = await copyCachedManagedRedisChart({
+              chart,
+              version: chartVersion,
+              cacheDirectory: managedRedisChartOutput(options.generatedRoot, options.targetName, chartVersion),
+              outputDirectory: directory,
+            });
+          } catch (cacheError) {
+            if (options.action === "rollback") {
+              emit("warn", options.action, "Current managed Redis chart is not cached; continuing the explicitly selected self-contained rollback without a restorable pre-change chart archive.", { reason: cacheError.message });
+            } else {
+              capturedChart = await captureManagedRedisChart({
+                chart,
+                version: chartVersion,
+                outputDirectory: directory,
+                timeoutSeconds: options.timeoutSeconds,
+              });
+            }
+          }
+          if (capturedChart) {
+            capturedPlan.managedRedis.chartArchiveSha256 = capturedChart.archiveSha256;
+            capturedPlan.managedRedis.chartArchiveFile = basename(capturedChart.archivePath);
+          } else {
+            delete capturedPlan.managedRedis.chartArchiveSha256;
+            delete capturedPlan.managedRedis.chartArchiveFile;
+          }
         }
         await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
       }
@@ -309,7 +334,8 @@ async function apply(plan, config, options) {
     redisArgs.push("--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--history-max", "0", "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
     await command("helm", redisArgs, "Install or update managed Redis", options);
     if (options.action === "recover") {
-      const statefulSet = `statefulset/${plan.target.redisRelease}-node`;
+      const statefulSetName = plan.managedRedis.values.architecture === "replication" ? `${plan.target.redisRelease}-node` : `${plan.target.redisRelease}-master`;
+      const statefulSet = `statefulset/${statefulSetName}`;
       await command("kubectl", ["rollout", "restart", statefulSet, "--namespace", plan.target.namespace], "Restart managed Redis after referenced Secret rotation", options);
       await command("kubectl", ["rollout", "status", statefulSet, "--namespace", plan.target.namespace, `--timeout=${options.timeoutSeconds}s`], "Verify managed Redis recovery rollout", options);
     }
@@ -474,6 +500,7 @@ function configurationForPlan(config, plan) {
   captured.redis.credentialsSecret = values.redis?.credentialsSecret?.name ?? captured.redis.credentialsSecret;
   captured.redis.credentialKey = values.redis?.credentialsSecret?.passwordKey ?? captured.redis.credentialKey;
   captured.redis.adminCredentialKey = values.redis?.managedAdminPasswordKey ?? captured.redis.adminCredentialKey;
+  captured.redis.managedImagePullSecrets = plan.managedRedis?.values?.global?.imagePullSecrets ?? captured.redis.managedImagePullSecrets ?? [];
   captured.ingress.enabled = values.ingressRoute?.enabled ?? captured.ingress.enabled;
   captured.ingress.tlsSecretName = values.ingressRoute?.tlsSecretName ?? captured.ingress.tlsSecretName;
   captured.observability.serviceMonitor = values.observability?.serviceMonitor?.enabled ?? captured.observability.serviceMonitor;

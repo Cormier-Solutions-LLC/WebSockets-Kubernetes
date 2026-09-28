@@ -14,6 +14,7 @@ export function normalizePasswordBytes(input, label = "password") {
   while (end > 0 && (bytes[end - 1] === 10 || bytes[end - 1] === 13)) end--;
   const normalized = bytes.subarray(0, end);
   if (normalized.length < 16) throw new Error(`${label} must contain at least 16 bytes after trailing CR/LF removal.`);
+  if (normalized.includes(0)) throw new Error(`${label} must not contain NUL bytes because Kubernetes environment variables cannot represent them.`);
   if (normalized.includes(10) || normalized.includes(13)) throw new Error(`${label} must not contain embedded CR or LF bytes.`);
   return Buffer.from(normalized);
 }

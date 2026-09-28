@@ -14,7 +14,7 @@ const labelName = /^(?=.{1,63}$)[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$/;
 const registryRepository = /^[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/;
 const imageTag = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 const imageRegistry = /^[a-z0-9.-]+(?::[0-9]+)?$/;
-const imageRepository = /^[a-z0-9._-]+(?:\/[a-z0-9._-]+)+$/;
+const imageRepository = /^[a-z0-9._-]+(?:\/[a-z0-9._-]+)*$/;
 const sha256Digest = /^sha256:[a-f0-9]{64}$/;
 const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
@@ -23,7 +23,7 @@ const storageQuantity = /^[1-9][0-9]*(?:Mi|Gi|Ti)$/;
 const secretValueKey = /(?:password|token|secret|credential|private.?key|api.?key|authorization|cookie)s?$/i;
 
 function isSecretReferenceField(key, parentPath = "") {
-  return /^(?:existingSecret|userSecret|credentialsSecret|otlpHeadersSecret|headersSecret|scrapeTokenSecret|operatorTokenSecret|webhookSecret|tlsSecretName|secretName)$/i.test(key)
+  return /^(?:existingSecret|userSecret|credentialsSecret|otlpHeadersSecret|headersSecret|scrapeTokenSecret|operatorTokenSecret|webhookSecret|tlsSecretName|secretName|managedImagePullSecrets|imagePullSecrets)$/i.test(key)
     || /(?:password|token|credential|secret)Key$/i.test(key)
     || (key === "key" && /secret/i.test(parentPath.split(".").at(-1) ?? ""));
 }
@@ -149,7 +149,7 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "managedChartArchiveSha256", "managedImages", "legacyManagedChart"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "managedChartArchiveSha256", "managedImages", "legacyManagedChart"], errors, ["managedImagePullSecrets"]);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
@@ -166,6 +166,12 @@ export function validateConfiguration(input) {
   requireString(redis.managedChart, "$.redis.managedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
   requireString(redis.managedChartVersion, "$.redis.managedChartVersion", errors, /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/);
   requireString(redis.managedChartArchiveSha256, "$.redis.managedChartArchiveSha256", errors, sha256Digest);
+  if (redis.managedImagePullSecrets !== undefined && !Array.isArray(redis.managedImagePullSecrets)) errors.push(problem("$.redis.managedImagePullSecrets", "must be an array"));
+  else {
+    const pullSecrets = redis.managedImagePullSecrets ?? [];
+    pullSecrets.forEach((name, index) => requireString(name, `$.redis.managedImagePullSecrets[${index}]`, errors, dnsSubdomain));
+    if (new Set(pullSecrets).size !== pullSecrets.length) errors.push(problem("$.redis.managedImagePullSecrets", "must not contain duplicates"));
+  }
   const managedImages = requireRecord(redis.managedImages, "$.redis.managedImages", errors);
   requireKeys(managedImages, "$.redis.managedImages", ["allowInsecureRepositories", "redis", "sentinel", "exporter"], errors);
   if (typeof managedImages.allowInsecureRepositories !== "boolean") errors.push(problem("$.redis.managedImages.allowInsecureRepositories", "must be boolean"));
@@ -423,6 +429,7 @@ function renderManagedRedis(config, profile) {
       commonAnnotations: { "cormier.solutions/managed-chart": config.redis.managedChart },
       architecture: profile.redis.managedArchitecture,
       global: {
+        imagePullSecrets: config.redis.managedImagePullSecrets ?? [],
         security: { allowInsecureImages: config.redis.managedImages.allowInsecureRepositories },
         storageClass: config.kubernetes.storageClass,
       },

@@ -44,6 +44,7 @@
     "managedChart": "oci://registry-1.docker.io/bitnamicharts/redis",
     "managedChartVersion": "23.1.1",
     "managedChartArchiveSha256": "sha256:05665707e771f9ed843842d3ebacb992ef1c4089f138b9711446b37db76ad60a",
+    "managedImagePullSecrets": [],
     "managedImages": {
       "allowInsecureRepositories": true,
       "redis": {

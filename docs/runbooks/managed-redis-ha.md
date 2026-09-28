@@ -9,7 +9,7 @@ Copy `bootstrap/config.example.json` to an ignored or external location. Set eve
 - Kubernetes context, namespace, storage class, and failure-domain count;
 - gateway image repository, version tag, immutable digest, and pull Secret;
 - public DNS host, allowed HTTP origins, TLS Secret, WebSocket path, HTTP fallback path, and Traefik/MetalLB identities;
-- managed Redis chart source, version, chart archive SHA-256, immutable Redis/Sentinel/exporter image coordinates, Secret/key names, key/channel prefix, and storage size;
+- managed Redis chart source, version, chart archive SHA-256, immutable Redis/Sentinel/exporter image coordinates, any existing private-registry pull Secrets, credential Secret/key names, key/channel prefix, and storage size;
 - monitoring selectors and OTLP destinations.
 
 The committed example pins the verified Bitnami Redis chart `23.1.1` archive and the Redis `8.2.1` image family by multi-platform digest. The image base distribution is part of that tested artifact. Do not independently replace it with a Debian 13 or rolling `latest` image: doing so changes Redis binaries, entrypoint behavior, and possibly the persisted RDB/AOF format. Test a chart/image/data upgrade together and retain a verified backup before changing any digest.
@@ -30,7 +30,7 @@ PowerShell uses the same commands. Helm 3.21 or later, Node.js 22 or later, and 
 
 ## 2. Create password files without line endings
 
-Generate two different, high-entropy passwords. Do not use `echo` without `-n`, an editor that silently appends a newline, or a password value directly on a process command line.
+Generate two different, high-entropy passwords. Do not use `echo` without `-n`, an editor that silently appends a newline, a value containing NUL bytes, or a password directly on a process command line.
 
 ```bash
 install -d -m 700 /secure
@@ -153,4 +153,4 @@ The last command must return `PONG`. Then use `scripts/Test-RealtimeEdge.ps1` wi
 
 Do not treat longer CrashLoopBackOff delays as a fix. Identify the first failing boundary: Secret mount, image/version, persisted-data compatibility, Redis startup, Sentinel discovery, authentication, readiness, Service endpoints, then gateway/ingress.
 
-The `recover` action reapplies the verified managed Redis chart, explicitly restarts the Redis StatefulSet so updated Secret content is loaded, waits for that ordered rollout, and only then restarts and verifies the gateway. Pre-change backups retain the exact installed Redis chart archive and its computed SHA-256; rollback verifies that saved archive before restoring values. Keep the complete backup directory together.
+The `recover` action reapplies the verified managed Redis chart, explicitly restarts the topology-appropriate Redis StatefulSet (`-node` for HA or `-master` for non-HA) so updated Secret content is loaded, waits for that rollout, and only then restarts and verifies the gateway. Verified chart archives and provenance metadata remain in the ignored lifecycle directory so normal backup, update, validation, and recovery do not require another registry download. Pre-change backups retain the exact installed Redis chart archive and its computed SHA-256; rollback verifies that saved archive before restoring values. Keep the complete backup directory together.

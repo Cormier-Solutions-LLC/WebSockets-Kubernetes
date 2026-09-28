@@ -137,6 +137,7 @@ test("normalized plan and rendered values are deterministic and secret-reference
   assert.equal(first.managedRedis.values.image.digest, config.redis.managedImages.redis.digest);
   assert.equal(first.managedRedis.values.sentinel.image.digest, config.redis.managedImages.sentinel.digest);
   assert.equal(first.managedRedis.values.metrics.image.digest, config.redis.managedImages.exporter.digest);
+  assert.deepEqual(first.managedRedis.values.global.imagePullSecrets, []);
   assert.equal(first.managedRedis.chartArchiveSha256, config.redis.managedChartArchiveSha256);
   const resized = structuredClone(config);
   resized.resources.redisStorage = "16Gi";
@@ -152,6 +153,18 @@ test("managed Redis chart patch publishes not-ready Sentinel service endpoints i
   assert.match(patched, /spec:\n  publishNotReadyAddresses: true\n  type:/);
   assert.equal(patchSentinelService(patched), patched);
   assert.throws(() => patchSentinelService("kind: Service\n"), /does not match the reviewed patch contract/);
+});
+
+test("managed Redis accepts top-level repositories and renders existing pull Secrets", () => {
+  const config = configuration();
+  config.redis.managedImages.redis.repository = "redis";
+  config.redis.managedImages.sentinel.repository = "redis-sentinel";
+  config.redis.managedImages.exporter.repository = "redis-exporter";
+  config.redis.managedImagePullSecrets = ["private-registry.example"];
+  assert.deepEqual(validateConfiguration(config), []);
+  assert.deepEqual(buildPlan("install", config, profiles["non-ha"]).managedRedis.values.global.imagePullSecrets, ["private-registry.example"]);
+  config.redis.managedImagePullSecrets.push("private-registry.example");
+  assert(validateConfiguration(config).some(item => item.path === "$.redis.managedImagePullSecrets"));
 });
 
 test("managed Redis chart preparation terminates a command that exceeds its lifecycle deadline", { timeout: 10_000 }, async t => {
@@ -176,6 +189,7 @@ test("Redis password normalization removes only trailing line endings", () => {
   assert.equal(normalizePasswordBytes(Buffer.from("0123456789abcdef\r\n")).toString(), "0123456789abcdef");
   assert.throws(() => normalizePasswordBytes(Buffer.from("short\n")), /at least 16 bytes/);
   assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\n89abcdef")), /embedded CR or LF/);
+  assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\0abcdefghi")), /must not contain NUL bytes/);
 });
 
 test("topology changes are classified and require backup and confirmation", () => {
@@ -519,6 +533,7 @@ test("both shells execute the complete lifecycle for both profiles with identica
       config.naming.suffix = suffix;
       const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-lifecycle-"));
       const configPath = resolve(directory, "config.json");
+      const operationLog = resolve(directory, "operations.log");
       await writeFile(configPath, stableJson(config));
       const release = `dev-realtime-${suffix}`;
       const environment = {
@@ -527,6 +542,7 @@ test("both shells execute the complete lifecycle for both profiles with identica
         BOOTSTRAP_FAKE_RELEASE: release,
         BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`,
         BOOTSTRAP_FAKE_TOPOLOGY: topology,
+        BOOTSTRAP_FAKE_LOG: operationLog,
       };
       const invoke = async (action, extra = [], additionalEnvironment = {}) => {
         const [file, args] = shellInvocation(shell, action, configPath, extra);
@@ -539,7 +555,13 @@ test("both shells execute the complete lifecycle for both profiles with identica
         await invoke("install");
         await invoke("update");
         await invoke("validate");
+        await writeFile(operationLog, "");
         await invoke("recover");
+        const recoverLog = await readFile(operationLog, "utf8");
+        const redisStatefulSet = topology === "ha" ? `${release}-redis-node` : `${release}-redis-master`;
+        assert.match(recoverLog, new RegExp(`kubectl rollout restart statefulset/${redisStatefulSet}`));
+        assert.match(recoverLog, new RegExp(`kubectl rollout status statefulset/${redisStatefulSet}`));
+        assert.doesNotMatch(recoverLog, /^pull /m);
         const captured = await invoke("backup");
         const backupEvent = captured.stdout.trim().split(/\r?\n/).map(line => {
           try { return JSON.parse(line); } catch { return undefined; }
@@ -596,8 +618,8 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     assert.match(log, /--values cluster\/redis\/managed-values.yaml/);
     assert.match(log, new RegExp(`--values .*${release}[/\\\\]redis-values\\.json`));
     assert.match(log, new RegExp(`kubectl rollout restart deployment/${release}`));
-    const redisRestart = log.indexOf(`kubectl rollout restart statefulset/${release}-redis-node`);
-    const redisReady = log.indexOf(`kubectl rollout status statefulset/${release}-redis-node`);
+    const redisRestart = log.indexOf(`kubectl rollout restart statefulset/${release}-redis-master`);
+    const redisReady = log.indexOf(`kubectl rollout status statefulset/${release}-redis-master`);
     const gatewayRestart = log.lastIndexOf(`kubectl rollout restart deployment/${release}`);
     assert(redisRestart >= 0 && redisReady > redisRestart && gatewayRestart > redisReady);
     assert.match(log, new RegExp(`uninstall ${release}-redis .*--ignore-not-found`));
@@ -783,6 +805,7 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
     const operations = await readFile(operationLog, "utf8");
     assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4[/\\\\]redis`));
     assert.doesNotMatch(operations, new RegExp(`upgrade --install ${release}-redis .*--version`));
+    assert.doesNotMatch(operations, /^pull /m);
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
     assert.match(operations, /kubectl .*--context kind-example/);
     assert.match(operations, /get secret captured\.redis-auth/);

@@ -9,11 +9,11 @@ Every release selects exactly one topology (`non-ha` or `ha`) and one Redis mode
 - `non-ha` runs one gateway and, when managed Redis is selected, one standalone Redis instance. It has no disruption budget, autoscaling, Sentinel, or replica failover; rollout and infrastructure interruptions can cause downtime.
 - `ha` requires at least three schedulable failure domains. It starts with three gateway replicas, a two-available disruption budget, topology spreading, autoscaling, and a zero-unavailable rolling update. Managed Redis uses one primary, three replicas, Sentinel with quorum two, persistent AOF storage, disruption budgets, resource bounds, NetworkPolicy, and exporter metrics.
 - `external` connects to an operator-managed endpoint. Configure TLS, explicit egress CIDRs, credentials, availability confirmation for HA, and the instance prefix for that target.
-- `managed` installs `oci://registry-1.docker.io/bitnamicharts/redis` chart `23.1.1` (Redis `8.2.1`). The selected topology determines whether the generated values use standalone Redis or replication with Sentinel.
+- `managed` verifies and locally prepares `oci://registry-1.docker.io/bitnamicharts/redis` chart `23.1.1`, then runs the configured immutable Redis `8.2.1` component images. The selected topology determines whether the generated values use standalone Redis or replication with Sentinel. HA preparation patches the regular Sentinel Service to publish not-ready endpoints; the headless Service already does so. HA values use ordered pod creation and a bounded 60-attempt startup window so the first member can establish Redis/Sentinel state before later members start.
 
 The topology is passed to the application explicitly as `Gateway__Topology`; replica count does not infer it. Direct conversion between managed and external Redis is rejected because data migration is an operator responsibility. Converting between HA and non-HA requires an explicit confirmation after reviewing the generated plan, capacity, and downtime implications.
 
-Secrets are never stored in configuration or rendered values. Create the configured Kubernetes Secret before installation. For managed Redis, `redis.credentialKey` is also the ACL username (the example uses `realtime`) and `redis.adminCredentialKey` identifies the distinct administrator password (the example uses `redis-password`). The generated ACL restricts the gateway identity to its configured key/channel prefix and command set. Automation verifies Secret existence and key names but never reads or logs their values.
+Secrets are never stored in configuration or rendered values. Create the configured Kubernetes Secret before installation with `scripts/realtime-redis-secret.sh` or `scripts/Set-RealtimeRedisSecret.ps1`; both remove trailing line endings before submission, preventing an ACL/probe password mismatch. For managed Redis, `redis.credentialKey` is also the ACL username (the example uses `realtime`) and `redis.adminCredentialKey` identifies the distinct administrator password (the example uses `redis-password`). The generated ACL restricts the gateway identity to its configured key/channel prefix and command set. Lifecycle automation verifies Secret existence and key names but never logs their values.
 
 Managed Redis TLS is disabled by the current bootstrap schema and traffic is constrained by NetworkPolicy. Use external Redis with TLS when the target policy requires encrypted Redis transport. Validate the provider's certificate, availability, persistence, backup, recovery, and credential-rotation behavior independently.
 
@@ -21,11 +21,13 @@ The `backup` action captures the installed gateway and managed-Redis Helm releas
 
 The files under `cluster/redis` are manual reference values:
 
-- `managed-values.yaml` demonstrates the HA Bitnami Redis configuration and uses placeholder Secret identity `cormier-redis-auth`.
+- `managed-values.yaml` demonstrates the verified HA Bitnami Redis configuration, immutable component digests, ordered startup/probe settings, and placeholder Secret identity `cormier-redis-auth`.
 - `managed-gateway-values.example.yaml` demonstrates gateway-side managed Redis settings with separate placeholder identities that must be reconciled with the Redis values.
 - `external-values.example.yaml` demonstrates TLS and egress settings for an external endpoint.
 
 Replace every example identity and make the Redis chart and gateway Secret names, key names, username, and instance prefix agree before use. Never commit rendered Secrets, credential-bearing values, environment inventory, or production endpoints.
+
+Do not select a Debian base independently of the Redis chart and image digest. A base-image change can also change Redis and its persisted RDB/AOF format. Upgrade chart, images, and stored data as one reviewed operation with a compatible backup/restore test. See the [managed Redis HA runbook](../docs/runbooks/managed-redis-ha.md).
 
 ## Development edge exposure
 

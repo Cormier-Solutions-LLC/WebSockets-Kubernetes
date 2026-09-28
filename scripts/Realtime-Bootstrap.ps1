@@ -9,6 +9,14 @@
   Optional assertion that the configuration selects ha or non-ha. Profile is a compatibility alias.
 .PARAMETER NameSuffix
   Optional DNS-label suffix used to derive the deployable instance naming contract.
+.EXAMPLE
+  ./scripts/Realtime-Bootstrap.ps1 -Action plan -Config ./.bootstrap/prod.json -Topology ha
+.EXAMPLE
+  ./scripts/Realtime-Bootstrap.ps1 -Action install -Config ./.bootstrap/prod.json -Topology ha -TimeoutSeconds 1200
+.NOTES
+  Run with -Action help for the shared command summary. Domains, origins, image and
+  chart versions/digests, Kubernetes identities, storage and resource settings are
+  supplied by Config. Passwords are applied separately with Set-RealtimeRedisSecret.ps1.
 #>
 [CmdletBinding()]
 param(

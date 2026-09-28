@@ -17,6 +17,8 @@ The legacy `Bootstrap-Realtime.ps1` accepts `-NameSuffix <dns-label>` (maximum 2
 | Entry point | Purpose / prerequisites | Output or reference |
 | --- | --- | --- |
 | `Realtime-Bootstrap.ps1`, `realtime-bootstrap.sh` | Shared Node.js lifecycle: prerequisites, plan, bootstrap, backup, install, update, validate, rollback, recover, teardown | `.bootstrap/lifecycle`, `.backups/bootstrap`, configured logs; [bootstrap guide](../docs/bootstrap.md) |
+| `Set-RealtimeRedisSecret.ps1`, `realtime-redis-secret.sh` | Newline-safe, stdin-only creation/update of the existing managed Redis and gateway credential Secret | Explicit context, namespace, Secret/key names and two password-file paths; [managed Redis HA runbook](../docs/runbooks/managed-redis-ha.md) |
+| `Prepare-ManagedRedisChart.ps1`, `prepare-managed-redis-chart.sh` | Verify a pinned Redis chart archive and apply the reviewed Sentinel Service bootstrap patch | Explicit OCI chart, version, SHA-256 and output directory; normally called by the shared lifecycle |
 | `Bootstrap-Realtime.ps1`, `Deploy-Realtime.ps1` | Legacy developer bootstrap and Kubernetes lifecycle | `.bootstrap`, `.logs`, `.backups/<target>`; inspect PowerShell help |
 | `FullCircle.ps1`, `full-circle.sh` | Shared Node.js packaged-consumer example lifecycle with explicit `ha` / `non-ha` profile | [FullCircle guide](../examples/full-circle/README.md) |
 | `Update-RealtimeVersion.ps1`, `Get-PackageReleaseIntent.ps1`, `Build-RealtimePackages.ps1`, `Publish-RealtimePackages.ps1` | Coordinated version update/detection, candidate validation, and immutable promotion; PowerShell 7 and .NET 10, plus Node/npm for build or npm publication | Updated version surfaces and release notes, release intent, package artifacts, `.logs`, promotion evidence |

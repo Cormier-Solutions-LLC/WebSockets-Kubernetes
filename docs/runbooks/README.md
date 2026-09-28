@@ -4,6 +4,8 @@ All commands require explicit context, namespace, release, and endpoint paramete
 
 For the operator-only live troubleshooting surface, temporary log-level controls, redaction limits, and portable telemetry rollback, see [secure diagnostics operations](diagnostics.md).
 
+For managed Redis replication and Sentinel, use the [HA installation and recovery runbook](managed-redis-ha.md). It records the verified chart patch, immutable image pins, newline-safe Secret creation, ordered startup, HTTP/WSS routing, and recovery for the observed failure signatures.
+
 ## Deployment, promotion, and rollback
 
 1. Confirm CI passed build, tests, Native AOT smoke, rootless/read-only container smoke, dependency review, Trivy scans, and SBOM generation.

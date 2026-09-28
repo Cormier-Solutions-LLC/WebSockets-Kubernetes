@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.example.com/cormier/realtime/bootstrap/v1",
+  "$id": "https://schemas.example.com/cormier/realtime/bootstrap/v2",
   "title": "Cormier.Realtime bootstrap configuration",
   "type": "object",
   "additionalProperties": false,
@@ -9,6 +9,17 @@
       "type": "object",
       "propertyNames": { "pattern": "^(?=.{1,253}$)(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$" },
       "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$" }
+    },
+    "containerImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry", "repository", "tag", "digest"],
+      "properties": {
+        "registry": { "type": "string", "pattern": "^[a-z0-9.-]+(?::[0-9]+)?$" },
+        "repository": { "type": "string", "pattern": "^[a-z0-9._-]+(?:/[a-z0-9._-]+)+$" },
+        "tag": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
     },
     "ipv4Address": { "type": "string", "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\\.){3}(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$" },
     "ipv6Address": { "type": "string", "format": "ipv6" },
@@ -55,7 +66,7 @@
     }
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "environment": {
       "type": "object",
       "additionalProperties": false,
@@ -123,7 +134,7 @@
     "redis": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "legacyManagedChart"],
+      "required": ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "managedChartArchiveSha256", "managedImages", "legacyManagedChart"],
       "properties": {
         "mode": { "enum": ["external", "managed"] },
         "externalEndpoint": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?|\\[[A-Fa-f0-9:]+\\]):[0-9]{1,5}$" },
@@ -136,18 +147,32 @@
         "instancePrefix": { "type": "string", "pattern": "^[A-Za-z0-9:_-]+$" },
         "managedChart": { "type": "string", "pattern": "^oci://[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" },
         "managedChartVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" },
+        "managedChartArchiveSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "managedImages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allowInsecureRepositories", "redis", "sentinel", "exporter"],
+          "properties": {
+            "allowInsecureRepositories": { "type": "boolean" },
+            "redis": { "$ref": "#/$defs/containerImage" },
+            "sentinel": { "$ref": "#/$defs/containerImage" },
+            "exporter": { "$ref": "#/$defs/containerImage" }
+          }
+        },
         "legacyManagedChart": { "type": "string", "pattern": "^oci://[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+$" }
       }
     },
     "ingress": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName", "certificateName"],
+      "required": ["enabled", "host", "allowedOrigins", "entryPoint", "webSocketPath", "httpFallbackPath", "tlsSecretName", "certificateName"],
       "properties": {
         "enabled": { "type": "boolean" },
         "host": { "type": "string", "pattern": "^$|^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" },
         "allowedOrigins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^https?://[^@/?#]+/?$" } },
         "entryPoint": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "webSocketPath": { "type": "string", "pattern": "^/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$" },
+        "httpFallbackPath": { "type": "string", "pattern": "^/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$" },
         "tlsSecretName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
         "certificateName": { "type": "string", "pattern": "^$|^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 }
       }

@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
-export const contractVersion = 1;
+export const contractVersion = 2;
 export const actions = Object.freeze([
   "prerequisites", "plan", "bootstrap", "backup", "install", "update", "validate", "rollback", "recover", "teardown",
 ]);
@@ -13,6 +13,9 @@ const dnsSubdomain = /^(?=.{1,253}$)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9]
 const labelName = /^(?=.{1,63}$)[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$/;
 const registryRepository = /^[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/;
 const imageTag = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+const imageRegistry = /^[a-z0-9.-]+(?::[0-9]+)?$/;
+const imageRepository = /^[a-z0-9._-]+(?:\/[a-z0-9._-]+)+$/;
+const sha256Digest = /^sha256:[a-f0-9]{64}$/;
 const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
 const memoryQuantity = /^[1-9][0-9]*(?:Mi|Gi)$/;
@@ -99,6 +102,15 @@ function requireString(value, path, errors, pattern, allowEmpty = false) {
   }
 }
 
+function validateContainerImage(value, path, errors) {
+  const image = requireRecord(value, path, errors);
+  requireKeys(image, path, ["registry", "repository", "tag", "digest"], errors);
+  requireString(image.registry, `${path}.registry`, errors, imageRegistry);
+  requireString(image.repository, `${path}.repository`, errors, imageRepository);
+  requireString(image.tag, `${path}.tag`, errors, imageTag);
+  requireString(image.digest, `${path}.digest`, errors, sha256Digest);
+}
+
 export function validateConfiguration(input) {
   const errors = [];
   const config = requireRecord(input, "$", errors);
@@ -137,7 +149,7 @@ export function validateConfiguration(input) {
   if (!Number.isInteger(kubernetes.failureDomains) || kubernetes.failureDomains < 1) errors.push(problem("$.kubernetes.failureDomains", "must be an integer greater than zero"));
 
   const redis = requireRecord(config.redis, "$.redis", errors);
-  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "legacyManagedChart"], errors);
+  requireKeys(redis, "$.redis", ["mode", "externalEndpoint", "externalHaConfirmed", "externalEgressCidrs", "tls", "credentialsSecret", "credentialKey", "adminCredentialKey", "instancePrefix", "managedChart", "managedChartVersion", "managedChartArchiveSha256", "managedImages", "legacyManagedChart"], errors);
   if (!["external", "managed"].includes(redis.mode)) errors.push(problem("$.redis.mode", "must be external or managed"));
   requireString(redis.externalEndpoint, "$.redis.externalEndpoint", errors, undefined, redis.mode !== "external");
   if (typeof redis.externalHaConfirmed !== "boolean") errors.push(problem("$.redis.externalHaConfirmed", "must be boolean"));
@@ -153,10 +165,17 @@ export function validateConfiguration(input) {
   requireString(redis.instancePrefix, "$.redis.instancePrefix", errors, redisPrefix);
   requireString(redis.managedChart, "$.redis.managedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
   requireString(redis.managedChartVersion, "$.redis.managedChartVersion", errors, /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/);
+  requireString(redis.managedChartArchiveSha256, "$.redis.managedChartArchiveSha256", errors, sha256Digest);
+  const managedImages = requireRecord(redis.managedImages, "$.redis.managedImages", errors);
+  requireKeys(managedImages, "$.redis.managedImages", ["allowInsecureRepositories", "redis", "sentinel", "exporter"], errors);
+  if (typeof managedImages.allowInsecureRepositories !== "boolean") errors.push(problem("$.redis.managedImages.allowInsecureRepositories", "must be boolean"));
+  validateContainerImage(managedImages.redis, "$.redis.managedImages.redis", errors);
+  validateContainerImage(managedImages.sentinel, "$.redis.managedImages.sentinel", errors);
+  validateContainerImage(managedImages.exporter, "$.redis.managedImages.exporter", errors);
   requireString(redis.legacyManagedChart, "$.redis.legacyManagedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
 
   const ingress = requireRecord(config.ingress, "$.ingress", errors);
-  requireKeys(ingress, "$.ingress", ["enabled", "host", "allowedOrigins", "entryPoint", "tlsSecretName", "certificateName"], errors);
+  requireKeys(ingress, "$.ingress", ["enabled", "host", "allowedOrigins", "entryPoint", "webSocketPath", "httpFallbackPath", "tlsSecretName", "certificateName"], errors);
   if (typeof ingress.enabled !== "boolean") errors.push(problem("$.ingress.enabled", "must be boolean"));
   requireString(ingress.host, "$.ingress.host", errors, /^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/, !ingress.enabled);
   if (!Array.isArray(ingress.allowedOrigins) || ingress.allowedOrigins.length === 0) errors.push(problem("$.ingress.allowedOrigins", "must contain at least one configured HTTP(S) origin"));
@@ -171,6 +190,9 @@ export function validateConfiguration(input) {
     }
   });
   requireString(ingress.entryPoint, "$.ingress.entryPoint", errors, /^[A-Za-z0-9._-]+$/);
+  requireString(ingress.webSocketPath, "$.ingress.webSocketPath", errors, /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/);
+  requireString(ingress.httpFallbackPath, "$.ingress.httpFallbackPath", errors, /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/);
+  if (ingress.webSocketPath === ingress.httpFallbackPath) errors.push(problem("$.ingress.httpFallbackPath", "must differ from the WebSocket path"));
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsSubdomain, !ingress.enabled);
   requireString(ingress.certificateName, "$.ingress.certificateName", errors, dnsSubdomain, true);
 
@@ -265,14 +287,16 @@ function deploymentValuesSha256(gateway, managedRedis) {
   return createHash("sha256").update(stableJson({ gateway, managedRedis })).digest("hex");
 }
 
-export function useCapturedDeploymentValues(plan, gatewayValues, managedRedisValues, managedRedisChart, managedRedisChartVersion) {
+export function useCapturedDeploymentValues(plan, gatewayValues, managedRedisValues, managedRedisChart, managedRedisChartVersion, managedRedisChartArchiveSha256) {
   const captured = structuredClone(plan);
   captured.values = stable(gatewayValues);
-  captured.managedRedis = managedRedisValues === undefined ? null : stable({
+  const managedRedis = {
     chart: managedRedisChart,
     chartVersion: managedRedisChartVersion,
     values: managedRedisValues,
-  });
+  };
+  if (managedRedisChartArchiveSha256) managedRedis.chartArchiveSha256 = managedRedisChartArchiveSha256;
+  captured.managedRedis = managedRedisValues === undefined ? null : stable(managedRedis);
   captured.valuesSha256 = deploymentValuesSha256(captured.values, captured.managedRedis);
   return stable(captured);
 }
@@ -331,7 +355,7 @@ export function renderValues(config, profile) {
     fullnameOverride: names.release,
     gateway: { allowedOrigins: config.ingress.allowedOrigins, trustedNetworks: config.networking.trustedProxyCidrs, shutdownDrainSeconds: 25 },
     image: config.image,
-    ingressRoute: { enabled: config.ingress.enabled, entryPoint: config.ingress.entryPoint, host: config.ingress.host, path: "/realtime/ws", fallbackPath: "/realtime/http", tlsSecretName: config.ingress.tlsSecretName },
+    ingressRoute: { enabled: config.ingress.enabled, entryPoint: config.ingress.entryPoint, host: config.ingress.host, path: config.ingress.webSocketPath, fallbackPath: config.ingress.httpFallbackPath, tlsSecretName: config.ingress.tlsSecretName },
     observability: {
       cluster: config.observability.cluster,
       environment: config.environment.name,
@@ -393,10 +417,16 @@ function renderManagedRedis(config, profile) {
   return stable({
     baseValuesPath: "cluster/redis/managed-values.yaml",
     chart: config.redis.managedChart,
+    chartArchiveSha256: config.redis.managedChartArchiveSha256,
     chartVersion: config.redis.managedChartVersion,
     values: {
       commonAnnotations: { "cormier.solutions/managed-chart": config.redis.managedChart },
       architecture: profile.redis.managedArchitecture,
+      global: {
+        security: { allowInsecureImages: config.redis.managedImages.allowInsecureRepositories },
+        storageClass: config.kubernetes.storageClass,
+      },
+      image: config.redis.managedImages.redis,
       auth: {
         sentinel: profile.redis.sentinel,
         existingSecret: config.redis.credentialsSecret,
@@ -414,15 +444,22 @@ function renderManagedRedis(config, profile) {
           }],
         },
       },
-      global: { storageClass: config.kubernetes.storageClass },
       master: { pdb: { create: profile.redis.sentinel }, persistence: { enabled: true, size: config.resources.redisStorage } },
       replica: {
+        podManagementPolicy: config.topology === "ha" ? "OrderedReady" : "Parallel",
         replicaCount: profile.redis.replicas,
         pdb: { create: profile.redis.sentinel },
         persistence: { enabled: true, size: config.resources.redisStorage },
+        startupProbe: { enabled: true, failureThreshold: config.topology === "ha" ? 60 : 22 },
         topologySpreadConstraints,
       },
-      sentinel: { enabled: profile.redis.sentinel },
+      sentinel: {
+        enabled: profile.redis.sentinel,
+        image: config.redis.managedImages.sentinel,
+        quorum: 2,
+        startupProbe: { enabled: true, failureThreshold: config.topology === "ha" ? 60 : 22 },
+      },
+      metrics: { image: config.redis.managedImages.exporter },
     },
   });
 }

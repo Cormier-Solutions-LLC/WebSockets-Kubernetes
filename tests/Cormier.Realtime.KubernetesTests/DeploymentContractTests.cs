@@ -104,6 +104,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("appendonly yes", values, StringComparison.Ordinal);
         Assert.Contains("metrics:", values, StringComparison.Ordinal);
         Assert.Contains("networkPolicy:", values, StringComparison.Ordinal);
+        Assert.Contains("podManagementPolicy: OrderedReady", values, StringComparison.Ordinal);
+        Assert.Contains("failureThreshold: 60", values, StringComparison.Ordinal);
+        Assert.Contains("bitnamilegacy/redis", values, StringComparison.Ordinal);
+        Assert.Contains("digest: sha256:", values, StringComparison.Ordinal);
         Assert.DoesNotContain("password:", values, StringComparison.OrdinalIgnoreCase);
     }
 

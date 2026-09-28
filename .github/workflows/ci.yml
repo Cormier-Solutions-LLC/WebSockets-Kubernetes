@@ -86,7 +86,9 @@ jobs:
       - name: Validate Bash syntax and static analysis
         run: |
           bash -n scripts/realtime-bootstrap.sh
-          shellcheck scripts/realtime-bootstrap.sh
+          bash -n scripts/realtime-redis-secret.sh
+          bash -n scripts/prepare-managed-redis-chart.sh
+          shellcheck scripts/realtime-bootstrap.sh scripts/realtime-redis-secret.sh scripts/prepare-managed-redis-chart.sh
       - name: Test bootstrap contract and cross-shell parity
         env:
           BOOTSTRAP_SKIP_LIFECYCLE: '1'
@@ -143,12 +145,30 @@ jobs:
           docker run --rm -v "$PWD:/work" -w /work --entrypoint promtool "$CI_PROMETHEUS_IMAGE" check rules artifacts/helm/prometheus-rules.yaml
       - name: Render pinned managed Redis topology
         run: |
-          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template dev-realtime-redis oci://registry-1.docker.io/bitnamicharts/redis --version 23.1.1 --namespace ci-realtime --values cluster/redis/managed-values.yaml --values .bootstrap/lifecycle/dev-realtime/redis-values.json > /tmp/redis.yaml
+          helm_container=$(docker create "$CI_HELM_IMAGE")
+          trap 'docker rm -f "$helm_container" >/dev/null 2>&1 || true' EXIT
+          docker cp "$helm_container:/usr/bin/helm" /tmp/cormier-helm
+          docker rm "$helm_container" >/dev/null
+          trap - EXIT
+          chmod +x /tmp/cormier-helm
+          node scripts/prepare-managed-redis-chart.mjs \
+            --chart oci://registry-1.docker.io/bitnamicharts/redis \
+            --version 23.1.1 \
+            --archive-sha256 sha256:05665707e771f9ed843842d3ebacb992ef1c4089f138b9711446b37db76ad60a \
+            --output .bootstrap/ci-redis-chart \
+            --helm /tmp/cormier-helm
+          docker run --rm -v "$PWD:/work" -w /work "$CI_HELM_IMAGE" template dev-realtime-redis .bootstrap/ci-redis-chart/redis --namespace ci-realtime --values cluster/redis/managed-values.yaml --values .bootstrap/lifecycle/dev-realtime/redis-values.json > /tmp/redis.yaml
           grep --quiet 'kind: StatefulSet' /tmp/redis.yaml
           grep --quiet 'kind: PodDisruptionBudget' /tmp/redis.yaml
           grep --quiet 'kind: NetworkPolicy' /tmp/redis.yaml
           grep --quiet 'topologyKey: topology.kubernetes.io/zone' /tmp/redis.yaml
           grep --quiet 'whenUnsatisfiable: DoNotSchedule' /tmp/redis.yaml
+          test "$(grep -c 'publishNotReadyAddresses: true' /tmp/redis.yaml)" -eq 2
+          grep --quiet 'podManagementPolicy: "OrderedReady"' /tmp/redis.yaml
+          test "$(grep -c 'failureThreshold: 60' /tmp/redis.yaml)" -ge 2
+          grep --quiet 'bitnamilegacy/redis@sha256:25bf63f3caf75af4628c0dfcf39859ad1ac8abe135be85e99699f9637b16dc28' /tmp/redis.yaml
+          grep --quiet 'bitnamilegacy/redis-sentinel@sha256:0ca3ea1d2f823c2d9265e0d9e682dc435f219f8d3385aed75b5bb0f365f516a9' /tmp/redis.yaml
+          grep --quiet 'bitnamilegacy/redis-exporter@sha256:d111b8a14d96f7edd67324776d6801b76023035d9390d03fbb13d1c21bda8b88' /tmp/redis.yaml
 
   bootstrap-powershell-windows:
     runs-on: windows-latest

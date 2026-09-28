@@ -9,6 +9,8 @@ import test from "node:test";
 import {
   buildPlan, fileExists, inlineSecretPaths, loadContract, renderValues, stableJson, useCapturedDeploymentValues, validateConfiguration,
 } from "../../scripts/lib/bootstrap-contract.mjs";
+import { patchSentinelService } from "../../scripts/lib/managed-redis-chart.mjs";
+import { normalizePasswordBytes } from "../../scripts/realtime-redis-secret.mjs";
 
 const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -51,6 +53,8 @@ test("both explicit topology profiles validate and render their availability con
   assert.deepEqual(haValues.gateway.trustedNetworks, ha.networking.trustedProxyCidrs);
   assert.deepEqual(haValues.networkPolicy.ingressNamespaceSelector.matchLabels, ha.networking.directIngressNamespaceLabels);
   assert.deepEqual(haValues.networkPolicy.ingressPodSelector.matchLabels, ha.networking.directIngressPodLabels);
+  assert.equal(haValues.ingressRoute.path, ha.ingress.webSocketPath);
+  assert.equal(haValues.ingressRoute.fallbackPath, ha.ingress.httpFallbackPath);
 });
 
 test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from configuration", () => {
@@ -124,12 +128,34 @@ test("normalized plan and rendered values are deterministic and secret-reference
   assert.equal(first.managedRedis.values.global.storageClass, config.kubernetes.storageClass);
   assert.equal(first.managedRedis.values.master.persistence.size, config.resources.redisStorage);
   assert.equal(first.managedRedis.values.replica.topologySpreadConstraints[0].topologyKey, "topology.kubernetes.io/zone");
+  assert.equal(first.managedRedis.values.replica.podManagementPolicy, "OrderedReady");
+  assert.equal(first.managedRedis.values.replica.startupProbe.failureThreshold, 60);
+  assert.equal(first.managedRedis.values.sentinel.startupProbe.failureThreshold, 60);
+  assert.equal(first.managedRedis.values.image.digest, config.redis.managedImages.redis.digest);
+  assert.equal(first.managedRedis.values.sentinel.image.digest, config.redis.managedImages.sentinel.digest);
+  assert.equal(first.managedRedis.values.metrics.image.digest, config.redis.managedImages.exporter.digest);
+  assert.equal(first.managedRedis.chartArchiveSha256, config.redis.managedChartArchiveSha256);
   const resized = structuredClone(config);
   resized.resources.redisStorage = "16Gi";
   assert.notEqual(buildPlan("update", resized, profiles.ha).valuesSha256, first.valuesSha256);
   assert.equal(first.safety.secretValuesAccepted, false);
   assert.equal(first.values.redis.credentialsSecret.name, config.redis.credentialsSecret);
   assert(!stableJson(first).includes("must-not-be-accepted"));
+});
+
+test("managed Redis chart patch publishes not-ready Sentinel service endpoints idempotently", () => {
+  const source = "apiVersion: v1\nkind: Service\nspec:\n  type: {{ .Values.sentinel.service.type }}\n";
+  const patched = patchSentinelService(source);
+  assert.match(patched, /spec:\n  publishNotReadyAddresses: true\n  type:/);
+  assert.equal(patchSentinelService(patched), patched);
+  assert.throws(() => patchSentinelService("kind: Service\n"), /does not match the reviewed patch contract/);
+});
+
+test("Redis password normalization removes only trailing line endings", () => {
+  assert.equal(normalizePasswordBytes(Buffer.from("0123456789abcdef\n")).toString(), "0123456789abcdef");
+  assert.equal(normalizePasswordBytes(Buffer.from("0123456789abcdef\r\n")).toString(), "0123456789abcdef");
+  assert.throws(() => normalizePasswordBytes(Buffer.from("short\n")), /at least 16 bytes/);
+  assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\n89abcdef")), /embedded CR or LF/);
 });
 
 test("topology changes are classified and require backup and confirmation", () => {

@@ -307,6 +307,7 @@ var CormierRealtime = (() => {
       };
     }
     advance() {
+      if (this.state !== CONNECTING) return;
       this.socket = void 0;
       this.index += 1;
       if (this.index < this.factories.length) {

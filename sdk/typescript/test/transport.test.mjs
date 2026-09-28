@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PROTOCOL_VERSION, RealtimeClient } from "../dist/cormier-realtime.js";
+import { PROTOCOL_VERSION, RealtimeClient, createTransportSocket } from "../dist/cormier-realtime.js";
 
 function httpHarness() {
   const messages = [];
@@ -86,6 +86,38 @@ test("ticket failover obtains a fresh single-use ticket for the next transport",
   const connect = harness.requests.find(({ url }) => url.pathname.endsWith("/connect"));
   assert.equal(connect.url.searchParams.get("ticket"), "fallback-ticket-00000000000000000000000000000002");
   await client.disconnect();
+});
+
+test("cancelling a pending fallback ticket refresh emits only the requested close", async () => {
+  const ticketStarted = Promise.withResolvers();
+  const ticket = Promise.withResolvers();
+  const socket = createTransportSocket(
+    "wss://gateway.example/realtime/ws?ticket=initial",
+    "cormier.realtime.v1",
+    {
+      transports: ["websocket", "http-streaming"],
+      webSocketFactory: () => { throw new Error("disabled for test"); },
+      httpStreaming: {
+        url: "https://gateway.example/realtime/http",
+        fetch: async () => new Response(null, { status: 503 }),
+      },
+    },
+    () => {
+      ticketStarted.resolve();
+      return ticket.promise;
+    },
+  );
+  const closes = [];
+  socket.onclose = (closed) => closes.push(closed);
+
+  await ticketStarted.promise;
+  socket.close(1000, "connect_cancelled");
+  ticket.reject(new DOMException("The connection was cancelled.", "AbortError"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(closes.map(({ code, reason }) => ({ code, reason })), [
+    { code: 1000, reason: "connect_cancelled" },
+  ]);
 });
 
 test("a synchronous HTTP fetch failure is observed after handlers are attached", async () => {

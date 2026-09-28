@@ -144,6 +144,7 @@ class InitializingFallbackSocket implements WebSocketLike {
   }
 
   private advance(): void {
+    if (this.state !== CONNECTING) return;
     this.socket = undefined;
     this.index += 1;
     if (this.index < this.factories.length) {

@@ -54,19 +54,19 @@ jobs:
     steps:
       - name: Check out trusted release automation
         if: github.event_name == 'workflow_run'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: refs/heads/main
       - name: Check out pull request
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 2
           ref: ${{ github.sha }}
       - name: Check out trusted manual commit
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 2
           ref: refs/heads/main
@@ -149,7 +149,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs['release-intent'].outputs.candidate_sha }}
       - name: Install pinned PowerShell
@@ -247,7 +247,7 @@ jobs:
       id-token: write
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs['release-intent'].outputs.candidate_sha }}
       - name: Install pinned PowerShell

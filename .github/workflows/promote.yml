@@ -53,7 +53,7 @@ concurrency:
 
 jobs:
   promote:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     environment: ${{ inputs.environment }}
     steps:
       - name: Select trusted release evidence
@@ -77,7 +77,7 @@ jobs:
           }
           "run_id=$runId" >> $env:GITHUB_OUTPUT
           "commit=$commit" >> $env:GITHUB_OUTPUT
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ steps.release.outputs.commit }}
       - uses: actions/download-artifact@v4

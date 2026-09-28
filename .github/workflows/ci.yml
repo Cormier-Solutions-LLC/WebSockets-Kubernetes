@@ -42,7 +42,7 @@ jobs:
   helm-and-automation:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -152,7 +152,7 @@ jobs:
   bootstrap-powershell-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
@@ -172,14 +172,14 @@ jobs:
           Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
 
   bootstrap-lifecycle-parity:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     strategy:
       fail-fast: false
       matrix:
         shell: [bash, pwsh]
         profile: [non-ha, ha]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
@@ -197,7 +197,7 @@ jobs:
   build-test-aot:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -412,7 +412,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
@@ -420,7 +420,7 @@ jobs:
   node-express:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -486,7 +486,7 @@ jobs:
   java-spring-boot:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -553,7 +553,7 @@ jobs:
   kotlin-ktor:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -619,7 +619,7 @@ jobs:
   rust-axum:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -689,7 +689,7 @@ jobs:
   go-gin:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -757,7 +757,7 @@ jobs:
   elixir-phoenix:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -830,7 +830,7 @@ jobs:
       group: php-laravel-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -900,7 +900,7 @@ jobs:
   python-fastapi:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -965,7 +965,7 @@ jobs:
   ruby-rails:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -1030,7 +1030,7 @@ jobs:
   swift-vapor:
     runs-on: cormier-runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -1104,7 +1104,7 @@ jobs:
         shell: [bash, pwsh]
         profile: [non-ha, ha]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Authenticate to Harbor
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -1164,7 +1164,7 @@ jobs:
 
   ci-success:
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     needs:
       - helm-and-automation
       - bootstrap-powershell-windows

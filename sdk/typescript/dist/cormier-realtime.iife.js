@@ -334,8 +334,9 @@ var CormierRealtime = (() => {
     connectionToken;
     sendTail = Promise.resolve();
     constructor(websocketUrl, options) {
-      this.fetcher = options.fetch ?? globalThis.fetch;
-      if (this.fetcher === void 0) throw new TypeError("HTTP streaming requires the Fetch API.");
+      const fetcher = options.fetch ?? globalThis.fetch;
+      if (fetcher === void 0) throw new TypeError("HTTP streaming requires the Fetch API.");
+      this.fetcher = options.fetch === void 0 ? fetcher.bind(globalThis) : fetcher;
       this.baseUrl = new URL(options.url.toString(), globalThis.location?.href);
       if (this.baseUrl.protocol !== "http:" && this.baseUrl.protocol !== "https:") {
         throw new TypeError("The HTTP streaming URL must use http or https.");

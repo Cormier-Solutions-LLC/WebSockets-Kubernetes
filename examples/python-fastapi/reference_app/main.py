@@ -333,11 +333,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         headers.update(public_forwarding_headers(configured))
         query = f"?{request.url.query}" if request.url.query else ""
+        timeout = (
+            httpx.Timeout(15, connect=5, read=None)
+            if request.method == "GET" and path.endswith("/stream")
+            else request.app.state.http.timeout
+        )
         outbound = request.app.state.http.build_request(
             request.method,
             f"{configured.GATEWAY_URL}/realtime/http/{path}{query}",
             content=bytes(body),
             headers=headers,
+            timeout=timeout,
         )
         try:
             upstream = await request.app.state.http.send(outbound, stream=True)

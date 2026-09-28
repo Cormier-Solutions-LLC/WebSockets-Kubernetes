@@ -10,12 +10,14 @@ import test from "node:test";
 import {
   buildPlan, fileExists, inlineSecretPaths, loadContract, renderValues, stableJson, useCapturedDeploymentValues, validateConfiguration,
 } from "../../scripts/lib/bootstrap-contract.mjs";
-import { patchSentinelService, prepareManagedRedisChart } from "../../scripts/lib/managed-redis-chart.mjs";
-import { normalizePasswordBytes } from "../../scripts/realtime-redis-secret.mjs";
+import { managedRedisChartOutput, patchSentinelService, prepareManagedRedisChart } from "../../scripts/lib/managed-redis-chart.mjs";
+import { buildCertificateManifest, parseCertificateArguments } from "../../scripts/realtime-certificate.mjs";
+import { normalizePasswordBytes, resolveRedisSecretOptions } from "../../scripts/realtime-redis-secret.mjs";
 
 const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const example = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.example.json"), "utf8"));
+const haExample = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.ha.example.json"), "utf8"));
 const bootstrapSchema = JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/config.schema.json"), "utf8"));
 const helmSchema = JSON.parse(await readFile(resolve(repositoryRoot, "helm/realtime-gateway/values.schema.json"), "utf8"));
 const profiles = {
@@ -58,6 +60,14 @@ test("both explicit topology profiles validate and render their availability con
   assert.deepEqual(haValues.networkPolicy.ingressPodSelector.matchLabels, ha.networking.directIngressPodLabels);
   assert.equal(haValues.ingressRoute.path, ha.ingress.webSocketPath);
   assert.equal(haValues.ingressRoute.fallbackPath, ha.ingress.httpFallbackPath);
+});
+
+test("the committed HA example is complete, secret-reference-only, and production shaped", () => {
+  assert.deepEqual(validateConfiguration(haExample), []);
+  assert.equal(haExample.topology, "ha");
+  assert.equal(haExample.environment.class, "production");
+  assert.equal(haExample.ingress.enabled, true);
+  assert.equal(inlineSecretPaths(haExample).length, 0);
 });
 
 test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from configuration", () => {
@@ -134,6 +144,14 @@ test("normalized plan and rendered values are deterministic and secret-reference
   assert.equal(first.managedRedis.values.replica.podManagementPolicy, "OrderedReady");
   assert.equal(first.managedRedis.values.replica.startupProbe.failureThreshold, 60);
   assert.equal(first.managedRedis.values.sentinel.startupProbe.failureThreshold, 60);
+  assert.deepEqual(first.managedRedis.values.replica.dnsConfig.options, [
+    { name: "timeout", value: "2" },
+    { name: "attempts", value: "3" },
+    { name: "single-request-reopen" },
+  ]);
+  assert.equal(first.managedRedis.values.sentinel.customStartupProbe.failureThreshold, 60);
+  assert.match(first.managedRedis.values.sentinel.customStartupProbe.exec.command.at(-1), /REDIS_PASSWORD_FILE/);
+  assert.match(first.managedRedis.values.sentinel.customStartupProbe.exec.command.at(-1), /SENTINEL DEBUG tilt-trigger 10000/);
   assert.equal(first.managedRedis.values.image.digest, config.redis.managedImages.redis.digest);
   assert.equal(first.managedRedis.values.sentinel.image.digest, config.redis.managedImages.sentinel.digest);
   assert.equal(first.managedRedis.values.metrics.image.digest, config.redis.managedImages.exporter.digest);
@@ -153,6 +171,10 @@ test("managed Redis chart patch publishes not-ready Sentinel service endpoints i
   assert.match(patched, /spec:\n  publishNotReadyAddresses: true\n  type:/);
   assert.equal(patchSentinelService(patched), patched);
   assert.throws(() => patchSentinelService("kind: Service\n"), /does not match the reviewed patch contract/);
+  assert.notEqual(
+    managedRedisChartOutput(".bootstrap/lifecycle", "prod-realtime", "oci://registry.example.test/a/redis", "23.1.1"),
+    managedRedisChartOutput(".bootstrap/lifecycle", "prod-realtime", "oci://registry.example.test/b/redis", "23.1.1"),
+  );
 });
 
 test("managed Redis accepts top-level repositories and renders existing pull Secrets", () => {
@@ -190,6 +212,61 @@ test("Redis password normalization removes only trailing line endings", () => {
   assert.throws(() => normalizePasswordBytes(Buffer.from("short\n")), /at least 16 bytes/);
   assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\n89abcdef")), /embedded CR or LF/);
   assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\0abcdefghi")), /must not contain NUL bytes/);
+  assert.throws(() => normalizePasswordBytes(Buffer.from("                \n")), /must not contain only whitespace/);
+});
+
+test("managed Redis rejects duplicate administrator and ACL Secret keys", () => {
+  const config = configuration();
+  config.redis.adminCredentialKey = config.redis.credentialKey;
+  assert(validateConfiguration(config).some(item => item.path === "$.redis.adminCredentialKey"));
+});
+
+test("WebSocket routing rejects case-insensitive collisions with fallback and fixed endpoints", () => {
+  for (const path of ["/realtime/tickets", "/REALTIME/TICKETS", "/health/startup", "/health/live", "/health/ready", "/metrics"]) {
+    const config = configuration();
+    config.ingress.webSocketPath = path;
+    assert(validateConfiguration(config).some(item => item.path === "$.ingress.webSocketPath"), path);
+  }
+  const collision = configuration();
+  collision.ingress.webSocketPath = "/Realtime/Ws";
+  collision.ingress.httpFallbackPath = "/realtime/ws";
+  assert(validateConfiguration(collision).some(item => item.path === "$.ingress.httpFallbackPath"));
+  const custom = configuration();
+  custom.ingress.webSocketPath = "/health/custom";
+  assert.deepEqual(validateConfiguration(custom), []);
+});
+
+test("credential and Certificate helpers derive target identities from configuration", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-helper-config-"));
+  const config = structuredClone(haExample);
+  config.kubernetes.context = "prod-context";
+  const configPath = resolve(directory, "config.json");
+  const adminPasswordPath = resolve(directory, "admin.txt");
+  const realtimePasswordPath = resolve(directory, "realtime.txt");
+  await writeFile(configPath, stableJson(config));
+  await writeFile(adminPasswordPath, "0123456789abcdef0123456789abcdef");
+  await writeFile(realtimePasswordPath, "fedcba9876543210fedcba9876543210");
+  try {
+    const secret = await resolveRedisSecretOptions({ config: configPath, adminPasswordFile: "admin", realtimePasswordFile: "realtime", kubectl: "kubectl" });
+    assert.equal(secret.context, config.kubernetes.context);
+    assert.equal(secret.namespace, config.kubernetes.namespace);
+    assert.equal(secret.secretName, config.redis.credentialsSecret);
+    assert.equal(secret.adminKey, config.redis.adminCredentialKey);
+    assert.equal(secret.realtimeKey, config.redis.credentialKey);
+    const certificateOptions = parseCertificateArguments(["--config", configPath, "--issuer-name", "letsencrypt-prod", "--dry-run"]);
+    const certificate = buildCertificateManifest(config, certificateOptions);
+    assert.equal(certificate.metadata.name, config.ingress.certificateName);
+    assert.equal(certificate.metadata.namespace, config.kubernetes.namespace);
+    assert.equal(certificate.spec.secretName, config.ingress.tlsSecretName);
+    assert.deepEqual(certificate.spec.dnsNames, [config.ingress.host]);
+    assert.equal(certificate.spec.issuerRef.name, "letsencrypt-prod");
+    const secretDryRun = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-redis-secret.mjs"), "--config", configPath, "--admin-password-file", adminPasswordPath, "--realtime-password-file", realtimePasswordPath, "--dry-run"], { cwd: repositoryRoot });
+    assert.deepEqual(JSON.parse(secretDryRun.stdout), { changed: false, dryRun: true, namespace: config.kubernetes.namespace, secretName: config.redis.credentialsSecret });
+    const certificateDryRun = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-certificate.mjs"), "--config", configPath, "--issuer-name", "letsencrypt-prod", "--dry-run"], { cwd: repositoryRoot });
+    assert.equal(JSON.parse(certificateDryRun.stdout).tlsSecret, config.ingress.tlsSecretName);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("topology changes are classified and require backup and confirmation", () => {
@@ -484,6 +561,18 @@ fi
   await writeFile(kubectlPath, kubectl, { mode: 0o755 });
 }
 
+async function seedManagedChartCache(fakeBin, release, chart = "oci://registry-1.docker.io/bitnamicharts/redis", version = "23.1.1", legacy = false) {
+  await prepareManagedRedisChart({
+    chart,
+    version,
+    archiveSha256: managedChartFixtureSha256,
+    outputDirectory: legacy
+      ? resolve(repositoryRoot, `.bootstrap/lifecycle/${release}/charts/redis-${version}`)
+      : managedRedisChartOutput(resolve(repositoryRoot, ".bootstrap/lifecycle"), release, chart, version),
+    helm: resolve(fakeBin, "helm"),
+  });
+}
+
 function shellInvocation(shell, action, configPath, extra = []) {
   return shell === "bash"
     ? ["bash", [resolve(repositoryRoot, "scripts/realtime-bootstrap.sh"), action, "--config", configPath, ...extra]]
@@ -551,7 +640,7 @@ test("both shells execute the complete lifecycle for both profiles with identica
       const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
       const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
       try {
-        await invoke("install");
+        await invoke("install", [], { BOOTSTRAP_FAKE_EMPTY_RELEASES: "1" });
         await invoke("install");
         await invoke("update");
         await invoke("validate");
@@ -606,6 +695,7 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     assert.equal(redisValues.auth.acl.users[0].username, "realtime");
     assert.equal(redisValues.master.pdb.create, false);
     assert.equal(redisValues.replica.pdb.create, false);
+    await seedManagedChartCache(fakeBin, release, "oci://mirror.example.test/charts/redis");
     const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART: "oci://mirror.example.test/charts/redis" } });
     const updateBackup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
     const capturedPlan = JSON.parse(await readFile(resolve(updateBackup, "plan.json"), "utf8"));
@@ -648,6 +738,7 @@ test("update adopts only a verified legacy managed Redis release", { timeout: 30
   const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
   const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LEGACY_REDIS: "1", BOOTSTRAP_FAKE_REDIS_SECRET: config.redis.credentialsSecret, BOOTSTRAP_FAKE_REDIS_PREFIX: `${config.redis.instancePrefix}:${config.naming.suffix}` };
   try {
+    await seedManagedChartCache(fakeBin, release, config.redis.legacyManagedChart, "23.1.1", true);
     const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: environment });
     const backup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
     assert(backup);
@@ -677,6 +768,7 @@ test("standalone backup captures installed managed Redis while desired configura
   const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
   const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
   try {
+    await seedManagedChartCache(fakeBin, release);
     const result = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis` } });
     const backup = result.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
     const captured = JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8"));
@@ -684,6 +776,35 @@ test("standalone backup captures installed managed Redis while desired configura
     assert.equal(captured.managedRedis.chartVersion, "23.1.1");
     assert.match(captured.managedRedis.chartArchiveSha256, /^sha256:[a-f0-9]{64}$/);
     assert.equal(await fileExists(resolve(backup, captured.managedRedis.chartArchiveFile)), true);
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(targetBackups, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("backup refuses to mint managed Redis chart provenance from a registry download", { timeout: 30_000 }, async t => {
+  if (process.platform === "win32") return t.skip("hermetic cluster tools run on the Ubuntu CI image");
+  const fakeBin = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-provenance-tools-"));
+  await fakeClusterTools(fakeBin);
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-provenance-config-"));
+  const config = configuration();
+  config.naming.suffix = "missing-provenance";
+  const configPath = resolve(directory, "config.json");
+  const operationLog = resolve(directory, "operations.log");
+  await writeFile(configPath, stableJson(config));
+  const release = "dev-realtime-missing-provenance";
+  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  try {
+    await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], {
+      cwd: repositoryRoot,
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LOG: operationLog },
+    }), error => error.code === 1 && /chart provenance is unavailable/.test(error.stdout));
+    const operations = await readFile(operationLog, "utf8");
+    assert.doesNotMatch(operations, /^pull /m);
+    const entries = await fileExists(targetBackups) ? await (await import("node:fs/promises")).readdir(targetBackups) : [];
+    assert.equal(entries.length, 0);
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
@@ -803,7 +924,7 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     const operations = await readFile(operationLog, "utf8");
-    assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4[/\\\\]redis`));
+    assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4-[a-f0-9]{12}[/\\\\]redis`));
     assert.doesNotMatch(operations, new RegExp(`upgrade --install ${release}-redis .*--version`));
     assert.doesNotMatch(operations, /^pull /m);
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
@@ -839,6 +960,7 @@ test("teardown skips desired-state prerequisites while retaining target and dele
   await writeFile(configPath, stableJson(config));
   await mkdir(targetRoot, { recursive: true });
   await writeFile(resolve(targetRoot, "state.json"), stableJson({ contractVersion: 1, topology: "non-ha" }));
+  await seedManagedChartCache(fakeBin, release);
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_FAIL: "credential", BOOTSTRAP_FAKE_LOG: operationLog } });
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "teardown", "--config", configPath, "--force"], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_FAIL: "credential", BOOTSTRAP_FAKE_LOG: operationLog } });
@@ -898,6 +1020,7 @@ test("stale lifecycle locks are recovered with bounded owner metadata", { timeou
   const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
   const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
   const lockPath = resolve(repositoryRoot, `.bootstrap/locks/${release}`);
+  await seedManagedChartCache(fakeBin, release);
   await mkdir(lockPath, { recursive: true });
   await writeFile(resolve(lockPath, "owner.json"), stableJson({ createdAt: new Date().toISOString(), hostname: hostname(), pid: 999999 }));
   try {

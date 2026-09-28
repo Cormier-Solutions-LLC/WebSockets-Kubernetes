@@ -16,7 +16,8 @@
 .NOTES
   Run with -Action help for the shared command summary. Domains, origins, image and
   chart versions/digests, Kubernetes identities, storage and resource settings are
-  supplied by Config. Passwords are applied separately with Set-RealtimeRedisSecret.ps1.
+  supplied by Config. Passwords and the cert-manager Certificate are applied
+  separately with Set-RealtimeRedisSecret.ps1 and Set-RealtimeCertificate.ps1.
 #>
 [CmdletBinding()]
 param(

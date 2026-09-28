@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "environment": { "name": "prod", "class": "production" },
+  "naming": { "suffix": "" },
+  "paths": {
+    "generatedDirectory": ".bootstrap/lifecycle",
+    "backupDirectory": ".backups/bootstrap",
+    "logDirectory": ".logs"
+  },
+  "image": {
+    "repository": "ghcr.io/example-org/cormier-realtime-gateway",
+    "tag": "1.0.5-beta",
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "pullPolicy": "IfNotPresent",
+    "pullSecretName": ""
+  },
+  "kubernetes": {
+    "context": "production",
+    "namespace": "prod-realtime",
+    "storageClass": "longhorn",
+    "failureDomains": 3
+  },
+  "networking": {
+    "traefikNamespace": "traefik",
+    "traefikService": "traefik",
+    "traefikPodLabels": { "app.kubernetes.io/name": "traefik" },
+    "directIngressNamespaceLabels": { "kubernetes.io/metadata.name": "prod-realtime" },
+    "directIngressPodLabels": {},
+    "trustedProxyCidrs": ["192.0.2.0/24"],
+    "metalLbNamespace": "metallb-system",
+    "metalLbAddress": "192.0.2.10",
+    "advertisementMode": "l2"
+  },
+  "redis": {
+    "mode": "managed",
+    "externalEndpoint": "",
+    "externalHaConfirmed": false,
+    "externalEgressCidrs": [],
+    "tls": false,
+    "credentialsSecret": "prod-realtime-redis",
+    "credentialKey": "realtime",
+    "adminCredentialKey": "redis-password",
+    "instancePrefix": "cormier:realtime:prod",
+    "managedChart": "oci://registry-1.docker.io/bitnamicharts/redis",
+    "managedChartVersion": "23.1.1",
+    "managedChartArchiveSha256": "sha256:05665707e771f9ed843842d3ebacb992ef1c4089f138b9711446b37db76ad60a",
+    "managedImagePullSecrets": [],
+    "managedImages": {
+      "allowInsecureRepositories": true,
+      "redis": {
+        "registry": "docker.io",
+        "repository": "bitnamilegacy/redis",
+        "tag": "8.2.1-debian-12-r0",
+        "digest": "sha256:25bf63f3caf75af4628c0dfcf39859ad1ac8abe135be85e99699f9637b16dc28"
+      },
+      "sentinel": {
+        "registry": "docker.io",
+        "repository": "bitnamilegacy/redis-sentinel",
+        "tag": "8.2.1-debian-12-r0",
+        "digest": "sha256:0ca3ea1d2f823c2d9265e0d9e682dc435f219f8d3385aed75b5bb0f365f516a9"
+      },
+      "exporter": {
+        "registry": "docker.io",
+        "repository": "bitnamilegacy/redis-exporter",
+        "tag": "1.76.0-debian-12-r0",
+        "digest": "sha256:d111b8a14d96f7edd67324776d6801b76023035d9390d03fbb13d1c21bda8b88"
+      }
+    },
+    "legacyManagedChart": "oci://registry-1.docker.io/bitnamicharts/redis"
+  },
+  "ingress": {
+    "enabled": true,
+    "host": "gateway.example.com",
+    "allowedOrigins": ["https://gateway.example.com"],
+    "entryPoint": "websecure",
+    "webSocketPath": "/realtime/ws",
+    "httpFallbackPath": "/realtime/http",
+    "tlsSecretName": "gateway-example-com-tls",
+    "certificateName": "gateway-example-com"
+  },
+  "observability": {
+    "cluster": "production",
+    "serviceMonitor": true,
+    "monitoringNamespaceLabels": { "kubernetes.io/metadata.name": "monitoring" },
+    "monitoringPodLabels": { "app.kubernetes.io/name": "prometheus" },
+    "otlpEndpoint": "",
+    "otlpHeadersSecret": "",
+    "otlpHeadersKey": "headers",
+    "otlpEgressCidrs": [],
+    "otlpEgressNamespaceLabels": {},
+    "otlpEgressPodLabels": {},
+    "otlpEgressPorts": [4317, 4318, 443]
+  },
+  "resources": { "gatewayCpu": "250m", "gatewayMemory": "256Mi", "redisStorage": "8Gi" },
+  "topology": "ha"
+}

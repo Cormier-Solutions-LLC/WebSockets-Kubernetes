@@ -39,6 +39,11 @@ replica:
   # Start one member at a time. The patched Service publishes its endpoint before
   # readiness so Redis and Sentinel can discover the first member during bootstrap.
   podManagementPolicy: OrderedReady
+  dnsConfig:
+    options:
+      - { name: timeout, value: "2" }
+      - { name: attempts, value: "3" }
+      - { name: single-request-reopen }
   startupProbe: { enabled: true, failureThreshold: 60 }
   persistence: { enabled: true, size: 8Gi }
   resources:
@@ -55,6 +60,22 @@ sentinel:
     tag: 8.2.1-debian-12-r0
     digest: sha256:0ca3ea1d2f823c2d9265e0d9e682dc435f219f8d3385aed75b5bb0f365f516a9
   startupProbe: { enabled: true, failureThreshold: 60 }
+  # Reapply the reviewed TILT tolerance after every Sentinel container start.
+  # The probe authenticates as the default/admin user; it never prints the value.
+  customStartupProbe:
+    exec:
+      command:
+        - /bin/bash
+        - -ec
+        - |-
+          export REDISCLI_AUTH="$(< "$REDIS_PASSWORD_FILE")"
+          redis-cli -h 127.0.0.1 -p 26379 PING >/dev/null
+          redis-cli -h 127.0.0.1 -p 26379 SENTINEL DEBUG tilt-trigger 10000 >/dev/null
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 60
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 250m, memory: 256Mi }

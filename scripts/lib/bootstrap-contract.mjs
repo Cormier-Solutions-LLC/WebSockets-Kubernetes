@@ -162,6 +162,7 @@ export function validateConfiguration(input) {
   requireString(redis.credentialsSecret, "$.redis.credentialsSecret", errors, dnsSubdomain);
   requireString(redis.credentialKey, "$.redis.credentialKey", errors, secretKey);
   requireString(redis.adminCredentialKey, "$.redis.adminCredentialKey", errors, secretKey);
+  if (redis.mode === "managed" && redis.credentialKey === redis.adminCredentialKey) errors.push(problem("$.redis.adminCredentialKey", "must differ from the restricted ACL credential key in managed mode"));
   requireString(redis.instancePrefix, "$.redis.instancePrefix", errors, redisPrefix);
   requireString(redis.managedChart, "$.redis.managedChart", errors, /^oci:\/\/[a-z0-9.-]+(?::[0-9]+)?(?:\/[a-z0-9._-]+)+$/);
   requireString(redis.managedChartVersion, "$.redis.managedChartVersion", errors, /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/);
@@ -198,7 +199,17 @@ export function validateConfiguration(input) {
   requireString(ingress.entryPoint, "$.ingress.entryPoint", errors, /^[A-Za-z0-9._-]+$/);
   requireString(ingress.webSocketPath, "$.ingress.webSocketPath", errors, /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/);
   requireString(ingress.httpFallbackPath, "$.ingress.httpFallbackPath", errors, /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/);
-  if (ingress.webSocketPath === ingress.httpFallbackPath) errors.push(problem("$.ingress.httpFallbackPath", "must differ from the WebSocket path"));
+  const webSocketPath = typeof ingress.webSocketPath === "string" ? ingress.webSocketPath.toLowerCase() : "";
+  const fallbackPath = typeof ingress.httpFallbackPath === "string" ? ingress.httpFallbackPath.toLowerCase() : "";
+  if (webSocketPath && webSocketPath === fallbackPath) errors.push(problem("$.ingress.httpFallbackPath", "must differ case-insensitively from the WebSocket path"));
+  const reservedWebSocketPaths = new Set([
+    "/realtime/tickets",
+    "/health/startup",
+    "/health/live",
+    "/health/ready",
+    "/metrics",
+  ]);
+  if (reservedWebSocketPaths.has(webSocketPath)) errors.push(problem("$.ingress.webSocketPath", "must not reuse a fixed gateway ticket, health, or metrics endpoint"));
   requireString(ingress.tlsSecretName, "$.ingress.tlsSecretName", errors, dnsSubdomain, !ingress.enabled);
   requireString(ingress.certificateName, "$.ingress.certificateName", errors, dnsSubdomain, true);
 
@@ -453,6 +464,11 @@ function renderManagedRedis(config, profile) {
       },
       master: { pdb: { create: profile.redis.sentinel }, persistence: { enabled: true, size: config.resources.redisStorage } },
       replica: {
+        dnsConfig: config.topology === "ha" ? { options: [
+          { name: "timeout", value: "2" },
+          { name: "attempts", value: "3" },
+          { name: "single-request-reopen" },
+        ] } : {},
         podManagementPolicy: config.topology === "ha" ? "OrderedReady" : "Parallel",
         replicaCount: profile.redis.replicas,
         pdb: { create: profile.redis.sentinel },
@@ -461,6 +477,18 @@ function renderManagedRedis(config, profile) {
         topologySpreadConstraints,
       },
       sentinel: {
+        customStartupProbe: config.topology === "ha" ? {
+          exec: { command: [
+            "/bin/bash",
+            "-ec",
+            "export REDISCLI_AUTH=\"$(< \"$REDIS_PASSWORD_FILE\")\"\nredis-cli -h 127.0.0.1 -p 26379 PING >/dev/null\nredis-cli -h 127.0.0.1 -p 26379 SENTINEL DEBUG tilt-trigger 10000 >/dev/null",
+          ] },
+          failureThreshold: 60,
+          initialDelaySeconds: 10,
+          periodSeconds: 10,
+          successThreshold: 1,
+          timeoutSeconds: 5,
+        } : {},
         enabled: profile.redis.sentinel,
         image: config.redis.managedImages.sentinel,
         quorum: 2,

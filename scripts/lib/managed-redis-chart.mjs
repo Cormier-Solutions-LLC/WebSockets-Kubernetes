@@ -78,10 +78,6 @@ async function pullManagedRedisChart({ chart, version, outputDirectory, helm, de
   return { archivePath, archiveSha256: `sha256:${createHash("sha256").update(archiveBytes).digest("hex")}` };
 }
 
-export async function captureManagedRedisChart({ chart, version, outputDirectory, helm = "helm", timeoutSeconds = 300 }) {
-  return pullManagedRedisChart({ chart, version, outputDirectory, helm, deadline: lifecycleDeadline(timeoutSeconds) });
-}
-
 async function readCachedManagedRedisChart({ chart, version, cacheDirectory }) {
   validateChartIdentity(chart, version);
   const cache = resolve(cacheDirectory);
@@ -144,6 +140,12 @@ export async function prepareManagedRedisChart({
   return { chartDirectory, servicePath, archiveSha256: pulled.archiveSha256 };
 }
 
-export function managedRedisChartOutput(generatedRoot, release, version) {
+export function managedRedisChartOutput(generatedRoot, release, chart, version) {
+  validateChartIdentity(chart, version);
+  const sourceId = createHash("sha256").update(chart).digest("hex").slice(0, 12);
+  return resolve(generatedRoot, release, "charts", `redis-${version}-${sourceId}`);
+}
+
+export function legacyManagedRedisChartOutput(generatedRoot, release, version) {
   return resolve(generatedRoot, release, "charts", `redis-${version}`);
 }

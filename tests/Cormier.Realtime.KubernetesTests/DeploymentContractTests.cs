@@ -84,6 +84,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("Redis__User", content, StringComparison.Ordinal);
         Assert.Contains("Redis__SentinelServiceName", content, StringComparison.Ordinal);
         Assert.Contains("Redis__SentinelPassword", content, StringComparison.Ordinal);
+        Assert.Contains("sentinelUser=default", Read("helm/realtime-gateway/templates/_helpers.tpl"), StringComparison.Ordinal);
         Assert.Contains("-client", content, StringComparison.Ordinal);
         Assert.DoesNotContain("ACL SETUSER", content, StringComparison.Ordinal);
     }
@@ -106,6 +107,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("networkPolicy:", values, StringComparison.Ordinal);
         Assert.Contains("podManagementPolicy: OrderedReady", values, StringComparison.Ordinal);
         Assert.Contains("failureThreshold: 60", values, StringComparison.Ordinal);
+        Assert.Contains("single-request-reopen", values, StringComparison.Ordinal);
+        Assert.Contains("SENTINEL DEBUG tilt-trigger 10000", values, StringComparison.Ordinal);
         Assert.Contains("bitnamilegacy/redis", values, StringComparison.Ordinal);
         Assert.Contains("digest: sha256:", values, StringComparison.Ordinal);
         Assert.DoesNotContain("password:", values, StringComparison.OrdinalIgnoreCase);

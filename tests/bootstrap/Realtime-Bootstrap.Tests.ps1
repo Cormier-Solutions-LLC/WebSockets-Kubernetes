@@ -35,12 +35,18 @@ Describe 'Realtime-Bootstrap PowerShell entry point' {
     It 'parses the managed Redis helper entry points' {
         foreach ($path in @(
             (Join-Path $script:RepositoryRoot 'scripts/Prepare-ManagedRedisChart.ps1'),
-            (Join-Path $script:RepositoryRoot 'scripts/Set-RealtimeRedisSecret.ps1')
+            (Join-Path $script:RepositoryRoot 'scripts/Set-RealtimeRedisSecret.ps1'),
+            (Join-Path $script:RepositoryRoot 'scripts/Set-RealtimeCertificate.ps1')
         )) {
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors) | Out-Null
             $errors | Should -BeNullOrEmpty
         }
+    }
+
+    It 'exposes configuration-driven credential and certificate helpers' {
+        (Get-Content (Join-Path $script:RepositoryRoot 'scripts/Set-RealtimeRedisSecret.ps1') -Raw) | Should -Match '\[string\]\$Config'
+        (Get-Content (Join-Path $script:RepositoryRoot 'scripts/Set-RealtimeCertificate.ps1') -Raw) | Should -Match '\[string\]\$IssuerName'
     }
 
     It 'returns failure deterministically when Node is unavailable' {

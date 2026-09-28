@@ -2,9 +2,14 @@
 .SYNOPSIS
 Creates or updates the Kubernetes Secret used by managed Redis and the gateway.
 .DESCRIPTION
-Reads two password files, removes trailing CR/LF bytes, rejects embedded newlines,
+Reads two password files, removes trailing CR/LF bytes, rejects whitespace-only
+or embedded-newline values,
 and submits the Secret to kubectl through standard input so passwords are not placed
-in command-line arguments or output.
+in command-line arguments or output. Config mode derives all Kubernetes and Secret
+identities from the validated bootstrap configuration and avoids duplicated values.
+.PARAMETER Config
+Bootstrap JSON configuration. Do not combine with Context, Namespace, SecretName,
+AdminKey, or RealtimeKey.
 .PARAMETER Context
 Exact kubectl context to target.
 .PARAMETER Namespace
@@ -26,13 +31,14 @@ Validate the files and target identifiers without contacting Kubernetes.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$Context,
-    [Parameter(Mandatory)][string]$Namespace,
-    [Parameter(Mandatory)][string]$SecretName,
+    [string]$Config,
+    [string]$Context,
+    [string]$Namespace,
+    [string]$SecretName,
     [Parameter(Mandatory)][string]$AdminInputFile,
     [Parameter(Mandatory)][string]$RealtimeInputFile,
-    [string]$AdminKey = 'redis-password',
-    [string]$RealtimeKey = 'realtime',
+    [string]$AdminKey,
+    [string]$RealtimeKey,
     [switch]$CreateNamespace,
     [switch]$DryRun,
     [string]$Kubectl = 'kubectl'
@@ -42,15 +48,16 @@ $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue 
 if (-not $node) { throw 'Node.js 22 or later is required but node was not found on PATH.' }
 $arguments = @(
     (Join-Path $PSScriptRoot 'realtime-redis-secret.mjs'),
-    '--context', $Context,
-    '--namespace', $Namespace,
-    '--secret-name', $SecretName,
     '--admin-password-file', $AdminInputFile,
     '--realtime-password-file', $RealtimeInputFile,
-    '--admin-key', $AdminKey,
-    '--realtime-key', $RealtimeKey,
     '--kubectl', $Kubectl
 )
+if ($Config) { $arguments += @('--config', $Config) }
+if ($Context) { $arguments += @('--context', $Context) }
+if ($Namespace) { $arguments += @('--namespace', $Namespace) }
+if ($SecretName) { $arguments += @('--secret-name', $SecretName) }
+if ($AdminKey) { $arguments += @('--admin-key', $AdminKey) }
+if ($RealtimeKey) { $arguments += @('--realtime-key', $RealtimeKey) }
 if ($CreateNamespace) { $arguments += '--create-namespace' }
 if ($DryRun) { $arguments += '--dry-run' }
 & $node.Source @arguments

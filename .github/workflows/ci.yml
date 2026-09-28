@@ -87,8 +87,9 @@ jobs:
         run: |
           bash -n scripts/realtime-bootstrap.sh
           bash -n scripts/realtime-redis-secret.sh
+          bash -n scripts/realtime-certificate.sh
           bash -n scripts/prepare-managed-redis-chart.sh
-          shellcheck scripts/realtime-bootstrap.sh scripts/realtime-redis-secret.sh scripts/prepare-managed-redis-chart.sh
+          shellcheck scripts/realtime-bootstrap.sh scripts/realtime-redis-secret.sh scripts/realtime-certificate.sh scripts/prepare-managed-redis-chart.sh
       - name: Test bootstrap contract and cross-shell parity
         env:
           BOOTSTRAP_SKIP_LIFECYCLE: '1'
@@ -110,7 +111,7 @@ jobs:
           grep --quiet 'topologySpreadConstraints:' /tmp/ha.yaml
           grep --quiet 'whenUnsatisfiable: DoNotSchedule' /tmp/ha.yaml
           grep --quiet 'Gateway__Topology: "ha"' /tmp/ha.yaml
-          grep --quiet 'Redis__Endpoint: "dev-realtime-redis:26379"' /tmp/ha.yaml
+          grep --quiet 'Redis__Endpoint: "dev-realtime-redis:26379,sentinelUser=default"' /tmp/ha.yaml
           grep --quiet 'Redis__SentinelPassword' /tmp/ha.yaml
           grep --quiet 'port: 6379' /tmp/ha.yaml
           grep --quiet 'port: 26379' /tmp/ha.yaml
@@ -166,6 +167,8 @@ jobs:
           test "$(grep -c 'publishNotReadyAddresses: true' /tmp/redis.yaml)" -eq 2
           grep --quiet 'podManagementPolicy: "OrderedReady"' /tmp/redis.yaml
           test "$(grep -c 'failureThreshold: 60' /tmp/redis.yaml)" -ge 2
+          grep --quiet 'name: single-request-reopen' /tmp/redis.yaml
+          grep --quiet 'SENTINEL DEBUG tilt-trigger 10000' /tmp/redis.yaml
           grep --quiet 'bitnamilegacy/redis@sha256:25bf63f3caf75af4628c0dfcf39859ad1ac8abe135be85e99699f9637b16dc28' /tmp/redis.yaml
           grep --quiet 'bitnamilegacy/redis-sentinel@sha256:0ca3ea1d2f823c2d9265e0d9e682dc435f219f8d3385aed75b5bb0f365f516a9' /tmp/redis.yaml
           grep --quiet 'bitnamilegacy/redis-exporter@sha256:d111b8a14d96f7edd67324776d6801b76023035d9390d03fbb13d1c21bda8b88' /tmp/redis.yaml

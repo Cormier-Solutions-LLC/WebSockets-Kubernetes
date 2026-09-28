@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
-import { captureManagedRedisChart, copyCachedManagedRedisChart, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
+import { copyCachedManagedRedisChart, legacyManagedRedisChartOutput, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -57,8 +57,10 @@ Common options:
 
 All domains, origins, image/chart versions and digests, Kubernetes identities,
 storage, resource bounds, Redis identities, and observability targets live in
-the versioned JSON configuration. Passwords are supplied separately through
-realtime-redis-secret.sh or Set-RealtimeRedisSecret.ps1.
+the versioned JSON configuration. Start HA deployments from
+bootstrap/config.ha.example.json. Passwords and cert-manager Certificates are
+supplied through the configuration-driven Bash or PowerShell helpers; see
+docs/runbooks/managed-redis-ha.md for the complete order and remediations.
 `;
 
 function emit(level, phase, message, fields = {}) {
@@ -215,23 +217,21 @@ async function saveState(plan, config, options) {
           capturedPlan.managedRedis.chart = chart;
           capturedPlan.managedRedis.chartVersion = chartVersion;
           let capturedChart;
-          try {
-            capturedChart = await copyCachedManagedRedisChart({
-              chart,
-              version: chartVersion,
-              cacheDirectory: managedRedisChartOutput(options.generatedRoot, options.targetName, chartVersion),
-              outputDirectory: directory,
-            });
-          } catch (cacheError) {
+          let cacheError;
+          for (const cacheDirectory of [
+            managedRedisChartOutput(options.generatedRoot, options.targetName, chart, chartVersion),
+            legacyManagedRedisChartOutput(options.generatedRoot, options.targetName, chartVersion),
+          ]) {
+            try {
+              capturedChart = await copyCachedManagedRedisChart({ chart, version: chartVersion, cacheDirectory, outputDirectory: directory });
+              break;
+            } catch (error) { cacheError = error; }
+          }
+          if (!capturedChart) {
             if (options.action === "rollback") {
               emit("warn", options.action, "Current managed Redis chart is not cached; continuing the explicitly selected self-contained rollback without a restorable pre-change chart archive.", { reason: cacheError.message });
             } else {
-              capturedChart = await captureManagedRedisChart({
-                chart,
-                version: chartVersion,
-                outputDirectory: directory,
-                timeoutSeconds: options.timeoutSeconds,
-              });
+              throw new Error(`Installed managed Redis chart provenance is unavailable: ${cacheError.message} Preserve the verified lifecycle chart cache or restore it from a trusted backup before capturing state.`);
             }
           }
           if (capturedChart) {
@@ -346,7 +346,7 @@ async function apply(plan, config, options) {
 }
 
 async function prepareRedisChart(managedRedis, options) {
-  const outputDirectory = managedRedisChartOutput(options.generatedRoot, options.targetName, managedRedis.chartVersion);
+  const outputDirectory = managedRedisChartOutput(options.generatedRoot, options.targetName, managedRedis.chart, managedRedis.chartVersion);
   const prepared = await prepareManagedRedisChart({
     chart: managedRedis.chart,
     version: managedRedis.chartVersion,
@@ -601,7 +601,7 @@ async function main() {
       return;
     }
 
-    if (plan.managedRedis && ["install", "update", "recover", "validate"].includes(options.action)) {
+    if (plan.managedRedis && options.action === "validate") {
       options.redisChartPath = await prepareRedisChart(plan.managedRedis, options);
     }
 
@@ -633,6 +633,9 @@ async function main() {
     else if (options.action === "backup") await assertBackupTarget(plan, options);
     else await assertTarget(plan, options.action === "rollback" ? configurationForPlan(config, plan) : config, options, mutation);
     if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, config, options);
+    if (plan.managedRedis && ["install", "update", "recover"].includes(options.action)) {
+      options.redisChartPath = await prepareRedisChart(plan.managedRedis, options);
+    }
     if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, options);
     else if (options.action === "validate") {
       await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath, "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor", "--api-versions", "monitoring.coreos.com/v1/PrometheusRule", "--api-versions", "monitoring.coreos.com/v1alpha1/AlertmanagerConfig"], "Render gateway manifests", options);

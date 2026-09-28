@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pipelineVersion": "1.1.0",
   "package": "@cormier/realtime",
-  "version": "1.0.4-beta",
+  "version": "1.0.5-beta",
   "defaults": {
     "development": "readable",
     "support": "readable",
@@ -39,29 +39,29 @@
         {
           "path": "readable/index.html",
           "bytes": 2466,
-          "gzipBytes": 1114,
-          "sha256": "4d6e31e95f5d520a13f3cbfeed0a008677c0a6da33b503033b2ab391c5650dbc",
-          "integrity": "sha384-bTn5wNDMEQ7cxxNF+qhctJTbX44XH4ESFTXbt5kVunLYQE7AduuIuWWf41tflnF/"
+          "gzipBytes": 1115,
+          "sha256": "c4093ec7e2b0c6e27993e7e4856b867abbf1774f432f27c972c2c2d857ceb3f8",
+          "integrity": "sha384-NDP7VkwCq7qxgEgZ93nCLYpU5HwgwAMvtG7umlIcOSIaX58iQdZ+ClGUvSniKLzP"
         },
         {
           "path": "readable/fallback.html",
           "bytes": 2466,
-          "gzipBytes": 1114,
-          "sha256": "4d6e31e95f5d520a13f3cbfeed0a008677c0a6da33b503033b2ab391c5650dbc",
-          "integrity": "sha384-bTn5wNDMEQ7cxxNF+qhctJTbX44XH4ESFTXbt5kVunLYQE7AduuIuWWf41tflnF/"
+          "gzipBytes": 1115,
+          "sha256": "c4093ec7e2b0c6e27993e7e4856b867abbf1774f432f27c972c2c2d857ceb3f8",
+          "integrity": "sha384-NDP7VkwCq7qxgEgZ93nCLYpU5HwgwAMvtG7umlIcOSIaX58iQdZ+ClGUvSniKLzP"
         },
         {
           "path": "readable/failover.html",
           "bytes": 2466,
-          "gzipBytes": 1114,
-          "sha256": "4d6e31e95f5d520a13f3cbfeed0a008677c0a6da33b503033b2ab391c5650dbc",
-          "integrity": "sha384-bTn5wNDMEQ7cxxNF+qhctJTbX44XH4ESFTXbt5kVunLYQE7AduuIuWWf41tflnF/"
+          "gzipBytes": 1115,
+          "sha256": "c4093ec7e2b0c6e27993e7e4856b867abbf1774f432f27c972c2c2d857ceb3f8",
+          "integrity": "sha384-NDP7VkwCq7qxgEgZ93nCLYpU5HwgwAMvtG7umlIcOSIaX58iQdZ+ClGUvSniKLzP"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "309b3a3651baf3f4f73380d840f52e158f75a677375288312b109e0d72b193bc",
-        "integrity": "sha384-27f1ap3rWEUm9XO2AcQgEnzgrHYHVZo1TRvjJSsqDSGPjrSzHnFNvyoy7qWebju0"
+        "sha256": "f276c438f4b11cce2197951b183da022eab8cf07e58fb10d6e4a1c33a369cb44",
+        "integrity": "sha384-5K+GkIt5aS7SKUCVPks3LW0ThrIXsO24ltpWAHRyUPW+GOv+0Q9SBR11S0ZhtBj7"
       }
     },
     "optimized": {
@@ -83,23 +83,23 @@
         {
           "path": "optimized/index.html",
           "bytes": 2305,
-          "gzipBytes": 1092,
-          "sha256": "b9cfbf7d0347d76fc40764929159d8361f3c761a51a1106742eadc70af35db2e",
-          "integrity": "sha384-sApiSpG5sCbgACoX18YtwrxE2vzm4dZa2s0Wl6onVvzm3jGf0VUVJG5iPzAZh91Q"
+          "gzipBytes": 1091,
+          "sha256": "cbf9909e98a61b5fe1869d54c62ec76fec170be90df346c1e0e4a4f25a295f4c",
+          "integrity": "sha384-GtIPr645NTIrFMWjpCa01GYEt4XR8GO2IpnupJjMVnzml/7t2Ya9q8K+wV5ifHjJ"
         },
         {
           "path": "optimized/fallback.html",
           "bytes": 2305,
-          "gzipBytes": 1092,
-          "sha256": "b9cfbf7d0347d76fc40764929159d8361f3c761a51a1106742eadc70af35db2e",
-          "integrity": "sha384-sApiSpG5sCbgACoX18YtwrxE2vzm4dZa2s0Wl6onVvzm3jGf0VUVJG5iPzAZh91Q"
+          "gzipBytes": 1091,
+          "sha256": "cbf9909e98a61b5fe1869d54c62ec76fec170be90df346c1e0e4a4f25a295f4c",
+          "integrity": "sha384-GtIPr645NTIrFMWjpCa01GYEt4XR8GO2IpnupJjMVnzml/7t2Ya9q8K+wV5ifHjJ"
         },
         {
           "path": "optimized/failover.html",
           "bytes": 2305,
-          "gzipBytes": 1092,
-          "sha256": "b9cfbf7d0347d76fc40764929159d8361f3c761a51a1106742eadc70af35db2e",
-          "integrity": "sha384-sApiSpG5sCbgACoX18YtwrxE2vzm4dZa2s0Wl6onVvzm3jGf0VUVJG5iPzAZh91Q"
+          "gzipBytes": 1091,
+          "sha256": "cbf9909e98a61b5fe1869d54c62ec76fec170be90df346c1e0e4a4f25a295f4c",
+          "integrity": "sha384-GtIPr645NTIrFMWjpCa01GYEt4XR8GO2IpnupJjMVnzml/7t2Ya9q8K+wV5ifHjJ"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -118,8 +118,8 @@
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "b00ad2b001631a9000ef09c808dc9049cc22b2971eca8c0ea16ad0c3fcee70b4",
-        "integrity": "sha384-g0sUXDPtzXUqyVzQOqspyh7tAOTfYZdcziI2DcJyn6KyA2objgxPzurdnVZih00W"
+        "sha256": "37dd706a86413adf8de9024d605724aad80abeaa50ba2f5c4e531b8570a7460c",
+        "integrity": "sha384-2JwunMRxTqCYitGmI3w0tesBEfcHlv10wDgb1H0IhMlXQQ8Ed8Ctzn55MDfSBlcf"
       }
     }
   },

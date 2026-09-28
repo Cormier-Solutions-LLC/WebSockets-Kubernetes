@@ -924,7 +924,7 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     const operations = await readFile(operationLog, "utf8");
-    assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4[/\\\\]redis`));
+    assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4-[a-f0-9]{12}[/\\\\]redis`));
     assert.doesNotMatch(operations, new RegExp(`upgrade --install ${release}-redis .*--version`));
     assert.doesNotMatch(operations, /^pull /m);
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));

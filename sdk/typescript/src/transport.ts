@@ -40,13 +40,14 @@ export function createTransportSocket(
   websocketUrl: string,
   protocol: string,
   options: RealtimeTransportOptions,
+  nextConnectionUrl?: () => Promise<string>,
 ): WebSocketLike {
   const transports = options.transports ?? ["websocket"];
   if (transports.length === 0) throw new TypeError("At least one transport is required.");
-  const factories = transports.map((transport) => {
+  const factories = transports.map((transport) => (candidateUrl: string) => {
     if (transport === "websocket") {
-      return () => (options.webSocketFactory ?? ((url, selectedProtocol) => new WebSocket(url, selectedProtocol)))(
-        websocketUrl,
+      return (options.webSocketFactory ?? ((url, selectedProtocol) => new WebSocket(url, selectedProtocol)))(
+        candidateUrl,
         protocol,
       );
     }
@@ -54,9 +55,11 @@ export function createTransportSocket(
     if (configuration === undefined) {
       throw new TypeError("httpStreaming is required when the http-streaming transport is selected.");
     }
-    return () => new HttpStreamingSocket(websocketUrl, configuration);
+    return new HttpStreamingSocket(candidateUrl, configuration);
   });
-  return factories.length === 1 ? factories[0]!() : new InitializingFallbackSocket(factories);
+  return factories.length === 1
+    ? factories[0]!(websocketUrl)
+    : new InitializingFallbackSocket(websocketUrl, factories, nextConnectionUrl);
 }
 
 class InitializingFallbackSocket implements WebSocketLike {
@@ -70,8 +73,12 @@ class InitializingFallbackSocket implements WebSocketLike {
   private state = CONNECTING;
   private opened = false;
 
-  public constructor(private readonly factories: readonly (() => WebSocketLike)[]) {
-    queueMicrotask(() => this.tryNext());
+  public constructor(
+    private readonly initialUrl: string,
+    private readonly factories: readonly ((url: string) => WebSocketLike)[],
+    private readonly nextConnectionUrl?: () => Promise<string>,
+  ) {
+    queueMicrotask(() => void this.tryNext());
   }
 
   public get readyState(): number {
@@ -96,11 +103,15 @@ class InitializingFallbackSocket implements WebSocketLike {
     }
   }
 
-  private tryNext(): void {
+  private async tryNext(): Promise<void> {
     if (this.state !== CONNECTING) return;
     let candidate: WebSocketLike;
     try {
-      candidate = this.factories[this.index]!();
+      const url = this.index === 0 || this.nextConnectionUrl === undefined
+        ? this.initialUrl
+        : await this.nextConnectionUrl();
+      if (this.state !== CONNECTING) return;
+      candidate = this.factories[this.index]!(url);
     } catch {
       this.advance();
       return;
@@ -133,10 +144,11 @@ class InitializingFallbackSocket implements WebSocketLike {
   }
 
   private advance(): void {
+    if (this.state !== CONNECTING) return;
     this.socket = undefined;
     this.index += 1;
     if (this.index < this.factories.length) {
-      queueMicrotask(() => this.tryNext());
+      queueMicrotask(() => void this.tryNext());
       return;
     }
     this.state = CLOSED;
@@ -172,7 +184,7 @@ class HttpStreamingSocket implements WebSocketLike {
       const value = source.searchParams.get(name);
       if (value !== null) this.baseUrl.searchParams.set(name, value);
     }
-    void this.start();
+    queueMicrotask(() => void this.start());
   }
 
   public get readyState(): number {

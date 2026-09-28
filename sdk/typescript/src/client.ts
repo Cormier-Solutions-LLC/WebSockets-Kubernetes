@@ -323,7 +323,15 @@ export class RealtimeClient {
     if (generation !== this.generation || this.intentionalClose) {
       throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
     }
-    const socket = createTransportSocket(connectionUrl, WEBSOCKET_SUBPROTOCOL, this.options);
+    const authentication = this.options.authentication ?? { kind: "session" };
+    const socket = createTransportSocket(
+      connectionUrl,
+      WEBSOCKET_SUBPROTOCOL,
+      this.options,
+      authentication.kind === "ticket"
+        ? () => this.createConnectionUrl(reconnecting, signal)
+        : undefined,
+    );
     socket.binaryType = "arraybuffer";
     this.socket = socket;
 

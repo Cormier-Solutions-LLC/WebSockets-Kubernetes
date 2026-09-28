@@ -218,32 +218,10 @@ defmodule CormierRealtimeExample.Web do
 
   defp route(method, ["realtime", "http" | _], conn, config)
        when method in ["GET", "POST", "DELETE"] do
-    with {:ok, body, conn} <- read_bounded_body(conn),
-         {:ok, response} <-
-           Req.request(
-             method:
-               if(method == "GET", do: :get, else: if(method == "POST", do: :post, else: :delete)),
-             url:
-               config.gateway_url <>
-                 conn.request_path <>
-                 if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
-             body: body,
-             headers: forward_headers(conn, config),
-             connect_options: [timeout: 5_000],
-             receive_timeout: 35_000,
-             into: &collect_response_chunk/2,
-             retry: false
-           ),
-         false <- response.body == :too_large do
-      response_body = IO.iodata_to_binary(response.body || "")
-      content_type = List.first(response.headers["content-type"] || ["application/json"])
-
-      conn
-      |> put_resp_header("content-type", content_type)
-      |> send_resp(response.status, response_body)
+    if method == "GET" and String.ends_with?(conn.request_path, "/stream") do
+      proxy_http_stream(conn, config)
     else
-      {:error, :too_large, conn} -> request_too_large(conn)
-      _ -> unavailable(conn)
+      proxy_http_request(method, conn, config)
     end
   end
 
@@ -273,6 +251,75 @@ defmodule CormierRealtimeExample.Web do
 
   defp route(_, _, conn, _config), do: send_resp(conn, 404, "")
 
+  defp proxy_http_request(method, conn, config) do
+    with {:ok, body, conn} <- read_bounded_body(conn),
+         {:ok, response} <-
+           Req.request(
+             method:
+               if(method == "GET", do: :get, else: if(method == "POST", do: :post, else: :delete)),
+             url:
+               config.gateway_url <>
+                 conn.request_path <>
+                 if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
+             body: body,
+             headers: forward_headers(conn, config),
+             connect_options: [timeout: 5_000],
+             receive_timeout: 35_000,
+             into: &collect_response_chunk/2,
+             retry: false
+           ),
+         false <- response.body == :too_large do
+      response_body = IO.iodata_to_binary(response.body || "")
+      content_type = List.first(response.headers["content-type"] || ["application/json"])
+
+      conn
+      |> forward_set_cookies(response)
+      |> put_resp_header("content-type", content_type)
+      |> send_resp(response.status, response_body)
+    else
+      {:error, :too_large, conn} -> request_too_large(conn)
+      _ -> unavailable(conn)
+    end
+  end
+
+  defp proxy_http_stream(conn, config) do
+    with {:ok, response} <-
+           Req.get(
+             config.gateway_url <>
+               conn.request_path <>
+               if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
+             headers: forward_headers(conn, config),
+             connect_options: [timeout: 5_000],
+             receive_timeout: :infinity,
+             into: :self,
+             retry: false
+           ) do
+      content_type = List.first(response.headers["content-type"] || ["application/x-ndjson"])
+
+      streamed =
+        conn
+        |> forward_set_cookies(response)
+        |> put_resp_header("content-type", content_type)
+        |> send_chunked(response.status)
+
+      Enum.reduce_while(response.body, streamed, fn
+        {:data, data}, current ->
+          case chunk(current, data) do
+            {:ok, next} -> {:cont, next}
+            {:error, _reason} -> {:halt, current}
+          end
+
+        {:error, _reason}, current ->
+          {:halt, current}
+
+        _event, current ->
+          {:cont, current}
+      end)
+    else
+      _ -> unavailable(conn)
+    end
+  end
+
   defp origin(conn, config),
     do:
       if(get_req_header(conn, "origin") == [config.public_origin],
@@ -295,6 +342,13 @@ defmodule CormierRealtimeExample.Web do
           {"host", authority(conn)},
           {"x-forwarded-proto", CormierRealtimeExample.Config.public_scheme(config)}
         ]
+
+  defp forward_set_cookies(conn, response),
+    do:
+      prepend_resp_headers(
+        conn,
+        Enum.map(response.headers["set-cookie"] || [], &{"set-cookie", &1})
+      )
 
   defp port_suffix(80, :http), do: ""
   defp port_suffix(443, :https), do: ""

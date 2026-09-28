@@ -1,6 +1,7 @@
 namespace Cormier.Realtime.KubernetesTests;
 
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 public sealed class DeploymentContractTests
@@ -55,6 +56,17 @@ public sealed class DeploymentContractTests
         Assert.Equal(1, nonHaAutoscaling.GetProperty("minReplicas").GetProperty("const").GetInt32());
         Assert.Equal(1, nonHaAutoscaling.GetProperty("maxReplicas").GetProperty("const").GetInt32());
         Assert.Contains("Gateway__Topology: {{ .Values.topology", Read("helm/realtime-gateway/templates/configmap.yaml"), StringComparison.Ordinal);
+        var fallbackPathPattern = schema.RootElement.GetProperty("properties")
+            .GetProperty("ingressRoute").GetProperty("properties")
+            .GetProperty("fallbackPath").GetProperty("pattern").GetString()!;
+        Assert.Matches(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/edge/fallback");
+        Assert.DoesNotMatch(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/");
+        Assert.DoesNotMatch(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/edge/");
+        var affinitySameSites = schema.RootElement.GetProperty("properties")
+            .GetProperty("ingressRoute").GetProperty("properties")
+            .GetProperty("affinityCookieSameSite").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString()!).ToArray();
+        Assert.Equal(["lax", "strict", "none"], affinitySameSites);
     }
 
     [Fact]
@@ -121,6 +133,7 @@ public sealed class DeploymentContractTests
     {
         var service = Read("helm/realtime-gateway/templates/service.yaml");
         var route = Read("helm/realtime-gateway/templates/ingressroute.yaml");
+        var configMap = Read("helm/realtime-gateway/templates/configmap.yaml");
         var gatewayValues = Read("cluster/edge/development/gateway-values.yaml");
         var traefikValues = Read("cluster/edge/development/traefik-values.yaml");
         var metalLb = Read("cluster/edge/development/metallb.yaml");
@@ -128,6 +141,11 @@ public sealed class DeploymentContractTests
 
         Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
         Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && (Path(`{{ .Values.ingressRoute.path }}`) || PathPrefix(`{{ .Values.ingressRoute.fallbackPath }}/`))", route, StringComparison.Ordinal);
+        Assert.Contains("sticky:", route, StringComparison.Ordinal);
+        Assert.Contains("name: {{ .Values.ingressRoute.affinityCookieName | quote }}", route, StringComparison.Ordinal);
+        Assert.Contains("sameSite: {{ .Values.ingressRoute.affinityCookieSameSite | quote }}", route, StringComparison.Ordinal);
+        Assert.Contains("secure: true", route, StringComparison.Ordinal);
+        Assert.Contains("HttpFallback__BasePath: {{ .Values.ingressRoute.fallbackPath | quote }}", configMap, StringComparison.Ordinal);
         Assert.Contains(".Values.ingressRoute.entryPoint", route, StringComparison.Ordinal);
         Assert.Contains("flushInterval: \"-1ms\"", route, StringComparison.Ordinal);
         Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);

@@ -50,7 +50,14 @@ function requireSession(request, response, next) {
   next();
 }
 
-export function createApp({ config, redisClient, proxy, logger = console, ticketDeadlineMilliseconds = 10_000 }) {
+export function createApp({
+  config,
+  redisClient,
+  proxy,
+  logger = console,
+  ticketDeadlineMilliseconds = 10_000,
+  fallbackReceiverLimit = 600,
+}) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxyHops === 0 ? false : config.trustProxyHops);
@@ -64,11 +71,28 @@ export function createApp({ config, redisClient, proxy, logger = console, ticket
     next();
   });
   const parseLoginJson = express.json({ limit: "8kb", strict: true });
+  const isFallbackReceiver = request => request.get("x-cormier-connection") !== undefined
+    && /^\/realtime\/http\/connections\/[^/]+\/(?:poll|stream)$/u.test(request.path);
+  const fallbackReceiverLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: fallbackReceiverLimit,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { code: "rate_limited", message: "Too many fallback receive requests." },
+  });
+  app.use((request, response, next) => {
+    if (isFallbackReceiver(request)) {
+      fallbackReceiverLimiter(request, response, next);
+      return;
+    }
+    next();
+  });
   app.use(rateLimit({
     windowMs: 60_000,
     limit: 120,
     standardHeaders: "draft-8",
     legacyHeaders: false,
+    skip: isFallbackReceiver,
     message: { code: "rate_limited", message: "Too many requests." },
   }));
   app.use(session({

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Gateway;
+using Cormier.Realtime.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -36,6 +37,12 @@ public static class HttpFallbackHostingExtensions
     public static IEndpointConventionBuilder MapRealtimeHttpFallback(this IEndpointRouteBuilder endpoints)
     {
         var options = endpoints.ServiceProvider.GetRequiredService<HttpFallbackOptions>();
+        var realtimeOptions = endpoints.ServiceProvider.GetRequiredService<RealtimeOptions>();
+        RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, $"{options.BasePath}/connect", HttpMethods.Post);
+        RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, $"{options.BasePath}/connections/{{connectionId}}/stream", HttpMethods.Get);
+        RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, $"{options.BasePath}/connections/{{connectionId}}/messages", HttpMethods.Post);
+        RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, $"{options.BasePath}/connections/{{connectionId}}/poll", HttpMethods.Post);
+        RealtimeGatewayHostingExtensions.EnsureRouteAvailable(endpoints, $"{options.BasePath}/connections/{{connectionId}}", HttpMethods.Delete);
         var connect = endpoints.MapPost($"{options.BasePath}/connect", (RequestDelegate)ConnectAsync);
         var stream = endpoints.MapGet($"{options.BasePath}/connections/{{connectionId}}/stream",
             (RequestDelegate)StreamAsync);
@@ -45,7 +52,12 @@ public static class HttpFallbackHostingExtensions
             (RequestDelegate)PollAsync);
         var close = endpoints.MapDelete($"{options.BasePath}/connections/{{connectionId}}",
             (RequestDelegate)CloseAsync);
-        return new CompositeBuilder(connect, stream, messages, poll, close);
+        var fallback = new CompositeBuilder(connect, stream, messages, poll, close);
+        if (!string.IsNullOrWhiteSpace(realtimeOptions.AuthorizationPolicy))
+        {
+            fallback.RequireAuthorization(realtimeOptions.AuthorizationPolicy);
+        }
+        return fallback;
     }
 
     private static async Task ConnectAsync(HttpContext context)
@@ -76,9 +88,14 @@ public static class HttpFallbackHostingExtensions
         var connectionId = GetConnectionId(context);
         var manager = context.RequestServices.GetRequiredService<HttpFallbackConnectionManager>();
         var logger = context.RequestServices.GetRequiredService<ILogger<HttpFallbackConnectionManager>>();
-        if (!TryGet(context, connectionId, manager, out var state) || !state.TryAttachStream())
+        if (!TryGet(context, connectionId, manager, out var state))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        if (!state.TryAttachStream())
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
             return;
         }
         context.Response.ContentType = "application/x-ndjson; charset=utf-8";
@@ -87,9 +104,9 @@ public static class HttpFallbackHostingExtensions
         await context.Response.StartAsync(context.RequestAborted);
         try
         {
-            await foreach (var payload in state.Transport.Outbound.ReadAllAsync(context.RequestAborted))
+            await foreach (var pending in state.Transport.ReadAllAsync(context.RequestAborted))
             {
-                await context.Response.Body.WriteAsync(payload, context.RequestAborted);
+                await context.Response.Body.WriteAsync(pending.Payload, context.RequestAborted);
                 await context.Response.Body.WriteAsync("\n"u8.ToArray(), context.RequestAborted);
                 await context.Response.Body.FlushAsync(context.RequestAborted);
             }
@@ -149,7 +166,26 @@ public static class HttpFallbackHostingExtensions
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
-        if (!await manager.DispatchAsync(state, envelope, context.RequestAborted))
+        if (!await state.InboundGate.WaitAsync(0, context.RequestAborted))
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            return;
+        }
+        bool dispatched;
+        try
+        {
+            if (!manager.IsActive(state))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+            dispatched = await manager.DispatchAsync(state, envelope, context.RequestAborted);
+        }
+        finally
+        {
+            state.InboundGate.Release();
+        }
+        if (!dispatched)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
@@ -167,17 +203,20 @@ public static class HttpFallbackHostingExtensions
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
+        if (!state.TryBeginPoll())
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            return;
+        }
         context.Response.Headers.CacheControl = "no-store";
-        state.MarkClientAttached();
-        await state.ReceiveGate.WaitAsync(context.RequestAborted);
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(options.PollTimeoutSeconds));
-            byte[] payload;
+            HttpFallbackTransport.HttpFallbackPayload pending;
             try
             {
-                payload = await state.Transport.Outbound.ReadAsync(timeout.Token);
+                pending = await state.Transport.ReadAsync(timeout.Token);
             }
             catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
             {
@@ -190,11 +229,18 @@ public static class HttpFallbackHostingExtensions
                 return;
             }
             context.Response.ContentType = "application/json; charset=utf-8";
-            await context.Response.Body.WriteAsync(payload, context.RequestAborted);
+            try
+            {
+                await context.Response.Body.WriteAsync(pending.Payload, context.RequestAborted);
+            }
+            finally
+            {
+                pending.Complete();
+            }
         }
         finally
         {
-            state.ReceiveGate.Release();
+            state.EndPoll();
         }
     }
 

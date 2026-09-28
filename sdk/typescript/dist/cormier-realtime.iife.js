@@ -214,13 +214,13 @@ var CormierRealtime = (() => {
   function closeEvent(code, reason, wasClean) {
     return { type: "close", code, reason, wasClean };
   }
-  function createTransportSocket(websocketUrl, protocol, options) {
+  function createTransportSocket(websocketUrl, protocol, options, nextConnectionUrl) {
     const transports = options.transports ?? ["websocket"];
     if (transports.length === 0) throw new TypeError("At least one transport is required.");
-    const factories = transports.map((transport) => {
+    const factories = transports.map((transport) => (candidateUrl) => {
       if (transport === "websocket") {
-        return () => (options.webSocketFactory ?? ((url, selectedProtocol) => new WebSocket(url, selectedProtocol)))(
-          websocketUrl,
+        return (options.webSocketFactory ?? ((url, selectedProtocol) => new WebSocket(url, selectedProtocol)))(
+          candidateUrl,
           protocol
         );
       }
@@ -228,16 +228,20 @@ var CormierRealtime = (() => {
       if (configuration === void 0) {
         throw new TypeError("httpStreaming is required when the http-streaming transport is selected.");
       }
-      return () => new HttpStreamingSocket(websocketUrl, configuration);
+      return new HttpStreamingSocket(candidateUrl, configuration);
     });
-    return factories.length === 1 ? factories[0]() : new InitializingFallbackSocket(factories);
+    return factories.length === 1 ? factories[0](websocketUrl) : new InitializingFallbackSocket(websocketUrl, factories, nextConnectionUrl);
   }
   var InitializingFallbackSocket = class {
-    constructor(factories) {
+    constructor(initialUrl, factories, nextConnectionUrl) {
+      this.initialUrl = initialUrl;
       this.factories = factories;
-      queueMicrotask(() => this.tryNext());
+      this.nextConnectionUrl = nextConnectionUrl;
+      queueMicrotask(() => void this.tryNext());
     }
+    initialUrl;
     factories;
+    nextConnectionUrl;
     binaryType = "arraybuffer";
     onopen = null;
     onmessage = null;
@@ -265,11 +269,13 @@ var CormierRealtime = (() => {
         this.onclose?.(closeEvent(code ?? 1e3, reason ?? "", true));
       }
     }
-    tryNext() {
+    async tryNext() {
       if (this.state !== CONNECTING) return;
       let candidate;
       try {
-        candidate = this.factories[this.index]();
+        const url = this.index === 0 || this.nextConnectionUrl === void 0 ? this.initialUrl : await this.nextConnectionUrl();
+        if (this.state !== CONNECTING) return;
+        candidate = this.factories[this.index](url);
       } catch {
         this.advance();
         return;
@@ -301,10 +307,11 @@ var CormierRealtime = (() => {
       };
     }
     advance() {
+      if (this.state !== CONNECTING) return;
       this.socket = void 0;
       this.index += 1;
       if (this.index < this.factories.length) {
-        queueMicrotask(() => this.tryNext());
+        queueMicrotask(() => void this.tryNext());
         return;
       }
       this.state = CLOSED;
@@ -338,7 +345,7 @@ var CormierRealtime = (() => {
         const value = source.searchParams.get(name);
         if (value !== null) this.baseUrl.searchParams.set(name, value);
       }
-      void this.start();
+      queueMicrotask(() => void this.start());
     }
     get readyState() {
       return this.state;
@@ -642,7 +649,13 @@ var CormierRealtime = (() => {
       if (generation !== this.generation || this.intentionalClose) {
         throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
       }
-      const socket = createTransportSocket(connectionUrl, WEBSOCKET_SUBPROTOCOL, this.options);
+      const authentication = this.options.authentication ?? { kind: "session" };
+      const socket = createTransportSocket(
+        connectionUrl,
+        WEBSOCKET_SUBPROTOCOL,
+        this.options,
+        authentication.kind === "ticket" ? () => this.createConnectionUrl(reconnecting, signal) : void 0
+      );
       socket.binaryType = "arraybuffer";
       this.socket = socket;
       await new Promise((resolve, reject) => {

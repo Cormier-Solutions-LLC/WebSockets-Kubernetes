@@ -39,29 +39,29 @@
         {
           "path": "readable/index.html",
           "bytes": 2466,
-          "gzipBytes": 1112,
-          "sha256": "9ef3d5da8fae910ab5e99380ba85c7865ba027e11cf5426af6044107f635af63",
-          "integrity": "sha384-ftJHDBmlJhQKFEXDlxEVVLwyzwcYZ3637IhtyO2//UxjteRWj2S3rCYEyFZrPknS"
+          "gzipBytes": 1114,
+          "sha256": "4d6e31e95f5d520a13f3cbfeed0a008677c0a6da33b503033b2ab391c5650dbc",
+          "integrity": "sha384-bTn5wNDMEQ7cxxNF+qhctJTbX44XH4ESFTXbt5kVunLYQE7AduuIuWWf41tflnF/"
         },
         {
           "path": "readable/fallback.html",
           "bytes": 2466,
-          "gzipBytes": 1112,
-          "sha256": "9ef3d5da8fae910ab5e99380ba85c7865ba027e11cf5426af6044107f635af63",
-          "integrity": "sha384-ftJHDBmlJhQKFEXDlxEVVLwyzwcYZ3637IhtyO2//UxjteRWj2S3rCYEyFZrPknS"
+          "gzipBytes": 1114,
+          "sha256": "4d6e31e95f5d520a13f3cbfeed0a008677c0a6da33b503033b2ab391c5650dbc",
+          "integrity": "sha384-bTn5wNDMEQ7cxxNF+qhctJTbX44XH4ESFTXbt5kVunLYQE7AduuIuWWf41tflnF/"
         },
         {
           "path": "readable/failover.html",
           "bytes": 2466,
-          "gzipBytes": 1112,
-          "sha256": "9ef3d5da8fae910ab5e99380ba85c7865ba027e11cf5426af6044107f635af63",
-          "integrity": "sha384-ftJHDBmlJhQKFEXDlxEVVLwyzwcYZ3637IhtyO2//UxjteRWj2S3rCYEyFZrPknS"
+          "gzipBytes": 1114,
+          "sha256": "4d6e31e95f5d520a13f3cbfeed0a008677c0a6da33b503033b2ab391c5650dbc",
+          "integrity": "sha384-bTn5wNDMEQ7cxxNF+qhctJTbX44XH4ESFTXbt5kVunLYQE7AduuIuWWf41tflnF/"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "9c053a1be7e0cbb33e49a80788b6b6ed91bed17d70e2d6d7476ab42072d88285",
-        "integrity": "sha384-V5bLHjwFcllU4l84Dqbweiy5d9m5J3w6T487oo0ie7H66wpBBqysxGAjbYc5O69a"
+        "sha256": "309b3a3651baf3f4f73380d840f52e158f75a677375288312b109e0d72b193bc",
+        "integrity": "sha384-27f1ap3rWEUm9XO2AcQgEnzgrHYHVZo1TRvjJSsqDSGPjrSzHnFNvyoy7qWebju0"
       }
     },
     "optimized": {
@@ -83,23 +83,23 @@
         {
           "path": "optimized/index.html",
           "bytes": 2305,
-          "gzipBytes": 1091,
-          "sha256": "4067569b2dc979860fae3a16410065e42926e1dbb28e02edd6677d2879934aa5",
-          "integrity": "sha384-1pHo8Rff+fiNCdPZX4fhjcybCJsx1Ffqa8NzAG8Y4n0EmZ6ayO6hjOuKgnZTlMtP"
+          "gzipBytes": 1092,
+          "sha256": "b9cfbf7d0347d76fc40764929159d8361f3c761a51a1106742eadc70af35db2e",
+          "integrity": "sha384-sApiSpG5sCbgACoX18YtwrxE2vzm4dZa2s0Wl6onVvzm3jGf0VUVJG5iPzAZh91Q"
         },
         {
           "path": "optimized/fallback.html",
           "bytes": 2305,
-          "gzipBytes": 1091,
-          "sha256": "4067569b2dc979860fae3a16410065e42926e1dbb28e02edd6677d2879934aa5",
-          "integrity": "sha384-1pHo8Rff+fiNCdPZX4fhjcybCJsx1Ffqa8NzAG8Y4n0EmZ6ayO6hjOuKgnZTlMtP"
+          "gzipBytes": 1092,
+          "sha256": "b9cfbf7d0347d76fc40764929159d8361f3c761a51a1106742eadc70af35db2e",
+          "integrity": "sha384-sApiSpG5sCbgACoX18YtwrxE2vzm4dZa2s0Wl6onVvzm3jGf0VUVJG5iPzAZh91Q"
         },
         {
           "path": "optimized/failover.html",
           "bytes": 2305,
-          "gzipBytes": 1091,
-          "sha256": "4067569b2dc979860fae3a16410065e42926e1dbb28e02edd6677d2879934aa5",
-          "integrity": "sha384-1pHo8Rff+fiNCdPZX4fhjcybCJsx1Ffqa8NzAG8Y4n0EmZ6ayO6hjOuKgnZTlMtP"
+          "gzipBytes": 1092,
+          "sha256": "b9cfbf7d0347d76fc40764929159d8361f3c761a51a1106742eadc70af35db2e",
+          "integrity": "sha384-sApiSpG5sCbgACoX18YtwrxE2vzm4dZa2s0Wl6onVvzm3jGf0VUVJG5iPzAZh91Q"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -118,8 +118,8 @@
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "1b10fa07f68a59aa2fc40b9c1f36539933c42aa405cc76eb6c882961b1695025",
-        "integrity": "sha384-sCP4vmMw2TSFzsWgsIesBZgTUvu8mpL5MAsX6of+b8zk6xvhL9SzkQ/Wv2wq+NRf"
+        "sha256": "b00ad2b001631a9000ef09c808dc9049cc22b2971eca8c0ea16ad0c3fcee70b4",
+        "integrity": "sha384-g0sUXDPtzXUqyVzQOqspyh7tAOTfYZdcziI2DcJyn6KyA2objgxPzurdnVZih00W"
       }
     }
   },

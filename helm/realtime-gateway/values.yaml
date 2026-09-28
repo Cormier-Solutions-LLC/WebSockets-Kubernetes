@@ -34,6 +34,8 @@ ingressRoute:
   host: ""
   path: /realtime/ws
   fallbackPath: /realtime/http
+  affinityCookieName: cormier_realtime_affinity
+  affinityCookieSameSite: lax
   tlsSecretName: ""
 
 observability:

@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -137,7 +138,7 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 60 * time.Second}
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 35 * time.Second, IdleConnTimeout: 60 * time.Second}
 	app := &App{config: config, store: store, client: &http.Client{Transport: transport, Timeout: 15 * time.Second}, connections: newWebsocketRegistry()}
 	server := &http.Server{Addr: net.JoinHostPort(config.ListenHost, fmt.Sprintf("%d", config.Port)), Handler: app.router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	listener, err := net.Listen("tcp", server.Addr)
@@ -202,6 +203,12 @@ func (a *App) router() http.Handler {
 }
 
 func (a *App) httpFallback(c *gin.Context) {
+	if c.Request.Method == http.MethodGet && strings.HasSuffix(c.Request.URL.Path, "/stream") {
+		if err := http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{}); err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+	}
 	target := *a.config.GatewayURL
 	proxy := &httputil.ReverseProxy{
 		Transport:     a.client.Transport,

@@ -236,6 +236,35 @@ async def test_ticket_rejects_streamed_oversized_body_before_forwarding() -> Non
 
 
 @pytest.mark.asyncio
+async def test_http_fallback_forwards_all_affinity_cookies() -> None:
+    async def gateway(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            201,
+            headers=[
+                ("set-cookie", "affinity=one; Path=/realtime/http; Secure; SameSite=None"),
+                ("set-cookie", "secondary=two; Path=/; Secure; SameSite=None"),
+            ],
+            content=b"{}",
+        )
+
+    app = create_app(settings())
+    upstream = httpx.AsyncClient(transport=httpx.MockTransport(gateway))
+    app.state.http = upstream
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://reference.test") as client:
+            response = await client.post("/realtime/http/connect", content=b"")
+    finally:
+        await upstream.aclose()
+
+    assert response.status_code == 201
+    assert response.headers.get_list("set-cookie") == [
+        "affinity=one; Path=/realtime/http; Secure; SameSite=None",
+        "secondary=two; Path=/; Secure; SameSite=None",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_login_rejects_streamed_oversized_body_before_model_parsing() -> None:
     app = create_app(settings())
 

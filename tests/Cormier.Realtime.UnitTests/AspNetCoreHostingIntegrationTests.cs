@@ -1,6 +1,7 @@
 using Cormier.Realtime.AspNetCore;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Gateway;
+using Cormier.Realtime.HttpFallback;
 using Cormier.Realtime.Redis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -351,6 +352,42 @@ public sealed class AspNetCoreHostingIntegrationTests
         app.MapGet("/realtime/ws", () => "application endpoint");
 
         var exception = Assert.Throws<InvalidOperationException>(() => app.MapRealtimeGateway());
+
+        Assert.Contains("already mapped", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MapRealtimeHttpFallbackAppliesTheRealtimeAuthorizationPolicy()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration.AddInMemoryCollection(ValidConfiguration());
+        builder.Services.AddRealtimeGateway(builder.Configuration, options => options.AuthorizationPolicy = "realtime-user");
+        builder.Services.AddRealtimeHttpFallback(builder.Configuration);
+        await using var app = builder.Build();
+
+        app.MapRealtimeHttpFallback();
+
+        var endpoints = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/realtime/http", StringComparison.Ordinal) == true)
+            .ToArray();
+        Assert.Equal(5, endpoints.Length);
+        Assert.All(endpoints, endpoint =>
+            Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(), metadata => metadata.Policy == "realtime-user"));
+    }
+
+    [Fact]
+    public async Task MapRealtimeHttpFallbackRejectsAConflictingApplicationRoute()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration.AddInMemoryCollection(ValidConfiguration());
+        builder.Services.AddRealtimeGateway(builder.Configuration);
+        builder.Services.AddRealtimeHttpFallback(builder.Configuration);
+        await using var app = builder.Build();
+        app.MapPost("/realtime/http/connections/{id}/poll", () => "application endpoint");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => app.MapRealtimeHttpFallback());
 
         Assert.Contains("already mapped", exception.Message, StringComparison.Ordinal);
     }

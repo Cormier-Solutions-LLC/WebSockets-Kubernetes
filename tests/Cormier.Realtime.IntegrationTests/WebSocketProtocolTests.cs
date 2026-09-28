@@ -84,6 +84,111 @@ public sealed class WebSocketProtocolTests
     }
 
     [Fact]
+    public async Task HttpFallbackRejectsOverlappingReceiversAndCommandsAfterClose()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+
+        using var firstPoll = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/poll");
+        firstPoll.Headers.Add("X-Cormier-Connection", token);
+        var activePoll = client.SendAsync(firstPoll);
+        await Task.Delay(100);
+
+        using var secondPoll = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/poll");
+        secondPoll.Headers.Add("X-Cormier-Connection", token);
+        using var conflict = await client.SendAsync(secondPoll);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+
+        using var close = new HttpRequestMessage(HttpMethod.Delete, $"/realtime/http/connections/{id}");
+        close.Headers.Add("X-Cormier-Connection", token);
+        using var closed = await client.SendAsync(close);
+        Assert.Equal(HttpStatusCode.NoContent, closed.StatusCode);
+        using var completedPoll = await activePoll;
+        Assert.Equal(HttpStatusCode.Gone, completedPoll.StatusCode);
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/messages");
+        message.Headers.Add("X-Cormier-Connection", token);
+        message.Content = JsonContent.Create(Envelope(ProtocolMessageTypes.Ping, "after-close"),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        using var rejected = await client.SendAsync(message);
+        Assert.Equal(HttpStatusCode.NotFound, rejected.StatusCode);
+    }
+
+    [Fact]
+    public async Task HttpFallbackDoesNotDispatchUploadThatFinishesAfterClose()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            Envelope(ProtocolMessageTypes.Publish, "close-race"),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        var releaseUpload = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var uploadPaused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/messages");
+        message.Headers.Add("X-Cormier-Connection", token);
+        message.Content = new PausedUploadContent(payload, uploadPaused, releaseUpload.Task);
+        var pendingMessage = client.SendAsync(message);
+        await uploadPaused.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            using var close = new HttpRequestMessage(HttpMethod.Delete, $"/realtime/http/connections/{id}");
+            close.Headers.Add("X-Cormier-Connection", token);
+            using var closed = await client.SendAsync(close);
+            Assert.Equal(HttpStatusCode.NoContent, closed.StatusCode);
+        }
+        finally
+        {
+            releaseUpload.TrySetResult();
+        }
+
+        using var rejected = await pendingMessage;
+        Assert.Equal(HttpStatusCode.NotFound, rejected.StatusCode);
+        Assert.Empty(factory.Bus.Published);
+    }
+
+    [Fact]
+    public async Task HttpFallbackPendingSendDoesNotBlockRegistryClose()
+    {
+        await using var factory = new RealtimeFactory();
+        using var client = factory.CreateClient();
+        using var connect = await client.PostAsync(
+            "/realtime/http/connect?ticket=valid-ticket",
+            content: null,
+            CancellationToken.None);
+        connect.EnsureSuccessStatusCode();
+        using var connection = await JsonDocument.ParseAsync(await connect.Content.ReadAsStreamAsync());
+        var id = connection.RootElement.GetProperty("connectionId").GetString()!;
+        var token = connection.RootElement.GetProperty("connectionToken").GetString()!;
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/realtime/http/connections/{id}/messages");
+        message.Headers.Add("X-Cormier-Connection", token);
+        message.Content = JsonContent.Create(Envelope(ProtocolMessageTypes.Ping, "pending-close"),
+            RealtimeJsonSerializerContext.Default.MessageEnvelope);
+        using var accepted = await client.SendAsync(message);
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+        await Task.Delay(100);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await factory.Services.GetRequiredService<RealtimeConnectionRegistry>().CloseAllAsync(timeout.Token);
+    }
+
+    [Fact]
     public async Task AuthorizedPublishReturnsCorrelatedAcknowledgment()
     {
         await using var factory = new RealtimeFactory();
@@ -560,6 +665,27 @@ public sealed class WebSocketProtocolTests
             return ticket == "valid-ticket"
                 ? new RealtimeIdentity("tenant-1", "user-1", ["orders"], DateTimeOffset.UtcNow.Add(identityLifetime))
                 : null;
+        }
+    }
+
+    private sealed class PausedUploadContent(
+        byte[] payload,
+        TaskCompletionSource uploadPaused,
+        Task releaseUpload) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            await stream.WriteAsync(payload.AsMemory(0, 1));
+            await stream.FlushAsync();
+            uploadPaused.TrySetResult();
+            await releaseUpload;
+            await stream.WriteAsync(payload.AsMemory(1));
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = payload.Length;
+            return true;
         }
     }
 

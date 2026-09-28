@@ -483,8 +483,12 @@ public sealed class DeploymentContractTests
         Assert.Contains("run: bash scripts/setup-ci-powershell.sh", promote, StringComparison.Ordinal);
         Assert.Contains("run: bash scripts/setup-ci-deployment-tools.sh", promote, StringComparison.Ordinal);
         Assert.Contains("CI_GH_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_GH_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
         Assert.Contains("CI_HELM_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_HELM_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
         Assert.Contains("CI_KUBECTL_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_KUBECTL_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://", deploymentTools, StringComparison.Ordinal);
         Assert.Equal(3, deploymentTools.Split("sha256sum --check", StringSplitOptions.None).Length - 1);
         Assert.Contains("workflow_run:", publish, StringComparison.Ordinal);
         Assert.Contains("download-artifact", publish, StringComparison.Ordinal);

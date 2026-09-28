@@ -12,6 +12,7 @@ The repository also contains the shared protocol contracts, Redis integration, .
 - `src/Cormier.Realtime.Redis` — Redis session, ticket, pub/sub, and optional durable-stream integration.
 - `src/Cormier.Realtime.Client` — runtime-neutral .NET Standard 2.0 WebSocket client.
 - `src/Cormier.Realtime.Browser` and `sdk/typescript` — NuGet-packaged browser assets and the canonical TypeScript/npm client.
+- `src/Cormier.Realtime.HttpFallback` — optional HTTP fallback endpoints for environments where WebSockets cannot initialize.
 - `protocol/fixtures` — language-neutral protocol and compatibility fixtures.
 - `examples` — .NET consumers, browser assets, a full-circle test application, and ten alternative web-stack adapters.
 - `bootstrap`, `scripts`, `helm`, and `cluster` — versioned lifecycle configuration, cross-shell automation, chart, and cluster assets.

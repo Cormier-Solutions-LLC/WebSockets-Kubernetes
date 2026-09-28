@@ -14,6 +14,8 @@ $asset = static function (string $name, string $type) {
 };
 
 Route::get('/', $asset('index.html', 'text/html; charset=utf-8'));
+Route::get('/fallback.html', $asset('fallback.html', 'text/html; charset=utf-8'));
+Route::get('/failover.html', $asset('failover.html', 'text/html; charset=utf-8'));
 Route::get('/app.css', $asset('app.css', 'text/css; charset=utf-8'));
 Route::get('/app.js', $asset('app.js', 'text/javascript; charset=utf-8'));
 Route::get('/_content/Cormier.Realtime.Browser/{asset}', function (ReferenceConfig $config, string $asset) {

@@ -161,6 +161,8 @@ private struct RedisLifecycle: LifecycleHandler {
 private func validateAssets(_ settings: ReferenceSettings) throws {
   let required = [
     "\(settings.sharedAssetRoot)/index.html",
+    "\(settings.sharedAssetRoot)/fallback.html",
+    "\(settings.sharedAssetRoot)/failover.html",
     "\(settings.sharedAssetRoot)/app.css",
     "\(settings.sharedAssetRoot)/app.js",
     "\(settings.sdkAssetRoot)/cormier-realtime.iife.js",

@@ -14,6 +14,10 @@
         <ProjectVersion>[$(ContractsVersion),$(ContractsCompatibilityUpperBound))</ProjectVersion>
       </_ProjectReferencesWithVersions>
       <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
+                                      Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Cormier.Realtime.AspNetCore'">
+        <ProjectVersion>[$(AspNetCoreIntegrationVersion),$(AspNetCoreIntegrationCompatibilityUpperBound))</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
                                       Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Cormier.Realtime.Redis'">
         <ProjectVersion>[$(RedisAdapterVersion),$(RedisAdapterCompatibilityUpperBound))</ProjectVersion>
       </_ProjectReferencesWithVersions>

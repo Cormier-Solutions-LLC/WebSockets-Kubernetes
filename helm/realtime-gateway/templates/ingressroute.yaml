@@ -9,7 +9,7 @@ spec:
   entryPoints:
     - {{ .Values.ingressRoute.entryPoint | quote }}
   routes:
-    - match: Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)
+    - match: Host(`{{ .Values.ingressRoute.host }}`) && (Path(`{{ .Values.ingressRoute.path }}`) || PathPrefix(`{{ .Values.ingressRoute.fallbackPath }}/`))
       kind: Rule
       services:
         - name: {{ include "realtime-gateway.fullname" . }}

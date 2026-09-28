@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Cormier.Realtime.AspNetCore;
 using Cormier.Realtime.Contracts;
 using Cormier.Realtime.Gateway;
+using Cormier.Realtime.HttpFallback;
 using Cormier.Realtime.Redis;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -18,6 +19,7 @@ builder.Logging.AddJsonConsole(options =>
 builder.Configuration.AddEnvironmentVariables();
 builder.Configuration.AddCommandLine(args);
 builder.Services.AddRealtimeGateway(builder.Configuration);
+builder.Services.AddRealtimeHttpFallback(builder.Configuration);
 var diagnosticsEnabled = builder.Configuration.GetValue<bool>("Diagnostics:Enabled");
 var diagnosticsPolicy = builder.Configuration["Diagnostics:AuthorizationPolicy"];
 var metricsPolicy = builder.Configuration["Metrics:AuthorizationPolicy"];
@@ -88,6 +90,7 @@ if (diagnosticsEnabled || protectedMetricsEnabled)
     app.UseAuthorization();
 }
 app.MapRealtimeGateway();
+app.MapRealtimeHttpFallback();
 app.MapRealtimeDiagnostics();
 
 app.MapGet("/health/startup", Results<Ok<HealthStatusResponse>, JsonHttpResult<HealthStatusResponse>> () =>

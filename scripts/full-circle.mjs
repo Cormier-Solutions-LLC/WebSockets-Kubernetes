@@ -161,6 +161,7 @@ async function buildPackageConsumer() {
     "src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj",
     "src/Cormier.Realtime.Redis/Cormier.Realtime.Redis.csproj",
     "src/Cormier.Realtime.AspNetCore/Cormier.Realtime.AspNetCore.csproj",
+    "src/Cormier.Realtime.HttpFallback/Cormier.Realtime.HttpFallback.csproj",
     "src/Cormier.Realtime.Browser/Cormier.Realtime.Browser.csproj",
   ]) {
     await command("dotnet", ["pack", project, "--configuration", "Release", "--no-build", "--output", feed]);
@@ -171,6 +172,7 @@ async function buildPackageConsumer() {
     ["Cormier.Realtime.AspNetCore", "Cormier.Realtime.AspNetCore.1.0.4-beta.nupkg"],
     ["Cormier.Realtime.Browser", "Cormier.Realtime.Browser.1.0.4-beta.nupkg"],
     ["Cormier.Realtime.Contracts", "Cormier.Realtime.Contracts.1.0.4-beta.nupkg"],
+    ["Cormier.Realtime.HttpFallback", "Cormier.Realtime.HttpFallback.1.0.4-beta.nupkg"],
     ["Cormier.Realtime.Redis", "Cormier.Realtime.Redis.1.0.4-beta.nupkg"],
   ]) {
     if (targetGraph?.[packageId] === undefined) {

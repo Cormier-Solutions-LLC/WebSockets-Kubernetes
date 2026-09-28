@@ -38,6 +38,7 @@ function Get-CoordinatedVersion {
         'ContractsVersion',
         'RedisAdapterVersion',
         'AspNetCoreIntegrationVersion',
+        'HttpFallbackVersion',
         'DotNetClientVersion',
         'BrowserPackageVersion',
         'HelmChartVersion'

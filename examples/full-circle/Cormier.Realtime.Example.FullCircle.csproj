@@ -15,11 +15,13 @@
 
   <ItemGroup Condition="'$(UseProjectReferences)' == 'true'">
     <ProjectReference Include="..\..\src\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Cormier.Realtime.HttpFallback\Cormier.Realtime.HttpFallback.csproj" />
     <ProjectReference Include="..\..\src\Cormier.Realtime.Browser\Cormier.Realtime.Browser.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseProjectReferences)' != 'true'">
     <PackageReference Include="Cormier.Realtime.AspNetCore" Version="$(AspNetCoreIntegrationVersion)" />
+    <PackageReference Include="Cormier.Realtime.HttpFallback" Version="$(HttpFallbackVersion)" />
     <PackageReference Include="Cormier.Realtime.Browser" Version="$(BrowserPackageVersion)" />
   </ItemGroup>
 

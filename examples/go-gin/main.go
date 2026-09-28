@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/signal"
@@ -177,6 +178,8 @@ func (a *App) router() http.Handler {
 	router := gin.New()
 	router.Use(safeRecovery(), securityHeaders())
 	router.GET("/", func(c *gin.Context) { c.File(filepath.Join(a.config.SharedAssetRoot, "index.html")) })
+	router.GET("/fallback.html", func(c *gin.Context) { c.File(filepath.Join(a.config.SharedAssetRoot, "fallback.html")) })
+	router.GET("/failover.html", func(c *gin.Context) { c.File(filepath.Join(a.config.SharedAssetRoot, "failover.html")) })
 	router.GET("/app.css", func(c *gin.Context) { c.File(filepath.Join(a.config.SharedAssetRoot, "app.css")) })
 	router.GET("/app.js", func(c *gin.Context) { c.File(filepath.Join(a.config.SharedAssetRoot, "app.js")) })
 	router.GET("/_content/Cormier.Realtime.Browser/:asset", func(c *gin.Context) {
@@ -193,8 +196,26 @@ func (a *App) router() http.Handler {
 	router.GET("/api/session", a.session)
 	router.POST("/api/logout", a.logout)
 	router.POST("/realtime/tickets", a.ticket)
+	router.Any("/realtime/http/*path", a.httpFallback)
 	router.GET("/realtime/ws", a.websocket)
 	return router
+}
+
+func (a *App) httpFallback(c *gin.Context) {
+	target := *a.config.GatewayURL
+	proxy := &httputil.ReverseProxy{
+		Transport:     a.client.Transport,
+		FlushInterval: -1,
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(&target)
+			request.Out.Host = request.In.Host
+			request.Out.Header.Set("X-Forwarded-Proto", a.config.PublicScheme())
+		},
+		ErrorHandler: func(writer http.ResponseWriter, _ *http.Request, _ error) {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+		},
+	}
+	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
 func safeRecovery() gin.HandlerFunc {

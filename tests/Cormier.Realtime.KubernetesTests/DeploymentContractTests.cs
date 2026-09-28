@@ -127,7 +127,7 @@ public sealed class DeploymentContractTests
         var certificate = Read("cluster/edge/development/certificate.yaml");
 
         Assert.Contains("type: ClusterIP", service, StringComparison.Ordinal);
-        Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && Path(`{{ .Values.ingressRoute.path }}`)", route, StringComparison.Ordinal);
+        Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && (Path(`{{ .Values.ingressRoute.path }}`) || PathPrefix(`{{ .Values.ingressRoute.fallbackPath }}/`))", route, StringComparison.Ordinal);
         Assert.Contains(".Values.ingressRoute.entryPoint", route, StringComparison.Ordinal);
         Assert.Contains("flushInterval: \"-1ms\"", route, StringComparison.Ordinal);
         Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);
@@ -725,10 +725,10 @@ public sealed class DeploymentContractTests
 
         Assert.Contains($"NPM_VERSION: {npmVersion}", ci, StringComparison.Ordinal);
         Assert.Equal(
-            ci.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            ci.Split("uses: actions/setup-node@v7", StringSplitOptions.None).Length - 1,
             ci.Split("name: Install pinned npm", StringSplitOptions.None).Length - 1);
         Assert.Equal(
-            ci.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            ci.Split("uses: actions/setup-node@v7", StringSplitOptions.None).Length - 1,
             ci.Split("name: Install Node runtime prerequisites", StringSplitOptions.None).Length - 1);
         Assert.Contains("npm@${{ env.NPM_VERSION }}", ci, StringComparison.Ordinal);
         Assert.DoesNotContain("node-version: 24", ci, StringComparison.Ordinal);
@@ -738,10 +738,10 @@ public sealed class DeploymentContractTests
 
         Assert.Contains($"NPM_VERSION: {npmVersion}", packages, StringComparison.Ordinal);
         Assert.Equal(
-            packages.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            packages.Split("uses: actions/setup-node@v7", StringSplitOptions.None).Length - 1,
             packages.Split("name: Install pinned npm", StringSplitOptions.None).Length - 1);
         Assert.Equal(
-            packages.Split("uses: actions/setup-node@v4", StringSplitOptions.None).Length - 1,
+            packages.Split("uses: actions/setup-node@v7", StringSplitOptions.None).Length - 1,
             packages.Split("name: Install Node runtime prerequisites", StringSplitOptions.None).Length - 1);
         Assert.Contains("npm@${{ env.NPM_VERSION }}", packages, StringComparison.Ordinal);
         Assert.DoesNotContain("node-version: 24", packages, StringComparison.Ordinal);

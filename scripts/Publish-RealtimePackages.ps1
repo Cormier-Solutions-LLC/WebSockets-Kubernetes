@@ -203,6 +203,7 @@ try {
         'Cormier.Realtime.Client'
         'Cormier.Realtime.Redis'
         'Cormier.Realtime.AspNetCore'
+        'Cormier.Realtime.HttpFallback'
         'Cormier.Realtime.Browser'
     )
     $nugetPackages = @(
@@ -217,11 +218,11 @@ try {
         }
     )
     if ($discoveredNuGetPackages.Count -ne $nugetPackages.Count) {
-        throw "INVALID candidate: expected five known NuGet packages, found $($discoveredNuGetPackages.Count)."
+        throw "INVALID candidate: expected six known NuGet packages, found $($discoveredNuGetPackages.Count)."
     }
     $symbolPackages = @(Get-ChildItem -LiteralPath $candidateRoot -Filter '*.snupkg' -File)
     if ($symbolPackages.Count -ne $nugetPackages.Count) {
-        throw "INVALID candidate: expected five NuGet symbol packages, found $($symbolPackages.Count)."
+        throw "INVALID candidate: expected six NuGet symbol packages, found $($symbolPackages.Count)."
     }
     $symbolPackagesByNuGetPackage = [Collections.Generic.Dictionary[string, IO.FileInfo]]::new([StringComparer]::Ordinal)
     foreach ($package in $nugetPackages) {

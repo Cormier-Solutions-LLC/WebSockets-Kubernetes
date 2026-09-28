@@ -15,9 +15,46 @@ public static class RealtimeCloseStatus
     public const WebSocketCloseStatus HeartbeatTimeout = (WebSocketCloseStatus)4009;
 }
 
+public interface IRealtimeServerTransport : IAsyncDisposable
+{
+    bool IsOpen { get; }
+
+    ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
+
+    ValueTask CloseAsync(WebSocketCloseStatus status, string description, CancellationToken cancellationToken);
+
+    void Abort();
+}
+
+internal sealed class RealtimeWebSocketServerTransport(WebSocket socket) : IRealtimeServerTransport
+{
+    public WebSocket Socket { get; } = socket;
+
+    public bool IsOpen => Socket.State == WebSocketState.Open;
+
+    public ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) =>
+        Socket.SendAsync(payload, WebSocketMessageType.Text, true, cancellationToken);
+
+    public async ValueTask CloseAsync(WebSocketCloseStatus status, string description, CancellationToken cancellationToken)
+    {
+        if (Socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+        {
+            await Socket.CloseOutputAsync(status, description, cancellationToken);
+        }
+    }
+
+    public void Abort() => Socket.Abort();
+
+    public ValueTask DisposeAsync()
+    {
+        Socket.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}
+
 public sealed class RealtimeConnection : IAsyncDisposable
 {
-    private readonly WebSocket _socket;
+    private readonly IRealtimeServerTransport _transport;
     private readonly RealtimeOptions _options;
     private readonly GatewayMetrics _metrics;
     private readonly Channel<ServerMessageEnvelope> _outbound;
@@ -40,8 +77,18 @@ public sealed class RealtimeConnection : IAsyncDisposable
         RealtimeOptions options,
         GatewayMetrics metrics,
         string? sessionId = null)
+        : this(new RealtimeWebSocketServerTransport(socket), identity, options, metrics, sessionId)
     {
-        _socket = socket;
+    }
+
+    public RealtimeConnection(
+        IRealtimeServerTransport transport,
+        RealtimeIdentity identity,
+        RealtimeOptions options,
+        GatewayMetrics metrics,
+        string? sessionId = null)
+    {
+        _transport = transport;
         _identity = identity;
         SessionId = sessionId;
         _options = options;
@@ -64,7 +111,8 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
     public string? SessionId { get; }
 
-    public WebSocket Socket => _socket;
+    public WebSocket Socket => (_transport as RealtimeWebSocketServerTransport)?.Socket ??
+        throw new InvalidOperationException("This connection does not use a WebSocket transport.");
 
     public DateTimeOffset LastActivity => new(Interlocked.Read(ref _lastActivityTicks), TimeSpan.Zero);
 
@@ -73,7 +121,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
     public int QueuedMessageCount => Math.Max(0, Volatile.Read(ref _queuedMessages));
 
     public bool IsOpen =>
-        _socket.State == WebSocketState.Open &&
+        _transport.IsOpen &&
         Volatile.Read(ref _closeRequested) == 0 &&
         Volatile.Read(ref _disposing) == 0;
 
@@ -171,12 +219,12 @@ public sealed class RealtimeConnection : IAsyncDisposable
             var outcome = "failure";
             try
             {
-                if (_socket.State != WebSocketState.Open)
+                if (!_transport.IsOpen)
                 {
                     return;
                 }
 
-                await _socket.SendAsync(payload, WebSocketMessageType.Text, true, cancellationToken);
+                await _transport.SendAsync(payload, cancellationToken);
                 _metrics.RecordMessage("outbound", "sent");
                 outcome = "success";
             }
@@ -209,10 +257,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
             _outbound.Writer.TryComplete();
             await _sendLock.WaitAsync(cancellationToken);
             lockTaken = true;
-            if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
-            {
-                await _socket.CloseOutputAsync(status, description, cancellationToken);
-            }
+            await _transport.CloseAsync(status, description, cancellationToken);
             _metrics.RecordCloseCode((int)status);
         }
         catch (Exception exception) when (exception is WebSocketException or IOException or ObjectDisposedException)
@@ -242,7 +287,7 @@ public sealed class RealtimeConnection : IAsyncDisposable
 
         _metrics.RecordCloseCode((int)status);
         _outbound.Writer.TryComplete();
-        _socket.Abort();
+        _transport.Abort();
     }
 
     public async ValueTask DisposeAsync()
@@ -255,12 +300,12 @@ public sealed class RealtimeConnection : IAsyncDisposable
             _metrics.RecordSubscriptionsRemoved(_subscriptions.Count);
             _subscriptions.Clear();
         }
-        if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+        if (_transport.IsOpen)
         {
             await RequestCloseAsync(WebSocketCloseStatus.NormalClosure, "connection_complete", CancellationToken.None);
         }
 
-        _socket.Dispose();
+        await _transport.DisposeAsync();
         _sendLock.Dispose();
     }
 

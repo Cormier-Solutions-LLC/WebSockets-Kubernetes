@@ -45,6 +45,12 @@ func routes(_ application: Application, settings: ReferenceSettings) {
   application.get { request in
     try asset(request, path: "\(settings.sharedAssetRoot)/index.html", type: .html)
   }
+  application.get("fallback.html") { request in
+    try asset(request, path: "\(settings.sharedAssetRoot)/fallback.html", type: .html)
+  }
+  application.get("failover.html") { request in
+    try asset(request, path: "\(settings.sharedAssetRoot)/failover.html", type: .html)
+  }
   application.get("app.css") { request in
     try asset(request, path: "\(settings.sharedAssetRoot)/app.css", type: .css)
   }

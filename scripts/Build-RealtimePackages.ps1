@@ -17,6 +17,7 @@ param(
     [string]$DotNetClientVersion,
     [string]$RedisAdapterVersion,
     [string]$AspNetCoreIntegrationVersion,
+    [string]$HttpFallbackVersion,
     [string]$BrowserPackageVersion,
     [string]$UpstreamPackageSource = $env:NUGET_UPSTREAM_SOURCE,
     [string]$RedisTestEndpoint = $env:REDIS_TEST_ENDPOINT,
@@ -299,6 +300,7 @@ try {
         'DotNetClientVersion',
         'RedisAdapterVersion',
         'AspNetCoreIntegrationVersion',
+        'HttpFallbackVersion',
         'BrowserPackageVersion'
     )) {
         if ([string]::IsNullOrWhiteSpace((Get-Variable -Name $versionName -ValueOnly))) {
@@ -322,6 +324,9 @@ try {
     $normalizedRedisVersion = ($RedisAdapterVersion -split '\+', 2)[0]
     $redisCore = [version](($RedisAdapterVersion -split '[-+]', 2)[0])
     $RedisAdapterCompatibilityUpperBound = '{0}.{1}.0' -f $redisCore.Major, ($redisCore.Minor + 1)
+    $normalizedAspNetCoreVersion = ($AspNetCoreIntegrationVersion -split '\+', 2)[0]
+    $aspNetCoreCore = [version](($AspNetCoreIntegrationVersion -split '[-+]', 2)[0])
+    $AspNetCoreCompatibilityUpperBound = '{0}.{1}.0' -f $aspNetCoreCore.Major, ($aspNetCoreCore.Minor + 1)
     if ($packageJson.version -ne $normalizedBrowserVersion) {
         throw "INVALID input: BrowserPackageVersion $BrowserPackageVersion does not match sdk/typescript/package.json version $($packageJson.version)."
     }
@@ -368,6 +373,7 @@ try {
         "-p:DotNetClientVersion=$DotNetClientVersion",
         "-p:RedisAdapterVersion=$RedisAdapterVersion",
         "-p:AspNetCoreIntegrationVersion=$AspNetCoreIntegrationVersion",
+        "-p:HttpFallbackVersion=$HttpFallbackVersion",
         "-p:BrowserPackageVersion=$BrowserPackageVersion",
         "-p:PackageRepositoryUrl=$PackageRepositoryUrl",
         "-p:PackageProjectUrl=$PackageProjectUrl",
@@ -403,6 +409,7 @@ try {
         'src/Cormier.Realtime.Client/Cormier.Realtime.Client.csproj',
         'src/Cormier.Realtime.Redis/Cormier.Realtime.Redis.csproj',
         'src/Cormier.Realtime.AspNetCore/Cormier.Realtime.AspNetCore.csproj',
+        'src/Cormier.Realtime.HttpFallback/Cormier.Realtime.HttpFallback.csproj',
         'src/Cormier.Realtime.Browser/Cormier.Realtime.Browser.csproj'
     )
     foreach ($destination in @($firstPack, $secondPack)) {
@@ -429,9 +436,12 @@ try {
     Assert-NuGetPackage (Join-Path $firstPack "Cormier.Realtime.AspNetCore.$(($AspNetCoreIntegrationVersion -split '\+', 2)[0]).nupkg") `
         @('README.md', 'lib/net10.0/Cormier.Realtime.AspNetCore.dll') `
         ($metadata + ('<dependency id="Cormier.Realtime.Redis" version="[{0}, {1})"' -f $normalizedRedisVersion, $RedisAdapterCompatibilityUpperBound))
+    Assert-NuGetPackage (Join-Path $firstPack "Cormier.Realtime.HttpFallback.$(($HttpFallbackVersion -split '\+', 2)[0]).nupkg") `
+        @('README.md', 'lib/net10.0/Cormier.Realtime.HttpFallback.dll') `
+        ($metadata + ('<dependency id="Cormier.Realtime.AspNetCore" version="[{0}, {1})"' -f $normalizedAspNetCoreVersion, $AspNetCoreCompatibilityUpperBound))
     Assert-NuGetPackage (Join-Path $firstPack "Cormier.Realtime.Browser.$(($BrowserPackageVersion -split '\+', 2)[0]).nupkg") `
         @('README.md', 'staticwebassets/cormier-realtime.js', 'staticwebassets/cormier-realtime.min.js', 'staticwebassets/cormier-realtime.iife.js', 'staticwebassets/cormier-realtime.iife.min.js', 'staticwebassets/types/index.d.ts', 'staticwebassets/version.json', 'buildTransitive/Cormier.Realtime.Browser.props') $metadata
-    foreach ($packageId in @('Contracts', 'Client', 'Redis', 'AspNetCore', 'Browser')) {
+    foreach ($packageId in @('Contracts', 'Client', 'Redis', 'AspNetCore', 'HttpFallback', 'Browser')) {
         if (-not (Get-ChildItem -LiteralPath $firstPack -Filter "Cormier.Realtime.$packageId.*.snupkg" -File)) {
             throw "The symbol package for Cormier.Realtime.$packageId was not produced."
         }
@@ -442,7 +452,7 @@ try {
     Invoke-ReleaseTool $npm @('init', '--yes') $npmConsumer
     Invoke-ReleaseTool $npm @('install', $npmTarball.FullName, '--ignore-scripts', '--no-audit', '--no-fund') $npmConsumer
     Invoke-ReleaseTool $node @('--input-type=module', '--eval', "import('@cormier/realtime').then(m => { if (typeof m.RealtimeClient !== 'function') process.exit(1); })") $npmConsumer
-    Invoke-ReleaseTool $pwsh @('-NoLogo', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-AspNetCorePackage.ps1'), '-AspNetCoreIntegrationVersion', $AspNetCoreIntegrationVersion, '-ContractsVersion', $ContractsVersion, '-RedisAdapterVersion', $RedisAdapterVersion, '-PackageSource', $firstPack, '-UpstreamPackageSource', $UpstreamPackageSource)
+    Invoke-ReleaseTool $pwsh @('-NoLogo', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-AspNetCorePackage.ps1'), '-AspNetCoreIntegrationVersion', $AspNetCoreIntegrationVersion, '-HttpFallbackVersion', $HttpFallbackVersion, '-ContractsVersion', $ContractsVersion, '-RedisAdapterVersion', $RedisAdapterVersion, '-PackageSource', $firstPack, '-UpstreamPackageSource', $UpstreamPackageSource)
     Invoke-ReleaseTool $pwsh @('-NoLogo', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-DotNetClientPackage.ps1'), '-DotNetClientVersion', $DotNetClientVersion, '-ContractsVersion', $ContractsVersion, '-PackageSource', $firstPack, '-UpstreamPackageSource', $UpstreamPackageSource)
     Invoke-ReleaseTool $pwsh @('-NoLogo', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-BrowserPackage.ps1'), '-BrowserPackageVersion', $BrowserPackageVersion, '-PackageSource', $firstPack, '-UpstreamPackageSource', $UpstreamPackageSource)
 
@@ -459,6 +469,7 @@ try {
             dotNetClient = $DotNetClientVersion
             redisAdapter = $RedisAdapterVersion
             aspNetCoreIntegration = $AspNetCoreIntegrationVersion
+            httpFallback = $HttpFallbackVersion
             browser = $BrowserPackageVersion
         }
         artifacts = $inventory

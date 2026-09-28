@@ -42,6 +42,16 @@ public final class ReferenceController {
     return new FileSystemResource(properties.sharedAssetRoot().resolve("index.html"));
   }
 
+  @GetMapping("/fallback.html")
+  FileSystemResource fallback() {
+    return new FileSystemResource(properties.sharedAssetRoot().resolve("fallback.html"));
+  }
+
+  @GetMapping("/failover.html")
+  FileSystemResource failover() {
+    return new FileSystemResource(properties.sharedAssetRoot().resolve("failover.html"));
+  }
+
   @GetMapping("/health")
   Mono<ResponseEntity<Map<String, String>>> health() {
     return redis.hasKey(properties.redisInstancePrefix() + ":health-probe")

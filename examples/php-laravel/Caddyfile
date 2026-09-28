@@ -32,6 +32,12 @@ http://:{$PORT} {
 		header_up Host {http.request.hostport}
 		header_up X-Forwarded-Proto {$PUBLIC_SCHEME}
 	}
+	@realtime_http path /realtime/http/*
+	reverse_proxy @realtime_http {$GATEWAY_URL} {
+		header_up Host {http.request.hostport}
+		header_up X-Forwarded-Proto {$PUBLIC_SCHEME}
+		flush_interval -1
+	}
 	@bounded_request path /api/login /realtime/tickets
 	request_body @bounded_request {
 		max_size 65536

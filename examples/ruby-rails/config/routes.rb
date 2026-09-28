@@ -1,5 +1,7 @@
 Rails.application.routes.draw do
   root "reference#index"
+  get "/fallback.html", to: "reference#fallback"
+  get "/failover.html", to: "reference#failover"
   get "/app.css", to: "reference#css"
   get "/app.js", to: "reference#javascript"
   get "/_content/Cormier.Realtime.Browser/*asset", to: "reference#sdk_asset", format: false

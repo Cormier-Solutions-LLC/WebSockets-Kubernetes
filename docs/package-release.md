@@ -1,6 +1,6 @@
 # Package release policy
 
-Cormier.Realtime produces five NuGet packages and one npm tarball from one immutable package candidate. Publishing the npm artifact is optional; constructing and verifying it is part of every candidate build.
+Cormier.Realtime produces six NuGet packages and one npm tarball from one immutable package candidate. Publishing the npm artifact is optional; constructing and verifying it is part of every candidate build.
 
 | Artifact | Version property | Purpose |
 | --- | --- | --- |
@@ -8,6 +8,7 @@ Cormier.Realtime produces five NuGet packages and one npm tarball from one immut
 | `Cormier.Realtime.Client` | `DotNetClientVersion` | Runtime-neutral .NET Standard WebSocket client |
 | `Cormier.Realtime.Redis` | `RedisAdapterVersion` | Redis messaging, session, and ticket infrastructure |
 | `Cormier.Realtime.AspNetCore` | `AspNetCoreIntegrationVersion` | ASP.NET Core hosting integration |
+| `Cormier.Realtime.HttpFallback` | `HttpFallbackVersion` | Optional HTTP fallback hosting transport |
 | `Cormier.Realtime.Browser` | `BrowserPackageVersion` | Razor static web assets generated from the browser SDK |
 | `@cormier/realtime` | `sdk/typescript/package.json` | Optional npm form of the same browser SDK; publication requires registry-owner approval |
 
@@ -43,7 +44,7 @@ The updater changes active coordinated-version surfaces and creates new changelo
   -PackageReleaseNotesUrl $env:PACKAGE_RELEASE_NOTES_URL
 ```
 
-When version parameters are omitted, the build reads `ContractsVersion`, `DotNetClientVersion`, `RedisAdapterVersion`, `AspNetCoreIntegrationVersion`, and `BrowserPackageVersion` from `Directory.Build.props`. An explicit `BrowserPackageVersion` must match the normalized version in `sdk/typescript/package.json`. The automatic release gate is intentionally stricter: application, container, Helm chart, all five NuGet packages, and npm must contain the same semantic version and must change together, because an official release promotes the complete coordinated set.
+When version parameters are omitted, the build reads `ContractsVersion`, `DotNetClientVersion`, `RedisAdapterVersion`, `AspNetCoreIntegrationVersion`, `HttpFallbackVersion`, and `BrowserPackageVersion` from `Directory.Build.props`. An explicit `BrowserPackageVersion` must match the normalized version in `sdk/typescript/package.json`. The automatic release gate is intentionally stricter: application, container, Helm chart, all six NuGet packages, and npm must contain the same semantic version and must change together, because an official release promotes the complete coordinated set.
 
 Pull requests build package candidates without publication credentials. Package workflow jobs run on the repository's `cormier-runners` pool by default. After `Realtime gateway CI` succeeds for a push to `main`, the package workflow checks out that exact CI commit and compares its coordinated version with its first parent. An unchanged version skips package work; a complete coordinated change builds and publishes automatically. The workflow restores locked dependencies, builds, tests, creates browser outputs, packs all artifacts into isolated staging, inspects intended assets and dependency bounds, installs packages into clean consumers, checks reproducibility, and writes SHA-256 and manifest evidence. The protected main-branch publication job attests the exact selected candidate before promotion; branch-selectable build jobs have no OIDC or attestation permission. `-WhatIf` prints the plan without running tools or changing output. A repeated build is `UNCHANGED` only when every artifact hash matches; a different artifact with the same version fails as a version conflict.
 
@@ -58,6 +59,7 @@ Rollback never replaces package bytes. Deprecate the bad immutable version in th
 ## Consumer paths
 
 - ASP.NET Core: install `Cormier.Realtime.AspNetCore`; configure Redis and realtime options at runtime.
+- HTTP fallback: additionally install `Cormier.Realtime.HttpFallback`, register it with `AddRealtimeHttpFallback`, and map it with `MapRealtimeHttpFallback`.
 - .NET Standard: install `Cormier.Realtime.Client`; it contains no ASP.NET Core dependency.
 - Browser through NuGet: install `Cormier.Realtime.Browser` and load `/_content/Cormier.Realtime.Browser/cormier-realtime.iife.min.js` or the ESM equivalent.
 - Raw JavaScript: use the inspected npm tarball, or extract the same files from the candidate's `Cormier.Realtime.Browser` NuGet package under `staticwebassets/`.

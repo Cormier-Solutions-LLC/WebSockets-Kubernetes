@@ -27,6 +27,14 @@ class ReferenceController < ApplicationController
     shared_asset("index.html", "text/html; charset=utf-8")
   end
 
+  def fallback
+    shared_asset("fallback.html", "text/html; charset=utf-8")
+  end
+
+  def failover
+    shared_asset("failover.html", "text/html; charset=utf-8")
+  end
+
   def css
     shared_asset("app.css", "text/css; charset=utf-8")
   end

@@ -7,6 +7,7 @@ import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.header
+import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
@@ -14,9 +15,11 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.install
@@ -31,11 +34,15 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.path
+import io.ktor.server.request.uri
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondFile
+import io.ktor.server.response.respondBytesWriter
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
@@ -46,6 +53,7 @@ import io.ktor.websocket.readBytes
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import io.ktor.utils.io.readAvailable
+import io.ktor.utils.io.copyTo
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -132,6 +140,8 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
 
     routing {
         get("/") { call.respondFile(config.sharedAssetRoot.resolve("index.html").toFile()) }
+        get("/fallback.html") { call.respondFile(config.sharedAssetRoot.resolve("fallback.html").toFile()) }
+        get("/failover.html") { call.respondFile(config.sharedAssetRoot.resolve("failover.html").toFile()) }
         get("/app.css") { call.respondFile(config.sharedAssetRoot.resolve("app.css").toFile()) }
         get("/app.js") { call.respondFile(config.sharedAssetRoot.resolve("app.js").toFile()) }
         get("/_content/Cormier.Realtime.Browser/{asset}") {
@@ -202,6 +212,11 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
             val responseBody = readLimitedBody(response.bodyAsChannel()) { DependencyFault() }
             call.respondBytes(responseBody, ContentType.Application.Json, response.status)
         }
+        route("/realtime/http/{path...}") {
+            get { proxyHttpFallback(call, client, config, HttpMethod.Get) }
+            post { proxyHttpFallback(call, client, config, HttpMethod.Post) }
+            delete { proxyHttpFallback(call, client, config, HttpMethod.Delete) }
+        }
         webSocket("/realtime/ws", protocol = SUBPROTOCOL) browser@{
             val browserOrigin = call.request.header(HttpHeaders.Origin)
             requireOrigin(browserOrigin, config)
@@ -248,6 +263,35 @@ fun Application.referenceModule(config: ReferenceConfig, store: SessionStore, cl
                     }
                 }
             }
+        }
+    }
+}
+
+private suspend fun proxyHttpFallback(
+    call: ApplicationCall,
+    client: HttpClient,
+    config: ReferenceConfig,
+    upstreamMethod: HttpMethod,
+) {
+    val body = readLimitedBody(call.receiveChannel())
+    client.prepareRequest(config.gatewayUrl.resolve(call.request.uri).toString()) {
+        method = upstreamMethod
+        timeout {
+            requestTimeoutMillis = 40_000
+            connectTimeoutMillis = 5_000
+            socketTimeoutMillis = 40_000
+        }
+        header(HttpHeaders.Host, call.request.header(HttpHeaders.Host))
+        header(HttpHeaders.Origin, call.request.header(HttpHeaders.Origin))
+        header(HttpHeaders.Cookie, call.request.header(HttpHeaders.Cookie))
+        header(FORWARDED_PROTO, config.publicOrigin.scheme)
+        call.request.header("X-Cormier-Connection")?.let { header("X-Cormier-Connection", it) }
+        call.request.header(HttpHeaders.ContentType)?.let { header(HttpHeaders.ContentType, it) }
+        if (body.isNotEmpty()) setBody(body)
+    }.execute { response ->
+        val contentType = response.headers[HttpHeaders.ContentType]?.let(ContentType::parse)
+        call.respondBytesWriter(contentType, response.status) {
+            response.bodyAsChannel().copyTo(this)
         }
     }
 }

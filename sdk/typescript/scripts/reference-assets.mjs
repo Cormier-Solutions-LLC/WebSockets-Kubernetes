@@ -1122,6 +1122,8 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
   write(profileRoot, "app.js", javascript);
   write(profileRoot, "app.css", css);
   write(profileRoot, "index.html", html);
+  write(profileRoot, "fallback.html", html);
+  write(profileRoot, "failover.html", html);
   if (profile !== "readable" && config.sourceMaps.emit) {
     write(sourceMapRoot, "app.js.map", javascriptMap);
     write(sourceMapRoot, "app.css.map", cssMap);
@@ -1132,6 +1134,8 @@ async function buildProfile({ config, outputRoot, profile, source, sdkDist, obfu
     inventoryFile(outputRoot, profile, "app.css", css),
     inventoryFile(outputRoot, profile, "app.js", javascript),
     inventoryFile(outputRoot, profile, "index.html", html),
+    inventoryFile(outputRoot, profile, "fallback.html", html),
+    inventoryFile(outputRoot, profile, "failover.html", html),
   ];
   if (profile !== "readable" && config.sourceMaps.emit) {
     files.push(inventoryFile(outputRoot, `source-maps/${profile}`, "app.css.map", cssMap));

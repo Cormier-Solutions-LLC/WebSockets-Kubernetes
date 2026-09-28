@@ -54,7 +54,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
       - name: Install pinned npm
@@ -156,7 +156,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
       - name: Install pinned npm
@@ -183,7 +183,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
       - name: Install pinned npm
@@ -218,7 +218,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -437,7 +437,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -509,7 +509,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -575,7 +575,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -636,7 +636,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -706,7 +706,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -774,7 +774,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -847,7 +847,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -917,7 +917,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -982,7 +982,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -1047,7 +1047,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm
@@ -1121,7 +1121,7 @@ jobs:
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
           cache: npm

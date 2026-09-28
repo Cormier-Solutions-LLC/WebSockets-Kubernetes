@@ -57,8 +57,9 @@ defmodule CormierRealtimeExample.Web do
   defp route("GET", [], conn, config),
     do: send_asset(conn, Path.join(config.shared_asset_root, "index.html"))
 
-  defp route("GET", [asset], conn, config) when asset in ["app.css", "app.js"],
-    do: send_asset(conn, Path.join(config.shared_asset_root, asset))
+  defp route("GET", [asset], conn, config)
+       when asset in ["app.css", "app.js", "fallback.html", "failover.html"],
+       do: send_asset(conn, Path.join(config.shared_asset_root, asset))
 
   defp route("GET", ["_content", "Cormier.Realtime.Browser", asset], conn, config) do
     if Regex.match?(~r/^[A-Za-z0-9._-]+$/, asset),
@@ -215,6 +216,37 @@ defmodule CormierRealtimeExample.Web do
     end
   end
 
+  defp route(method, ["realtime", "http" | _], conn, config)
+       when method in ["GET", "POST", "DELETE"] do
+    with {:ok, body, conn} <- read_bounded_body(conn),
+         {:ok, response} <-
+           Req.request(
+             method:
+               if(method == "GET", do: :get, else: if(method == "POST", do: :post, else: :delete)),
+             url:
+               config.gateway_url <>
+                 conn.request_path <>
+                 if(conn.query_string == "", do: "", else: "?" <> conn.query_string),
+             body: body,
+             headers: forward_headers(conn, config),
+             connect_options: [timeout: 5_000],
+             receive_timeout: 35_000,
+             into: &collect_response_chunk/2,
+             retry: false
+           ),
+         false <- response.body == :too_large do
+      response_body = IO.iodata_to_binary(response.body || "")
+      content_type = List.first(response.headers["content-type"] || ["application/json"])
+
+      conn
+      |> put_resp_header("content-type", content_type)
+      |> send_resp(response.status, response_body)
+    else
+      {:error, :too_large, conn} -> request_too_large(conn)
+      _ -> unavailable(conn)
+    end
+  end
+
   defp route("GET", ["realtime", "ws"], conn, config) do
     with :ok <- origin(conn, config),
          :ok <- websocket_protocol(conn) do
@@ -256,7 +288,7 @@ defmodule CormierRealtimeExample.Web do
 
   defp forward_headers(conn, config),
     do:
-      Enum.flat_map(["origin", "cookie", "content-type"], fn name ->
+      Enum.flat_map(["origin", "cookie", "content-type", "x-cormier-connection"], fn name ->
         Enum.map(get_req_header(conn, name), &{name, &1})
       end) ++
         [

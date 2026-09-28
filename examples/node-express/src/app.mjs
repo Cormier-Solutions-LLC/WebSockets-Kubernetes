@@ -229,6 +229,21 @@ export function createApp({ config, redisClient, proxy, logger = console, ticket
     }
   });
 
+  app.use("/realtime/http", (request, response) => {
+    try {
+      request.url = request.originalUrl;
+      proxy.web(request, response, {
+        target: config.gatewayUrl,
+        changeOrigin: false,
+        xfwd: false,
+        prependPath: true,
+        headers: { "x-forwarded-proto": config.publicScheme },
+      });
+    } catch {
+      if (!response.headersSent) response.status(503).json({ code: "service_unavailable", message: "The reference application dependency is unavailable." });
+    }
+  });
+
   app.use("/_content/Cormier.Realtime.Browser", express.static(config.sdkAssetRoot, { index: false, fallthrough: false }));
   app.use(express.static(config.sharedAssetRoot, { index: false, fallthrough: true }));
   app.get("/", (_request, response) => response.sendFile(path.join(config.sharedAssetRoot, "index.html")));

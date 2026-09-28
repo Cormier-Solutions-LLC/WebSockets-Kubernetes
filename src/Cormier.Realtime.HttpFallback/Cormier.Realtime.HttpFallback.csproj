@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <VersionPrefix>$(HttpFallbackVersion)</VersionPrefix>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Cormier.Realtime.HttpFallback</PackageId>
+    <Authors>Cormier</Authors>
+    <Description>Optional HTTP streaming fallback transport for Cormier.Realtime ASP.NET Core gateways.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>realtime;http-streaming;fallback;aspnetcore</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cormier.Realtime.AspNetCore\Cormier.Realtime.AspNetCore.csproj" />
+  </ItemGroup>
+</Project>

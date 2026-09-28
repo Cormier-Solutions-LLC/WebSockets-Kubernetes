@@ -70,6 +70,12 @@
       "cormier.realtime.contracts": {
         "type": "Project"
       },
+      "cormier.realtime.httpfallback": {
+        "type": "Project",
+        "dependencies": {
+          "Cormier.Realtime.AspNetCore": "[1.0.4-beta, )"
+        }
+      },
       "cormier.realtime.redis": {
         "type": "Project",
         "dependencies": {

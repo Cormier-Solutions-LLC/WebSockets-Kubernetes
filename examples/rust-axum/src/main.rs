@@ -3,15 +3,15 @@ mod store;
 
 use axum::{
     Json, Router,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{
         DefaultBodyLimit, OriginalUri, Request, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, get, post},
 };
 use config::Config;
 use futures_util::{SinkExt, StreamExt};
@@ -118,6 +118,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
     let app = Router::new()
         .route_service("/", ServeFile::new(config.shared_asset_root.join("index.html")))
+        .route_service("/fallback.html", ServeFile::new(config.shared_asset_root.join("fallback.html")))
+        .route_service("/failover.html", ServeFile::new(config.shared_asset_root.join("failover.html")))
         .route_service("/app.css", ServeFile::new(config.shared_asset_root.join("app.css")))
         .route_service("/app.js", ServeFile::new(config.shared_asset_root.join("app.js")))
         .nest_service("/_content/Cormier.Realtime.Browser", ServeDir::new(config.sdk_asset_root.clone()))
@@ -127,6 +129,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/session", get(session))
         .route("/api/logout", post(logout))
         .route("/realtime/tickets", post(ticket))
+        .route("/realtime/http/{*path}", any(http_fallback))
         .route("/realtime/ws", get(websocket))
         .layer(DefaultBodyLimit::max(MAXIMUM_REQUEST_BODY_BYTES))
         .layer(SetResponseHeaderLayer::if_not_present(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")))
@@ -162,6 +165,45 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     info!(event = "application_stopped");
     Ok(())
+}
+
+async fn http_fallback(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let mut url = state.config.gateway_url.clone();
+    url.set_path(uri.path());
+    url.set_query(uri.query());
+    let mut outbound = state.http.request(method, url).body(body);
+    for name in [
+        header::HOST,
+        header::ORIGIN,
+        header::COOKIE,
+        header::CONTENT_TYPE,
+    ] {
+        if let Some(value) = headers.get(&name) {
+            outbound = outbound.header(name, value);
+        }
+    }
+    if let Some(value) = headers.get("x-cormier-connection") {
+        outbound = outbound.header("x-cormier-connection", value);
+    }
+    outbound = outbound.header("x-forwarded-proto", state.config.public_scheme());
+    let upstream = outbound.send().await.map_err(|_| AppError::unavailable())?;
+    let status = upstream.status();
+    let content_type = upstream.headers().get(header::CONTENT_TYPE).cloned();
+    let mut response = Response::builder()
+        .status(status)
+        .header(header::CACHE_CONTROL, "no-store");
+    if let Some(value) = content_type {
+        response = response.header(header::CONTENT_TYPE, value);
+    }
+    response
+        .body(Body::from_stream(upstream.bytes_stream()))
+        .map_err(|_| AppError::unavailable())
 }
 
 async fn shutdown() {

@@ -3,6 +3,8 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
     [string]$AspNetCoreIntegrationVersion = '1.0.4-beta',
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
+    [string]$HttpFallbackVersion = '1.0.4-beta',
+    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
     [string]$ContractsVersion = '1.0.4-beta',
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
     [string]$RedisAdapterVersion = '1.0.4-beta',
@@ -43,10 +45,12 @@ try {
         foreach ($project in @(
             'src/Cormier.Realtime.Contracts/Cormier.Realtime.Contracts.csproj',
             'src/Cormier.Realtime.Redis/Cormier.Realtime.Redis.csproj',
-            'src/Cormier.Realtime.AspNetCore/Cormier.Realtime.AspNetCore.csproj'
+            'src/Cormier.Realtime.AspNetCore/Cormier.Realtime.AspNetCore.csproj',
+            'src/Cormier.Realtime.HttpFallback/Cormier.Realtime.HttpFallback.csproj'
         )) {
             dotnet pack (Join-Path $repositoryRoot $project) --configuration Release --no-build --output $feedPath `
                 -p:AspNetCoreIntegrationVersion=$AspNetCoreIntegrationVersion `
+                -p:HttpFallbackVersion=$HttpFallbackVersion `
                 -p:ContractsVersion=$ContractsVersion `
                 -p:RedisAdapterVersion=$RedisAdapterVersion
             if ($LASTEXITCODE -ne 0) { throw "Packing failed for $project." }
@@ -57,7 +61,8 @@ try {
         foreach ($package in @(
             "Cormier.Realtime.Contracts.$(($ContractsVersion -split '\+', 2)[0]).nupkg",
             "Cormier.Realtime.Redis.$(($RedisAdapterVersion -split '\+', 2)[0]).nupkg",
-            "Cormier.Realtime.AspNetCore.$(($AspNetCoreIntegrationVersion -split '\+', 2)[0]).nupkg"
+            "Cormier.Realtime.AspNetCore.$(($AspNetCoreIntegrationVersion -split '\+', 2)[0]).nupkg",
+            "Cormier.Realtime.HttpFallback.$(($HttpFallbackVersion -split '\+', 2)[0]).nupkg"
         )) {
             Copy-Item -LiteralPath (Join-Path $resolvedPackageSource $package) -Destination $feedPath -ErrorAction Stop
         }
@@ -72,6 +77,7 @@ try {
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Cormier.Realtime.AspNetCore" Version="$AspNetCoreIntegrationVersion" />
+    <PackageReference Include="Cormier.Realtime.HttpFallback" Version="$HttpFallbackVersion" />
   </ItemGroup>
 </Project>
 "@ | Set-Content -LiteralPath (Join-Path $consumerPath 'Consumer.csproj') -Encoding utf8NoBOM

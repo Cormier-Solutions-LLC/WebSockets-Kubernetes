@@ -11,19 +11,14 @@ import {
   WEBSOCKET_SUBPROTOCOL,
 } from "./protocol.js";
 import { RealtimeConnectionError, RealtimeError, RealtimeQueueError } from "./errors.js";
+import {
+  createTransportSocket,
+  type HttpStreamingOptions,
+  type RealtimeTransport,
+  type WebSocketLike,
+} from "./transport.js";
 
 export type RealtimeClientState = "idle" | "connecting" | "open" | "reconnecting" | "closing" | "closed";
-
-export interface WebSocketLike {
-  readonly readyState: number;
-  binaryType: BinaryType;
-  onopen: ((event: Event) => void) | null;
-  onmessage: ((event: MessageEvent) => void) | null;
-  onerror: ((event: Event) => void) | null;
-  onclose: ((event: CloseEvent) => void) | null;
-  send(data: string): void;
-  close(code?: number, reason?: string): void;
-}
 
 export interface SessionAuthentication {
   readonly kind: "session";
@@ -54,6 +49,8 @@ export interface RealtimeClientOptions {
   readonly maximumMessageBytes?: number;
   readonly heartbeatIntervalMilliseconds?: number;
   readonly reconnect?: ReconnectOptions;
+  readonly transports?: readonly RealtimeTransport[];
+  readonly httpStreaming?: HttpStreamingOptions;
   readonly webSocketFactory?: (url: string, protocol: string) => WebSocketLike;
   readonly random?: () => number;
 }
@@ -140,6 +137,16 @@ export class RealtimeClient {
       ...options,
     };
     this.reconnectOptions = { ...defaultReconnect, ...options.reconnect };
+    const transports = options.transports ?? ["websocket"];
+    if (transports.length === 0 || new Set(transports).size !== transports.length) {
+      throw new TypeError("transports must contain one or more unique transport names.");
+    }
+    if (transports.some((transport) => transport !== "websocket" && transport !== "http-streaming")) {
+      throw new TypeError("transports contains an unsupported transport.");
+    }
+    if (transports.includes("http-streaming") && options.httpStreaming === undefined) {
+      throw new TypeError("httpStreaming is required when the http-streaming transport is selected.");
+    }
     this.assertPositiveInteger(this.options.maximumQueuedCommands, "maximumQueuedCommands");
     this.assertPositiveInteger(this.options.maximumPendingCommands, "maximumPendingCommands");
     this.assertPositiveInteger(this.options.commandTimeoutMilliseconds, "commandTimeoutMilliseconds");
@@ -164,6 +171,10 @@ export class RealtimeClient {
 
   public get desiredSubscriptions(): readonly string[] {
     return [...this.subscriptions.keys()];
+  }
+
+  public get activeTransport(): RealtimeTransport | undefined {
+    return this.stateValue === "open" ? this.socket?.transport ?? "websocket" : undefined;
   }
 
   public on<TKey extends keyof RealtimeClientEvents>(type: TKey, listener: Listener<TKey>): () => void {
@@ -312,8 +323,7 @@ export class RealtimeClient {
     if (generation !== this.generation || this.intentionalClose) {
       throw new RealtimeConnectionError("The connection attempt was superseded.", "connection_superseded");
     }
-    const factory = this.options.webSocketFactory ?? ((url, protocol) => new WebSocket(url, protocol));
-    const socket = factory(connectionUrl, WEBSOCKET_SUBPROTOCOL);
+    const socket = createTransportSocket(connectionUrl, WEBSOCKET_SUBPROTOCOL, this.options);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
 

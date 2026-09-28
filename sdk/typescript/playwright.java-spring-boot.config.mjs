@@ -43,7 +43,7 @@ export default defineConfig({
       },
     },
     {
-      command: "java -jar target/java-spring-boot-1.0.4-beta.jar",
+      command: "java -jar target/java-spring-boot-1.0.5-beta.jar",
       cwd: resolve(repositoryRoot, "examples/java-spring-boot"),
       url: `${frontendOrigin}/health`,
       timeout: 60_000,

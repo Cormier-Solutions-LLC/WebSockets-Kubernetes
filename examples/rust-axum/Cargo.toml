@@ -1,6 +1,6 @@
 [package]
 name = "cormier-realtime-example-rust-axum"
-version = "1.0.4-beta"
+version = "1.0.5-beta"
 edition = "2024"
 rust-version = "1.98.1"
 publish = false

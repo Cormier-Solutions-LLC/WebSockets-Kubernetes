@@ -770,7 +770,9 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   const operationLog = resolve(directory, "operations.log");
   await writeFile(configPath, stableJson(config));
   await mkdir(backup, { recursive: true });
-  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis" } }));
+  const chartArchiveFile = "redis-22.3.4.tgz";
+  await writeFile(resolve(backup, chartArchiveFile), await readFile(resolve(fakeBin, "redis-fixture.tgz")));
+  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis", chartArchiveFile, chartArchiveSha256: managedChartFixtureSha256 } }));
   await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-22.3.4", revision: "4" }]));
   const capturedGatewayValues = { replicaCount: 1, redis: { mode: "managed", credentialsSecret: { name: "captured.redis-auth", passwordKey: "realtime" }, managedAdminPasswordKey: "redis-password" } };
   await writeFile(resolve(backup, `${release}.values.json`), stableJson(capturedGatewayValues));
@@ -779,7 +781,8 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     const operations = await readFile(operationLog, "utf8");
-    assert.match(operations, new RegExp(`upgrade --install ${release}-redis oci://mirror\\.example\\.test/charts/redis --version 22\\.3\\.4`));
+    assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4[/\\\\]redis`));
+    assert.doesNotMatch(operations, new RegExp(`upgrade --install ${release}-redis .*--version`));
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
     assert.match(operations, /kubectl .*--context kind-example/);
     assert.match(operations, /get secret captured\.redis-auth/);

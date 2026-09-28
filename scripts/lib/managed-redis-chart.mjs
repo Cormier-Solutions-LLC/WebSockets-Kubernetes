@@ -24,6 +24,7 @@ async function run(file, arguments_, { cwd, deadline }) {
   return new Promise((accept, reject) => {
     const child = spawn(file, arguments_, {
       cwd,
+      detached: process.platform !== "win32",
       env: process.env,
       shell: process.platform === "win32" && /\.cmd$/i.test(file),
       stdio: ["ignore", "pipe", "pipe"],
@@ -33,10 +34,18 @@ async function run(file, arguments_, { cwd, deadline }) {
     let spawnError;
     let timedOut = false;
     let escalation;
+    const signal = name => {
+      try {
+        if (process.platform === "win32") child.kill(name);
+        else process.kill(-child.pid, name);
+      } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
+      }
+    };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      escalation = setTimeout(() => child.kill("SIGKILL"), 5000);
+      signal("SIGTERM");
+      escalation = setTimeout(() => signal("SIGKILL"), 5000);
     }, remainingMilliseconds);
     child.stdout?.on("data", data => { stdout += data; });
     child.stderr?.on("data", data => { stderr += data; });

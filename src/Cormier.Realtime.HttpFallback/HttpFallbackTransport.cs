@@ -14,6 +14,7 @@ internal sealed class HttpFallbackTransport : IRealtimeServerTransport, IInterru
         AllowSynchronousContinuations = false,
     });
     private HttpFallbackPayload? _pending;
+    private int _pendingSendCancelled;
     private int _open = 1;
 
     public bool IsOpen => Volatile.Read(ref _open) == 1;
@@ -21,8 +22,16 @@ internal sealed class HttpFallbackTransport : IRealtimeServerTransport, IInterru
     public async ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(!IsOpen, this);
+        if (Volatile.Read(ref _pendingSendCancelled) == 1)
+        {
+            throw new OperationCanceledException("The fallback transport is closing.");
+        }
         var pending = new HttpFallbackPayload(payload.ToArray());
         Volatile.Write(ref _pending, pending);
+        if (Volatile.Read(ref _pendingSendCancelled) == 1)
+        {
+            pending.Cancel();
+        }
         try
         {
             await _outbound.Writer.WriteAsync(pending, cancellationToken);
@@ -61,7 +70,11 @@ internal sealed class HttpFallbackTransport : IRealtimeServerTransport, IInterru
 
     public void Abort() => Close();
 
-    public void CancelPendingSend() => Interlocked.Exchange(ref _pending, null)?.Cancel();
+    public void CancelPendingSend()
+    {
+        Interlocked.Exchange(ref _pendingSendCancelled, 1);
+        Interlocked.Exchange(ref _pending, null)?.Cancel();
+    }
 
     public ValueTask DisposeAsync()
     {

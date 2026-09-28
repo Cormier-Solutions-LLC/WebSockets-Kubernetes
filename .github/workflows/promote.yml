@@ -47,15 +47,37 @@ permissions:
   contents: read
   packages: read
 
+env:
+  CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
+  CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
+  CI_POWERSHELL_DOWNLOAD_BASE_URL: ${{ vars.CI_POWERSHELL_DOWNLOAD_BASE_URL || 'https://github.com/PowerShell/PowerShell/releases/download' }}
+  CI_GH_VERSION: ${{ vars.CI_GH_VERSION || '2.101.0' }}
+  CI_GH_LINUX_AMD64_SHA256: ${{ vars.CI_GH_LINUX_AMD64_SHA256 || '9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8' }}
+  CI_GH_DOWNLOAD_BASE_URL: ${{ vars.CI_GH_DOWNLOAD_BASE_URL || 'https://github.com/cli/cli/releases/download' }}
+  CI_HELM_VERSION: ${{ vars.CI_HELM_VERSION || '3.22.0' }}
+  CI_HELM_LINUX_AMD64_SHA256: ${{ vars.CI_HELM_LINUX_AMD64_SHA256 || '1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb' }}
+  CI_HELM_DOWNLOAD_BASE_URL: ${{ vars.CI_HELM_DOWNLOAD_BASE_URL || 'https://get.helm.sh' }}
+  CI_KUBECTL_VERSION: ${{ vars.CI_KUBECTL_VERSION || '1.37.1' }}
+  CI_KUBECTL_LINUX_AMD64_SHA256: ${{ vars.CI_KUBECTL_LINUX_AMD64_SHA256 || '65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8' }}
+  CI_KUBECTL_DOWNLOAD_BASE_URL: ${{ vars.CI_KUBECTL_DOWNLOAD_BASE_URL || 'https://dl.k8s.io/release' }}
+
 concurrency:
   group: promote-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.releaseName }}
   cancel-in-progress: false
 
 jobs:
   promote:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     environment: ${{ inputs.environment }}
     steps:
+      - name: Check out trusted deployment tooling
+        uses: actions/checkout@v5
+        with:
+          ref: refs/heads/main
+      - name: Install pinned PowerShell
+        run: bash scripts/setup-ci-powershell.sh
+      - name: Install pinned deployment tools
+        run: bash scripts/setup-ci-deployment-tools.sh
       - name: Select trusted release evidence
         id: release
         shell: pwsh
@@ -77,10 +99,10 @@ jobs:
           }
           "run_id=$runId" >> $env:GITHUB_OUTPUT
           "commit=$commit" >> $env:GITHUB_OUTPUT
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ steps.release.outputs.commit }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release-${{ steps.release.outputs.commit }}
           path: artifacts/release
@@ -126,7 +148,7 @@ jobs:
         run: |
           test -n "$EXPECTED_REGISTRY"
           test "$SELECTED_REGISTRY" = "$EXPECTED_REGISTRY"
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ steps.artifact.outputs.registry }}
           username: ${{ steps.artifact.outputs.credential_provider == 'github' && github.actor || steps.artifact.outputs.credential_provider == 'harbor' && secrets.HARBOR_PUBLISH_USERNAME || steps.artifact.outputs.credential_provider == 'dockerhub' && secrets.DOCKERHUB_USERNAME || steps.artifact.outputs.credential_provider == 'generic' && secrets.REGISTRY_USERNAME || '' }}
@@ -195,7 +217,7 @@ jobs:
           deployment_name=$(awk '/^kind: Deployment$/{found=1} found && /^  name:/{print $2; exit}' artifacts/promotion/rendered.yaml)
           test -n "$deployment_name"
           KUBECONFIG="$kubeconfig_path" kubectl -n "$NAMESPACE" rollout status deployment/"$deployment_name" --timeout=5m
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: promotion-${{ inputs.environment }}-${{ github.run_id }}
           path: artifacts/promotion

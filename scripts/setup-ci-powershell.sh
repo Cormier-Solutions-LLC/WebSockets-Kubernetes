@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 : "${CI_POWERSHELL_VERSION:?CI_POWERSHELL_VERSION is required}"
 : "${CI_POWERSHELL_LINUX_X64_SHA256:?CI_POWERSHELL_LINUX_X64_SHA256 is required}"
+: "${CI_POWERSHELL_DOWNLOAD_BASE_URL:?CI_POWERSHELL_DOWNLOAD_BASE_URL is required}"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 : "${GITHUB_PATH:?GITHUB_PATH is required}"
 
@@ -17,7 +18,7 @@ archive="${RUNNER_TEMP}/powershell-${CI_POWERSHELL_VERSION}-linux-x64.tar.gz"
 mkdir -p "$install_dir"
 curl --fail --location --retry 3 \
   --output "$archive" \
-  "https://github.com/PowerShell/PowerShell/releases/download/v${CI_POWERSHELL_VERSION}/powershell-${CI_POWERSHELL_VERSION}-linux-x64.tar.gz"
+  "${CI_POWERSHELL_DOWNLOAD_BASE_URL%/}/v${CI_POWERSHELL_VERSION}/powershell-${CI_POWERSHELL_VERSION}-linux-x64.tar.gz"
 printf '%s  %s\n' "$CI_POWERSHELL_LINUX_X64_SHA256" "$archive" | sha256sum --check
 tar --extract --gzip --file "$archive" --directory "$install_dir"
 chmod +x "$install_dir/pwsh"

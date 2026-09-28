@@ -472,6 +472,28 @@ public sealed class DeploymentContractTests
     {
         var publish = Read(".github/workflows/publish.yml");
         var promote = Read(".github/workflows/promote.yml");
+        var deploymentTools = Read("scripts/setup-ci-deployment-tools.sh");
+        var powershellSetup = Read("scripts/setup-ci-powershell.sh");
+        Assert.Contains("runs-on: cormier-runners", publish, StringComparison.Ordinal);
+        Assert.Contains("actions/setup-node@v7", publish, StringComparison.Ordinal);
+        Assert.Contains("node-version: 26.10.0", publish, StringComparison.Ordinal);
+        Assert.Contains("mirror: ${{ env.CI_NODE_DOWNLOAD_MIRROR }}", publish, StringComparison.Ordinal);
+        Assert.Contains("run: bash scripts/setup-ci-deployment-tools.sh", publish, StringComparison.Ordinal);
+        Assert.Contains("runs-on: cormier-runners", promote, StringComparison.Ordinal);
+        Assert.Contains("name: Check out trusted deployment tooling", promote, StringComparison.Ordinal);
+        Assert.Contains("ref: refs/heads/main", promote, StringComparison.Ordinal);
+        Assert.Contains("run: bash scripts/setup-ci-powershell.sh", promote, StringComparison.Ordinal);
+        Assert.Contains("run: bash scripts/setup-ci-deployment-tools.sh", promote, StringComparison.Ordinal);
+        Assert.Contains("CI_GH_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_GH_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_HELM_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_HELM_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_KUBECTL_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_KUBECTL_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_POWERSHELL_DOWNLOAD_BASE_URL", powershellSetup, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://", powershellSetup, StringComparison.Ordinal);
+        Assert.Equal(3, deploymentTools.Split("sha256sum --check", StringSplitOptions.None).Length - 1);
         Assert.Contains("workflow_run:", publish, StringComparison.Ordinal);
         Assert.Contains("download-artifact", publish, StringComparison.Ordinal);
         Assert.DoesNotContain("dotnet publish", publish, StringComparison.Ordinal);
@@ -543,6 +565,36 @@ public sealed class DeploymentContractTests
         Assert.Contains("--values", promote, StringComparison.Ordinal);
         Assert.Contains("deployment_name=$(awk", promote, StringComparison.Ordinal);
         Assert.Contains("--atomic --wait", promote, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GitHubWorkflowsUseSupportedActionsAndConfiguredLinuxRunners()
+    {
+        var workflows = string.Join(
+            '\n',
+            Read(".github/workflows/ci.yml"),
+            Read(".github/workflows/packages.yml"),
+            Read(".github/workflows/promote.yml"),
+            Read(".github/workflows/publish.yml"));
+
+        Assert.DoesNotContain("runs-on: ubuntu-latest", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/checkout@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/dependency-review-action@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/setup-dotnet@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/upload-artifact@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/download-artifact@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("docker/login-action@v3", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/checkout@v5", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/dependency-review-action@v5", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/setup-dotnet@v6", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-artifact@v7", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/download-artifact@v7", workflows, StringComparison.Ordinal);
+        Assert.Contains("docker/login-action@dbcb813823bdd20940b903addbd779551569679f", workflows, StringComparison.Ordinal);
+
+        var ci = Read(".github/workflows/ci.yml");
+        var parityJob = ci[ci.IndexOf("  bootstrap-lifecycle-parity:", StringComparison.Ordinal)..ci.IndexOf("  build-test-aot:", StringComparison.Ordinal)];
+        Assert.Contains("run: bash scripts/setup-ci-powershell.sh", parityJob, StringComparison.Ordinal);
     }
 
     [Fact]

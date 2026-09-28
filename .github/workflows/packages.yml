@@ -39,6 +39,7 @@ env:
   NPM_VERSION: 12.1.0
   CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
   CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
+  CI_POWERSHELL_DOWNLOAD_BASE_URL: ${{ vars.CI_POWERSHELL_DOWNLOAD_BASE_URL || 'https://github.com/PowerShell/PowerShell/releases/download' }}
 
 jobs:
   release-intent:
@@ -54,19 +55,19 @@ jobs:
     steps:
       - name: Check out trusted release automation
         if: github.event_name == 'workflow_run'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: refs/heads/main
       - name: Check out pull request
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 2
           ref: ${{ github.sha }}
       - name: Check out trusted manual commit
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 2
           ref: refs/heads/main
@@ -149,7 +150,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs['release-intent'].outputs.candidate_sha }}
       - name: Install pinned PowerShell
@@ -160,7 +161,7 @@ jobs:
         env:
           CANDIDATE_SHA: ${{ needs['release-intent'].outputs.candidate_sha }}
         run: '"candidate_artifact=cormier-realtime-packages-$env:CANDIDATE_SHA-${{ github.run_attempt }}" | Add-Content -LiteralPath $env:GITHUB_OUTPUT'
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             8.0.x
@@ -188,7 +189,7 @@ jobs:
         run: ./scripts/Build-RealtimePackages.ps1
       - name: Upload package build diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cormier-realtime-package-build-${{ needs['release-intent'].outputs.candidate_sha }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -221,7 +222,7 @@ jobs:
           sarif_file: artifacts/package-scan.sarif
           category: package-candidate
       - name: Upload immutable candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.artifact_names.outputs.candidate_artifact }}
           if-no-files-found: error
@@ -247,7 +248,7 @@ jobs:
       id-token: write
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs['release-intent'].outputs.candidate_sha }}
       - name: Install pinned PowerShell
@@ -274,7 +275,7 @@ jobs:
           if ($trusted.Count -eq 0) {
             throw 'Publication requires successful main-branch CI for the exact candidate commit.'
           }
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - name: Install Node runtime prerequisites
@@ -361,13 +362,13 @@ jobs:
           "candidate_artifact=cormier-realtime-packages-$env:EXPECTED_SHA-$($selected.candidateAttempt)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
       - name: Download current immutable candidate
         if: steps.resume.outputs.has_state != 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ needs['package-candidate'].outputs.candidate_artifact_name }}
           path: artifacts
       - name: Download original resumable candidate
         if: steps.resume.outputs.has_state == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ steps.resume.outputs.candidate_artifact }}
           path: artifacts
@@ -399,7 +400,7 @@ jobs:
           }
       - name: Download prior promotion evidence
         if: steps.resume.outputs.has_state == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ steps.resume.outputs.evidence_artifact }}
           path: resume-evidence
@@ -443,7 +444,7 @@ jobs:
           & ./scripts/Publish-RealtimePackages.ps1 @parameters
       - name: Upload promotion state
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cormier-realtime-package-promotion-${{ needs['release-intent'].outputs.candidate_sha }}-c${{ steps.resume.outputs.candidate_attempt }}-r${{ github.run_attempt }}
           if-no-files-found: ignore
@@ -451,7 +452,7 @@ jobs:
           path: artifacts/package-promotion
       - name: Upload promotion diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cormier-realtime-package-promotion-logs-${{ needs['release-intent'].outputs.candidate_sha }}-${{ github.run_attempt }}
           if-no-files-found: warn

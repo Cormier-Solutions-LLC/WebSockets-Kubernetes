@@ -15,6 +15,12 @@ env:
   CONTAINER_REGISTRY: ${{ vars.CONTAINER_REGISTRY }}
   IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY }}
   REGISTRY_CREDENTIAL_PROVIDER: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER }}
+  CI_GH_VERSION: ${{ vars.CI_GH_VERSION || '2.101.0' }}
+  CI_GH_LINUX_AMD64_SHA256: ${{ vars.CI_GH_LINUX_AMD64_SHA256 || '9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8' }}
+  CI_HELM_VERSION: ${{ vars.CI_HELM_VERSION || '3.22.0' }}
+  CI_HELM_LINUX_AMD64_SHA256: ${{ vars.CI_HELM_LINUX_AMD64_SHA256 || '1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb' }}
+  CI_KUBECTL_VERSION: ${{ vars.CI_KUBECTL_VERSION || '1.37.1' }}
+  CI_KUBECTL_LINUX_AMD64_SHA256: ${{ vars.CI_KUBECTL_LINUX_AMD64_SHA256 || '65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8' }}
 
 jobs:
   publish:
@@ -25,6 +31,13 @@ jobs:
         with:
           fetch-depth: 2
           ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Install Node runtime prerequisites
+        run: bash scripts/setup-ci-node-prerequisites.sh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.10.0
+      - name: Install pinned deployment tools
+        run: bash scripts/setup-ci-deployment-tools.sh
       - uses: actions/download-artifact@v4
         with:
           name: cormier-realtime-${{ github.event.workflow_run.head_sha }}

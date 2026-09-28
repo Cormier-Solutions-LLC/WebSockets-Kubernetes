@@ -188,6 +188,8 @@ jobs:
           node-version: 26.10.0
       - name: Install pinned npm
         run: npm install --global "npm@${{ env.NPM_VERSION }}"
+      - name: Install pinned PowerShell
+        run: bash scripts/setup-ci-powershell.sh
       - name: Exercise lifecycle with failure injection
         env:
           BOOTSTRAP_TEST_SHELLS: ${{ matrix.shell }}

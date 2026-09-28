@@ -62,6 +62,11 @@ public sealed class DeploymentContractTests
         Assert.Matches(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/edge/fallback");
         Assert.DoesNotMatch(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/");
         Assert.DoesNotMatch(new Regex(fallbackPathPattern, RegexOptions.CultureInvariant), "/edge/");
+        var affinitySameSites = schema.RootElement.GetProperty("properties")
+            .GetProperty("ingressRoute").GetProperty("properties")
+            .GetProperty("affinityCookieSameSite").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString()!).ToArray();
+        Assert.Equal(["lax", "strict", "none"], affinitySameSites);
     }
 
     [Fact]
@@ -138,6 +143,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("Host(`{{ .Values.ingressRoute.host }}`) && (Path(`{{ .Values.ingressRoute.path }}`) || PathPrefix(`{{ .Values.ingressRoute.fallbackPath }}/`))", route, StringComparison.Ordinal);
         Assert.Contains("sticky:", route, StringComparison.Ordinal);
         Assert.Contains("name: {{ .Values.ingressRoute.affinityCookieName | quote }}", route, StringComparison.Ordinal);
+        Assert.Contains("sameSite: {{ .Values.ingressRoute.affinityCookieSameSite | quote }}", route, StringComparison.Ordinal);
+        Assert.Contains("secure: true", route, StringComparison.Ordinal);
         Assert.Contains("HttpFallback__BasePath: {{ .Values.ingressRoute.fallbackPath | quote }}", configMap, StringComparison.Ordinal);
         Assert.Contains(".Values.ingressRoute.entryPoint", route, StringComparison.Ordinal);
         Assert.Contains("flushInterval: \"-1ms\"", route, StringComparison.Ordinal);

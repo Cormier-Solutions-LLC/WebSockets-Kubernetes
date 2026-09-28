@@ -360,7 +360,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response_headers = {"Cache-Control": "no-store"}
         if content_type := upstream.headers.get("content-type"):
             response_headers["Content-Type"] = content_type
-        return StreamingResponse(chunks(), status_code=upstream.status_code, headers=response_headers)
+        response = StreamingResponse(chunks(), status_code=upstream.status_code, headers=response_headers)
+        response.raw_headers.extend(
+            (b"set-cookie", value.encode("latin-1")) for value in upstream.headers.get_list("set-cookie")
+        )
+        return response
 
     @app.websocket("/realtime/ws")
     async def websocket_proxy(browser: WebSocket) -> None:

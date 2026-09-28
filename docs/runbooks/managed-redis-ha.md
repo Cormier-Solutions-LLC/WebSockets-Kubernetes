@@ -152,3 +152,5 @@ The last command must return `PONG`. Then use `scripts/Test-RealtimeEdge.ps1` wi
 | Helm release is `pending-install` | An interrupted or timed-out install retained an operation lock | Let the bounded command finish; if it is definitively abandoned, uninstall that incomplete release and rerun install. Preserve PVCs unless data recovery explicitly requires otherwise |
 
 Do not treat longer CrashLoopBackOff delays as a fix. Identify the first failing boundary: Secret mount, image/version, persisted-data compatibility, Redis startup, Sentinel discovery, authentication, readiness, Service endpoints, then gateway/ingress.
+
+The `recover` action reapplies the verified managed Redis chart, explicitly restarts the Redis StatefulSet so updated Secret content is loaded, waits for that ordered rollout, and only then restarts and verifies the gateway. Pre-change backups retain the exact installed Redis chart archive and its computed SHA-256; rollback verifies that saved archive before restoring values. Keep the complete backup directory together.

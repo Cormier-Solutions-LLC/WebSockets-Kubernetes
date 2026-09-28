@@ -3,12 +3,12 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
-import { managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
+import { captureManagedRedisChart, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -208,6 +208,14 @@ async function saveState(plan, config, options) {
           capturedPlan.managedRedis ??= {};
           capturedPlan.managedRedis.chart = chart;
           capturedPlan.managedRedis.chartVersion = chartVersion;
+          const capturedChart = await captureManagedRedisChart({
+            chart,
+            version: chartVersion,
+            outputDirectory: directory,
+            timeoutSeconds: options.timeoutSeconds,
+          });
+          capturedPlan.managedRedis.chartArchiveSha256 = capturedChart.archiveSha256;
+          capturedPlan.managedRedis.chartArchiveFile = basename(capturedChart.archivePath);
         }
         await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
       }
@@ -300,6 +308,11 @@ async function apply(plan, config, options) {
     if (!options.redisChartPath) redisArgs.push("--version", plan.managedRedis.chartVersion);
     redisArgs.push("--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--history-max", "0", "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
     await command("helm", redisArgs, "Install or update managed Redis", options);
+    if (options.action === "recover") {
+      const statefulSet = `statefulset/${plan.target.redisRelease}-node`;
+      await command("kubectl", ["rollout", "restart", statefulSet, "--namespace", plan.target.namespace], "Restart managed Redis after referenced Secret rotation", options);
+      await command("kubectl", ["rollout", "status", statefulSet, "--namespace", plan.target.namespace, `--timeout=${options.timeoutSeconds}s`], "Verify managed Redis recovery rollout", options);
+    }
   }
   await command("helm", gatewayUpgradeArguments(plan, options), "Install or update realtime gateway", options);
   if (["update", "recover"].includes(options.action)) await command("kubectl", ["rollout", "restart", `deployment/${plan.target.release}`, "--namespace", plan.target.namespace], "Restart gateway after referenced Secret rotation", options);
@@ -312,7 +325,9 @@ async function prepareRedisChart(managedRedis, options) {
     chart: managedRedis.chart,
     version: managedRedis.chartVersion,
     archiveSha256: managedRedis.chartArchiveSha256,
+    archivePath: managedRedis.chartArchivePath,
     outputDirectory,
+    timeoutSeconds: options.timeoutSeconds,
   });
   emit("pass", options.action, "Verified and patched managed Redis chart.", {
     chart: managedRedis.chart,
@@ -432,11 +447,18 @@ async function rollback(plan, options) {
       const chart = savedPlan.managedRedis?.chart;
       if (typeof chart !== "string" || !chart) throw new Error("Backup plan does not contain the managed Redis chart repository.");
       const chartVersion = capturedRedisChartVersion(releaseInventory, release);
-      const chartArchiveSha256 = savedPlan.managedRedis?.chartArchiveSha256;
-      if (!process.env.BOOTSTRAP_FAKE_RELEASE && (typeof chartArchiveSha256 !== "string" || !chartArchiveSha256)) throw new Error("Backup plan does not contain the managed Redis chart archive checksum.");
-      const restoredChart = process.env.BOOTSTRAP_FAKE_RELEASE ? chart : await prepareRedisChart({ chart, chartVersion, chartArchiveSha256 }, options);
+      const chartArchiveSha256 = savedPlan.managedRedis?.chartArchiveSha256 ?? plan.managedRedis?.chartArchiveSha256;
+      if (typeof chartArchiveSha256 !== "string" || !chartArchiveSha256) throw new Error("Backup plan does not contain the managed Redis chart archive checksum. A legacy backup can only be restored when its exact chart pin matches the current trusted configuration.");
+      const chartArchiveFile = savedPlan.managedRedis?.chartArchiveFile;
+      let chartArchivePath;
+      if (chartArchiveFile !== undefined) {
+        if (typeof chartArchiveFile !== "string" || basename(chartArchiveFile) !== chartArchiveFile) throw new Error("Backup plan contains an invalid managed Redis chart archive path.");
+        chartArchivePath = resolve(backup, chartArchiveFile);
+        assertPathInside(backup, chartArchivePath, "rollback chart archive");
+        if (!await fileExists(chartArchivePath)) throw new Error("Backup managed Redis chart archive is missing.");
+      }
+      const restoredChart = await prepareRedisChart({ chart, chartVersion, chartArchiveSha256, chartArchivePath }, options);
       const arguments_ = ["upgrade", "--install", release, restoredChart];
-      if (process.env.BOOTSTRAP_FAKE_RELEASE) arguments_.push("--version", chartVersion);
       arguments_.push("--namespace", plan.target.namespace, "--values", valuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
       await command("helm", arguments_, `Restore ${release}`, options);
     } else throw new Error(`Backup inventory includes '${release}' but its values snapshot is missing.`);
@@ -528,7 +550,13 @@ async function main() {
     if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent && installedState?.redisMode && installedState.redisMode !== rollbackSnapshot.redisMode) throw new Error(`Redis mode rollback conversion from '${installedState.redisMode}' to '${rollbackSnapshot.redisMode}' requires an explicit migration outside this bootstrap action.`);
     const previousTopology = installedState?.topology ?? (clusterAware ? undefined : priorState?.topology);
     let plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
-    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChart, rollbackSnapshot.managedRedisChartVersion, rollbackSnapshot.managedRedisChartArchiveSha256);
+    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) {
+      const legacyTrustedChecksum = rollbackSnapshot.managedRedisChart === plan.managedRedis?.chart
+        && rollbackSnapshot.managedRedisChartVersion === plan.managedRedis?.chartVersion
+        ? plan.managedRedis.chartArchiveSha256
+        : undefined;
+      plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChart, rollbackSnapshot.managedRedisChartVersion, rollbackSnapshot.managedRedisChartArchiveSha256 ?? legacyTrustedChecksum);
+    }
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
     await atomicWrite(options.valuesPath, stableJson(plan.values));
@@ -546,7 +574,7 @@ async function main() {
       return;
     }
 
-    if (plan.managedRedis && !process.env.BOOTSTRAP_FAKE_RELEASE && ["install", "update", "recover", "validate"].includes(options.action)) {
+    if (plan.managedRedis && ["install", "update", "recover", "validate"].includes(options.action)) {
       options.redisChartPath = await prepareRedisChart(plan.managedRedis, options);
     }
 

@@ -174,6 +174,11 @@ public static class HttpFallbackHostingExtensions
         bool dispatched;
         try
         {
+            if (!manager.IsActive(state))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
             dispatched = await manager.DispatchAsync(state, envelope, context.RequestAborted);
         }
         finally

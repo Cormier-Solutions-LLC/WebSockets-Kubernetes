@@ -48,7 +48,7 @@ function fixture(overrides = {}) {
     sdkAssetRoot: path.resolve(exampleRoot, "..", "..", "sdk", "typescript", "dist"),
     ...overrides,
   };
-  return { app: createApp({ config, redisClient, proxy, logger }), config, redisClient, proxyCalls, logs, values };
+  return { app: createApp({ config, redisClient, proxy, logger }), config, redisClient, proxy, proxyCalls, logs, values };
 }
 
 function login(agent, config) {
@@ -215,6 +215,26 @@ test("forwards HTTP fallback requests without stripping their mounted path", asy
     prependPath: true,
     headers: { "x-forwarded-proto": "http" },
   });
+});
+
+test("keeps fallback receiver exemptions bounded", async () => {
+  const context = fixture();
+  const app = createApp({
+    config: context.config,
+    redisClient: context.redisClient,
+    proxy: context.proxy,
+    fallbackReceiverLimit: 2,
+  });
+  const fallback = request(app);
+  const path = "/realtime/http/connections/not-a-real-connection/poll";
+
+  await fallback.post(path).set("X-Cormier-Connection", "not-a-real-token").expect(202);
+  await fallback.post(path).set("X-Cormier-Connection", "not-a-real-token").expect(202);
+  const limited = await fallback.post(path)
+    .set("X-Cormier-Connection", "not-a-real-token")
+    .expect(429);
+
+  assert.equal(limited.body.code, "rate_limited");
 });
 
 test("returns generic dependency failures and logs no sensitive values", async () => {

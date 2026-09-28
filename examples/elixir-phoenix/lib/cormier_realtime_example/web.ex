@@ -273,6 +273,7 @@ defmodule CormierRealtimeExample.Web do
       content_type = List.first(response.headers["content-type"] || ["application/json"])
 
       conn
+      |> forward_set_cookies(response)
       |> put_resp_header("content-type", content_type)
       |> send_resp(response.status, response_body)
     else
@@ -297,6 +298,7 @@ defmodule CormierRealtimeExample.Web do
 
       streamed =
         conn
+        |> forward_set_cookies(response)
         |> put_resp_header("content-type", content_type)
         |> send_chunked(response.status)
 
@@ -333,6 +335,13 @@ defmodule CormierRealtimeExample.Web do
           {"host", authority(conn)},
           {"x-forwarded-proto", CormierRealtimeExample.Config.public_scheme(config)}
         ]
+
+  defp forward_set_cookies(conn, response),
+    do:
+      prepend_resp_headers(
+        conn,
+        Enum.map(response.headers["set-cookie"] || [], &{"set-cookie", &1})
+      )
 
   defp port_suffix(80, :http), do: ""
   defp port_suffix(443, :https), do: ""

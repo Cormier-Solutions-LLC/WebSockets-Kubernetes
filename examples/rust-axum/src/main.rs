@@ -205,11 +205,20 @@ async fn http_fallback(
     let upstream = outbound.send().await.map_err(|_| AppError::unavailable())?;
     let status = upstream.status();
     let content_type = upstream.headers().get(header::CONTENT_TYPE).cloned();
+    let set_cookies: Vec<_> = upstream
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .cloned()
+        .collect();
     let mut response = Response::builder()
         .status(status)
         .header(header::CACHE_CONTROL, "no-store");
     if let Some(value) = content_type {
         response = response.header(header::CONTENT_TYPE, value);
+    }
+    for value in set_cookies {
+        response = response.header(header::SET_COOKIE, value);
     }
     response
         .body(Body::from_stream(upstream.bytes_stream()))

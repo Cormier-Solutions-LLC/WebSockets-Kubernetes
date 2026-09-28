@@ -292,6 +292,9 @@ private suspend fun proxyHttpFallback(
         if (body.isNotEmpty()) setBody(body)
     }.execute { response ->
         val contentType = response.headers[HttpHeaders.ContentType]?.let(ContentType::parse)
+        response.headers.getAll(HttpHeaders.SetCookie)?.forEach {
+            call.response.headers.append(HttpHeaders.SetCookie, it, safeOnly = false)
+        }
         call.respondBytesWriter(contentType, response.status) {
             response.bodyAsChannel().copyTo(this)
         }

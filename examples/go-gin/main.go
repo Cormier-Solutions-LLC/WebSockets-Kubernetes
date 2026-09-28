@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -202,6 +203,12 @@ func (a *App) router() http.Handler {
 }
 
 func (a *App) httpFallback(c *gin.Context) {
+	if c.Request.Method == http.MethodGet && strings.HasSuffix(c.Request.URL.Path, "/stream") {
+		if err := http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{}); err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+	}
 	target := *a.config.GatewayURL
 	proxy := &httputil.ReverseProxy{
 		Transport:     a.client.Transport,

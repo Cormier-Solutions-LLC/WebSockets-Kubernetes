@@ -67,6 +67,10 @@ internal sealed class HttpFallbackConnectionManager(
 
     public async Task<bool> DispatchAsync(State state, MessageEnvelope envelope, CancellationToken cancellationToken)
     {
+        if (!IsActive(state))
+        {
+            return false;
+        }
         var validation = ProtocolValidator.Validate(envelope, DateTimeOffset.UtcNow);
         if (!validation.IsValid)
         {
@@ -75,7 +79,7 @@ internal sealed class HttpFallbackConnectionManager(
         }
         if (!await RevalidateAsync(state, cancellationToken))
         {
-            await CloseAsync(state, "authentication_invalid", cancellationToken);
+            await CloseCoreAsync(state, "authentication_invalid", cancellationToken);
             return false;
         }
         state.Connection.RecordActivity();
@@ -92,6 +96,24 @@ internal sealed class HttpFallbackConnectionManager(
     }
 
     public async Task CloseAsync(State state, string reason, CancellationToken cancellationToken)
+    {
+        await state.InboundGate.WaitAsync(cancellationToken);
+        try
+        {
+            await CloseCoreAsync(state, reason, cancellationToken);
+        }
+        finally
+        {
+            state.InboundGate.Release();
+        }
+    }
+
+    public bool IsActive(State state) =>
+        _connections.TryGetValue(state.Id, out var current) &&
+        ReferenceEquals(current, state) &&
+        state.Connection.IsOpen;
+
+    private async Task CloseCoreAsync(State state, string reason, CancellationToken cancellationToken)
     {
         if (!_connections.TryRemove(state.Id, out _))
         {

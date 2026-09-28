@@ -15,6 +15,7 @@ env:
   NPM_VERSION: 12.1.0
   CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
   CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
+  CI_POWERSHELL_DOWNLOAD_BASE_URL: ${{ vars.CI_POWERSHELL_DOWNLOAD_BASE_URL || 'https://github.com/PowerShell/PowerShell/releases/download' }}
   CI_REDIS_IMAGE: ${{ vars.CI_REDIS_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf' }}
   CI_REDIS_BIND_ADDRESS: ${{ vars.CI_REDIS_BIND_ADDRESS || '0.0.0.0' }}
   CI_COMPOSER_IMAGE: ${{ vars.CI_COMPOSER_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332' }}

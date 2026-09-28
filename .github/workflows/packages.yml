@@ -39,6 +39,7 @@ env:
   NPM_VERSION: 12.1.0
   CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
   CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
+  CI_POWERSHELL_DOWNLOAD_BASE_URL: ${{ vars.CI_POWERSHELL_DOWNLOAD_BASE_URL || 'https://github.com/PowerShell/PowerShell/releases/download' }}
 
 jobs:
   release-intent:

@@ -15,6 +15,7 @@ env:
   CONTAINER_REGISTRY: ${{ vars.CONTAINER_REGISTRY }}
   IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY }}
   REGISTRY_CREDENTIAL_PROVIDER: ${{ vars.REGISTRY_CREDENTIAL_PROVIDER }}
+  CI_NODE_DOWNLOAD_MIRROR: ${{ vars.CI_NODE_DOWNLOAD_MIRROR || 'https://nodejs.org/dist' }}
   CI_GH_VERSION: ${{ vars.CI_GH_VERSION || '2.101.0' }}
   CI_GH_LINUX_AMD64_SHA256: ${{ vars.CI_GH_LINUX_AMD64_SHA256 || '9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8' }}
   CI_GH_DOWNLOAD_BASE_URL: ${{ vars.CI_GH_DOWNLOAD_BASE_URL || 'https://github.com/cli/cli/releases/download' }}
@@ -39,6 +40,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
+          mirror: ${{ env.CI_NODE_DOWNLOAD_MIRROR }}
       - name: Install pinned deployment tools
         run: bash scripts/setup-ci-deployment-tools.sh
       - uses: actions/download-artifact@v4

@@ -473,9 +473,11 @@ public sealed class DeploymentContractTests
         var publish = Read(".github/workflows/publish.yml");
         var promote = Read(".github/workflows/promote.yml");
         var deploymentTools = Read("scripts/setup-ci-deployment-tools.sh");
+        var powershellSetup = Read("scripts/setup-ci-powershell.sh");
         Assert.Contains("runs-on: cormier-runners", publish, StringComparison.Ordinal);
         Assert.Contains("actions/setup-node@v7", publish, StringComparison.Ordinal);
         Assert.Contains("node-version: 26.10.0", publish, StringComparison.Ordinal);
+        Assert.Contains("mirror: ${{ env.CI_NODE_DOWNLOAD_MIRROR }}", publish, StringComparison.Ordinal);
         Assert.Contains("run: bash scripts/setup-ci-deployment-tools.sh", publish, StringComparison.Ordinal);
         Assert.Contains("runs-on: cormier-runners", promote, StringComparison.Ordinal);
         Assert.Contains("name: Check out trusted deployment tooling", promote, StringComparison.Ordinal);
@@ -489,6 +491,8 @@ public sealed class DeploymentContractTests
         Assert.Contains("CI_KUBECTL_LINUX_AMD64_SHA256", deploymentTools, StringComparison.Ordinal);
         Assert.Contains("CI_KUBECTL_DOWNLOAD_BASE_URL", deploymentTools, StringComparison.Ordinal);
         Assert.DoesNotContain("https://", deploymentTools, StringComparison.Ordinal);
+        Assert.Contains("CI_POWERSHELL_DOWNLOAD_BASE_URL", powershellSetup, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://", powershellSetup, StringComparison.Ordinal);
         Assert.Equal(3, deploymentTools.Split("sha256sum --check", StringSplitOptions.None).Length - 1);
         Assert.Contains("workflow_run:", publish, StringComparison.Ordinal);
         Assert.Contains("download-artifact", publish, StringComparison.Ordinal);

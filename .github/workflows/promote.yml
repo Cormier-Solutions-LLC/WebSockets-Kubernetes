@@ -50,6 +50,7 @@ permissions:
 env:
   CI_POWERSHELL_VERSION: ${{ vars.CI_POWERSHELL_VERSION || '7.6.6' }}
   CI_POWERSHELL_LINUX_X64_SHA256: ${{ vars.CI_POWERSHELL_LINUX_X64_SHA256 || 'ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc' }}
+  CI_POWERSHELL_DOWNLOAD_BASE_URL: ${{ vars.CI_POWERSHELL_DOWNLOAD_BASE_URL || 'https://github.com/PowerShell/PowerShell/releases/download' }}
   CI_GH_VERSION: ${{ vars.CI_GH_VERSION || '2.101.0' }}
   CI_GH_LINUX_AMD64_SHA256: ${{ vars.CI_GH_LINUX_AMD64_SHA256 || '9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8' }}
   CI_GH_DOWNLOAD_BASE_URL: ${{ vars.CI_GH_DOWNLOAD_BASE_URL || 'https://github.com/cli/cli/releases/download' }}

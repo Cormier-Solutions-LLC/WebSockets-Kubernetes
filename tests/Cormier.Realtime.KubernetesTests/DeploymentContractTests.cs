@@ -580,8 +580,17 @@ public sealed class DeploymentContractTests
         Assert.DoesNotContain("runs-on: ubuntu-latest", workflows, StringComparison.Ordinal);
         Assert.DoesNotContain("actions/checkout@v4", workflows, StringComparison.Ordinal);
         Assert.DoesNotContain("actions/dependency-review-action@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/setup-dotnet@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/upload-artifact@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/download-artifact@v4", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("docker/login-action@v3", workflows, StringComparison.Ordinal);
+        Assert.DoesNotContain("docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9", workflows, StringComparison.Ordinal);
         Assert.Contains("actions/checkout@v5", workflows, StringComparison.Ordinal);
         Assert.Contains("actions/dependency-review-action@v5", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/setup-dotnet@v6", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-artifact@v7", workflows, StringComparison.Ordinal);
+        Assert.Contains("actions/download-artifact@v7", workflows, StringComparison.Ordinal);
+        Assert.Contains("docker/login-action@dbcb813823bdd20940b903addbd779551569679f", workflows, StringComparison.Ordinal);
 
         var ci = Read(".github/workflows/ci.yml");
         var parityJob = ci[ci.IndexOf("  bootstrap-lifecycle-parity:", StringComparison.Ordinal)..ci.IndexOf("  build-test-aot:", StringComparison.Ordinal)];

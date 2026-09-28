@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
@@ -202,7 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
@@ -211,7 +211,7 @@ jobs:
         run: bash scripts/pull-ci-image.sh "$CI_PROMETHEUS_IMAGE"
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             8.0.x
@@ -396,7 +396,7 @@ jobs:
           format: spdx-json
       - name: Upload immutable build evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cormier-realtime-${{ github.sha }}
           path: |
@@ -425,14 +425,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -481,7 +481,7 @@ jobs:
         run: npx playwright test --config playwright.node-express.config.mjs
       - name: Upload Express failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: node-express-${{ github.sha }}
           path: artifacts/node-express
@@ -491,14 +491,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -548,7 +548,7 @@ jobs:
         run: npx playwright test --config playwright.java-spring-boot.config.mjs
       - name: Upload Spring Boot failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: java-spring-boot-${{ github.sha }}
           path: artifacts/java-spring-boot
@@ -558,14 +558,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -614,7 +614,7 @@ jobs:
         run: npx playwright test --config playwright.kotlin-ktor.config.mjs
       - name: Upload Ktor failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kotlin-ktor-${{ github.sha }}
           path: artifacts/kotlin-ktor
@@ -624,14 +624,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -684,7 +684,7 @@ jobs:
         run: npx playwright test --config playwright.rust-axum.config.mjs
       - name: Upload Axum failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rust-axum-${{ github.sha }}
           path: artifacts/rust-axum
@@ -694,14 +694,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -752,7 +752,7 @@ jobs:
         run: npx playwright test --config playwright.go-gin.config.mjs
       - name: Upload Gin failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-gin-${{ github.sha }}
           path: artifacts/go-gin
@@ -762,14 +762,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -822,7 +822,7 @@ jobs:
         run: npx playwright test --config playwright.elixir-phoenix.config.mjs
       - name: Upload Phoenix failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: elixir-phoenix-${{ github.sha }}
           path: artifacts/elixir-phoenix
@@ -835,14 +835,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -895,7 +895,7 @@ jobs:
         run: npx playwright test --config playwright.php-laravel.config.mjs
       - name: Upload Laravel failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: php-laravel-${{ github.sha }}
           path: artifacts/php-laravel
@@ -905,14 +905,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -960,7 +960,7 @@ jobs:
         run: npx playwright test --config playwright.python-fastapi.config.mjs
       - name: Upload FastAPI failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-fastapi-${{ github.sha }}
           path: artifacts/python-fastapi
@@ -970,14 +970,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -1025,7 +1025,7 @@ jobs:
         run: npx playwright test --config playwright.ruby-rails.config.mjs
       - name: Upload Rails failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ruby-rails-${{ github.sha }}
           path: artifacts/ruby-rails
@@ -1035,14 +1035,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -1092,7 +1092,7 @@ jobs:
         run: npx playwright test --config playwright.swift-vapor.config.mjs
       - name: Upload Vapor failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: swift-vapor-${{ github.sha }}
           path: artifacts/swift-vapor
@@ -1109,14 +1109,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Authenticate to Harbor
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -1153,7 +1153,7 @@ jobs:
         run: ./scripts/FullCircle.ps1 -Action validate -Profile '${{ matrix.profile }}'
       - name: Upload full-circle failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: full-circle-${{ matrix.shell }}-${{ matrix.profile }}-${{ github.sha }}
           path: artifacts/full-circle

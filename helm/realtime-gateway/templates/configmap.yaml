@@ -18,6 +18,7 @@ data:
   Gateway__ShutdownDrainSeconds: {{ .Values.gateway.shutdownDrainSeconds | quote }}
   Gateway__DetailedHealthChecks: {{ .Values.gateway.detailedHealthChecks | quote }}
   Gateway__Topology: {{ .Values.topology | quote }}
+  Realtime__EndpointPath: {{ .Values.ingressRoute.path | quote }}
   HttpFallback__BasePath: {{ .Values.ingressRoute.fallbackPath | quote }}
   Diagnostics__Enabled: {{ .Values.diagnostics.enabled | quote }}
   Diagnostics__ProductionEnabled: {{ .Values.diagnostics.productionEnabled | quote }}

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -9,6 +10,8 @@ import test from "node:test";
 import {
   buildPlan, fileExists, inlineSecretPaths, loadContract, renderValues, stableJson, useCapturedDeploymentValues, validateConfiguration,
 } from "../../scripts/lib/bootstrap-contract.mjs";
+import { patchSentinelService, prepareManagedRedisChart } from "../../scripts/lib/managed-redis-chart.mjs";
+import { normalizePasswordBytes } from "../../scripts/realtime-redis-secret.mjs";
 
 const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -19,11 +22,13 @@ const profiles = {
   "non-ha": JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/profiles/non-ha.json"), "utf8")),
   ha: JSON.parse(await readFile(resolve(repositoryRoot, "bootstrap/profiles/ha.json"), "utf8")),
 };
+let managedChartFixtureSha256;
 
 function configuration(topology = "non-ha") {
   const result = structuredClone(example);
   result.topology = topology;
   result.kubernetes.failureDomains = topology === "ha" ? 3 : 1;
+  if (managedChartFixtureSha256) result.redis.managedChartArchiveSha256 = managedChartFixtureSha256;
   return result;
 }
 
@@ -51,6 +56,8 @@ test("both explicit topology profiles validate and render their availability con
   assert.deepEqual(haValues.gateway.trustedNetworks, ha.networking.trustedProxyCidrs);
   assert.deepEqual(haValues.networkPolicy.ingressNamespaceSelector.matchLabels, ha.networking.directIngressNamespaceLabels);
   assert.deepEqual(haValues.networkPolicy.ingressPodSelector.matchLabels, ha.networking.directIngressPodLabels);
+  assert.equal(haValues.ingressRoute.path, ha.ingress.webSocketPath);
+  assert.equal(haValues.ingressRoute.fallbackPath, ha.ingress.httpFallbackPath);
 });
 
 test("digest, Redis TLS, ingress origins, and OTLP egress are rendered from configuration", () => {
@@ -124,12 +131,65 @@ test("normalized plan and rendered values are deterministic and secret-reference
   assert.equal(first.managedRedis.values.global.storageClass, config.kubernetes.storageClass);
   assert.equal(first.managedRedis.values.master.persistence.size, config.resources.redisStorage);
   assert.equal(first.managedRedis.values.replica.topologySpreadConstraints[0].topologyKey, "topology.kubernetes.io/zone");
+  assert.equal(first.managedRedis.values.replica.podManagementPolicy, "OrderedReady");
+  assert.equal(first.managedRedis.values.replica.startupProbe.failureThreshold, 60);
+  assert.equal(first.managedRedis.values.sentinel.startupProbe.failureThreshold, 60);
+  assert.equal(first.managedRedis.values.image.digest, config.redis.managedImages.redis.digest);
+  assert.equal(first.managedRedis.values.sentinel.image.digest, config.redis.managedImages.sentinel.digest);
+  assert.equal(first.managedRedis.values.metrics.image.digest, config.redis.managedImages.exporter.digest);
+  assert.deepEqual(first.managedRedis.values.global.imagePullSecrets, []);
+  assert.equal(first.managedRedis.chartArchiveSha256, config.redis.managedChartArchiveSha256);
   const resized = structuredClone(config);
   resized.resources.redisStorage = "16Gi";
   assert.notEqual(buildPlan("update", resized, profiles.ha).valuesSha256, first.valuesSha256);
   assert.equal(first.safety.secretValuesAccepted, false);
   assert.equal(first.values.redis.credentialsSecret.name, config.redis.credentialsSecret);
   assert(!stableJson(first).includes("must-not-be-accepted"));
+});
+
+test("managed Redis chart patch publishes not-ready Sentinel service endpoints idempotently", () => {
+  const source = "apiVersion: v1\nkind: Service\nspec:\n  type: {{ .Values.sentinel.service.type }}\n";
+  const patched = patchSentinelService(source);
+  assert.match(patched, /spec:\n  publishNotReadyAddresses: true\n  type:/);
+  assert.equal(patchSentinelService(patched), patched);
+  assert.throws(() => patchSentinelService("kind: Service\n"), /does not match the reviewed patch contract/);
+});
+
+test("managed Redis accepts top-level repositories and renders existing pull Secrets", () => {
+  const config = configuration();
+  config.redis.managedImages.redis.repository = "redis";
+  config.redis.managedImages.sentinel.repository = "redis-sentinel";
+  config.redis.managedImages.exporter.repository = "redis-exporter";
+  config.redis.managedImagePullSecrets = ["private-registry.example"];
+  assert.deepEqual(validateConfiguration(config), []);
+  assert.deepEqual(buildPlan("install", config, profiles["non-ha"]).managedRedis.values.global.imagePullSecrets, ["private-registry.example"]);
+  config.redis.managedImagePullSecrets.push("private-registry.example");
+  assert(validateConfiguration(config).some(item => item.path === "$.redis.managedImagePullSecrets"));
+});
+
+test("managed Redis chart preparation terminates a command that exceeds its lifecycle deadline", { timeout: 10_000 }, async t => {
+  if (process.platform === "win32") return t.skip("POSIX process termination is exercised on the Ubuntu CI image");
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-chart-timeout-"));
+  const helm = resolve(directory, "helm");
+  await writeFile(helm, "#!/usr/bin/env bash\ntrap 'exit 143' TERM\nsleep 30\n", { mode: 0o755 });
+  const started = Date.now();
+  await assert.rejects(prepareManagedRedisChart({
+    chart: "oci://registry.example.test/charts/redis",
+    version: "23.1.1",
+    archiveSha256: `sha256:${"a".repeat(64)}`,
+    outputDirectory: resolve(directory, "output"),
+    helm,
+    timeoutSeconds: 0.1,
+  }), /exceeded the lifecycle deadline and was terminated/);
+  assert(Date.now() - started < 6000);
+});
+
+test("Redis password normalization removes only trailing line endings", () => {
+  assert.equal(normalizePasswordBytes(Buffer.from("0123456789abcdef\n")).toString(), "0123456789abcdef");
+  assert.equal(normalizePasswordBytes(Buffer.from("0123456789abcdef\r\n")).toString(), "0123456789abcdef");
+  assert.throws(() => normalizePasswordBytes(Buffer.from("short\n")), /at least 16 bytes/);
+  assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\n89abcdef")), /embedded CR or LF/);
+  assert.throws(() => normalizePasswordBytes(Buffer.from("01234567\0abcdefghi")), /must not contain NUL bytes/);
 });
 
 test("topology changes are classified and require backup and confirmation", () => {
@@ -375,6 +435,14 @@ function normalizedPlan(stdout) {
 }
 
 async function fakeClusterTools(directory) {
+  const chartFixtureRoot = resolve(directory, "chart-fixture");
+  const chartFixture = resolve(directory, "redis-fixture.tgz");
+  await mkdir(resolve(chartFixtureRoot, "redis/templates/sentinel"), { recursive: true });
+  await writeFile(resolve(chartFixtureRoot, "redis/Chart.yaml"), "apiVersion: v2\nname: redis\nversion: 23.1.1\n");
+  await writeFile(resolve(chartFixtureRoot, "redis/templates/sentinel/service.yaml"), "apiVersion: v1\nkind: Service\nspec:\n  type: {{ .Values.sentinel.service.type }}\n");
+  await execute("tar", ["--sort=name", "--mtime=UTC 1970-01-01", "--owner=0", "--group=0", "--numeric-owner", "-czf", chartFixture, "redis"], { cwd: chartFixtureRoot });
+  managedChartFixtureSha256 = `sha256:${createHash("sha256").update(await readFile(chartFixture)).digest("hex")}`;
+  const shellChartFixture = chartFixture.replaceAll("'", "'\\''");
   const helm = `#!/usr/bin/env bash
 set -euo pipefail
 if [[ -n "\${BOOTSTRAP_FAKE_LOG:-}" ]]; then printf '%s\\n' "$*" >> "$BOOTSTRAP_FAKE_LOG"; fi
@@ -384,6 +452,7 @@ case "\${1:-}" in
   version) printf '%s\\n' 'v4.2.0+fake' ;;
   list) if [[ "\${BOOTSTRAP_FAKE_EMPTY_RELEASES:-}" == '1' ]]; then printf '[]\\n'; elif [[ "\${BOOTSTRAP_FAKE_ORPHAN_REDIS:-}" == '1' ]]; then printf '[{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; else printf '[{"name":"%s","chart":"realtime-gateway-0.1.0","revision":"3"},{"name":"%s","chart":"redis-%s","revision":"4"}]\\n' "$BOOTSTRAP_FAKE_RELEASE" "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_CHART_VERSION:-23.1.1}"; fi ;;
   get) if [[ "\${BOOTSTRAP_FAKE_INLINE_SECRET:-}" == '1' ]]; then printf '{"auth":{"password":"exposed"}}\\n'; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" && "\${BOOTSTRAP_FAKE_LEGACY_REDIS:-}" == '1' ]]; then printf '{"fullnameOverride":"%s","architecture":"%s","auth":{"existingSecret":"%s","existingSecretPasswordKey":"redis-password","acl":{"userSecret":"%s","users":[{"username":"realtime","keys":"~%s:*","channels":"&%s:*"}]}}}\\n' "$BOOTSTRAP_FAKE_REDIS_RELEASE" "\${BOOTSTRAP_FAKE_REDIS_ARCHITECTURE:-standalone}" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_SECRET:-dev-realtime-redis}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}" "\${BOOTSTRAP_FAKE_REDIS_PREFIX:-cormier:realtime:dev}"; elif [[ "\${3:-}" == "$BOOTSTRAP_FAKE_REDIS_RELEASE" ]]; then printf '{"architecture":"%s","commonAnnotations":{"cormier.solutions/managed-chart":"%s"}}\\n' "\${BOOTSTRAP_FAKE_REDIS_ARCHITECTURE:-standalone}" "\${BOOTSTRAP_FAKE_INSTALLED_REDIS_CHART:-oci://registry-1.docker.io/bitnamicharts/redis}"; else printf '{"topology":"%s","redis":{"mode":"%s"}}\\n' "\${BOOTSTRAP_FAKE_TOPOLOGY:-non-ha}" "\${BOOTSTRAP_FAKE_REDIS_MODE:-managed}"; fi ;;
+  pull) version=''; destination=''; shift; while (( $# )); do case "$1" in --version) version="$2"; shift 2;; --destination) destination="$2"; shift 2;; *) shift;; esac; done; cp '${shellChartFixture}' "$destination/redis-$version.tgz" ;;
   lint|template|upgrade|uninstall|rollback) printf '%s\\n' 'ok' ;;
   *) printf 'unsupported fake helm command: %s\\n' "\${1:-}" >&2; exit 64 ;;
 esac
@@ -464,6 +533,7 @@ test("both shells execute the complete lifecycle for both profiles with identica
       config.naming.suffix = suffix;
       const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-lifecycle-"));
       const configPath = resolve(directory, "config.json");
+      const operationLog = resolve(directory, "operations.log");
       await writeFile(configPath, stableJson(config));
       const release = `dev-realtime-${suffix}`;
       const environment = {
@@ -472,6 +542,7 @@ test("both shells execute the complete lifecycle for both profiles with identica
         BOOTSTRAP_FAKE_RELEASE: release,
         BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`,
         BOOTSTRAP_FAKE_TOPOLOGY: topology,
+        BOOTSTRAP_FAKE_LOG: operationLog,
       };
       const invoke = async (action, extra = [], additionalEnvironment = {}) => {
         const [file, args] = shellInvocation(shell, action, configPath, extra);
@@ -484,7 +555,13 @@ test("both shells execute the complete lifecycle for both profiles with identica
         await invoke("install");
         await invoke("update");
         await invoke("validate");
+        await writeFile(operationLog, "");
         await invoke("recover");
+        const recoverLog = await readFile(operationLog, "utf8");
+        const redisStatefulSet = topology === "ha" ? `${release}-redis-node` : `${release}-redis-master`;
+        assert.match(recoverLog, new RegExp(`kubectl rollout restart statefulset/${redisStatefulSet}`));
+        assert.match(recoverLog, new RegExp(`kubectl rollout status statefulset/${redisStatefulSet}`));
+        assert.doesNotMatch(recoverLog, /^pull /m);
         const captured = await invoke("backup");
         const backupEvent = captured.stdout.trim().split(/\r?\n/).map(line => {
           try { return JSON.parse(line); } catch { return undefined; }
@@ -533,11 +610,18 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
     const updateBackup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
     const capturedPlan = JSON.parse(await readFile(resolve(updateBackup, "plan.json"), "utf8"));
     assert.equal(capturedPlan.managedRedis.chart, "oci://mirror.example.test/charts/redis");
+    assert.match(capturedPlan.managedRedis.chartArchiveSha256, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(await fileExists(resolve(updateBackup, capturedPlan.managedRedis.chartArchiveFile)), true);
+    await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "recover", "--config", configPath], { cwd: repositoryRoot, env: environment });
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     const log = await readFile(operationLog, "utf8");
     assert.match(log, /--values cluster\/redis\/managed-values.yaml/);
     assert.match(log, new RegExp(`--values .*${release}[/\\\\]redis-values\\.json`));
     assert.match(log, new RegExp(`kubectl rollout restart deployment/${release}`));
+    const redisRestart = log.indexOf(`kubectl rollout restart statefulset/${release}-redis-master`);
+    const redisReady = log.indexOf(`kubectl rollout status statefulset/${release}-redis-master`);
+    const gatewayRestart = log.lastIndexOf(`kubectl rollout restart deployment/${release}`);
+    assert(redisRestart >= 0 && redisReady > redisRestart && gatewayRestart > redisReady);
     assert.match(log, new RegExp(`uninstall ${release}-redis .*--ignore-not-found`));
     assert.match(log, new RegExp(`uninstall ${release} .*--ignore-not-found`));
     assert.doesNotMatch(log, /get namespace metallb-system/);
@@ -598,6 +682,8 @@ test("standalone backup captures installed managed Redis while desired configura
     const captured = JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8"));
     assert.equal(captured.managedRedis.chart, "oci://registry-1.docker.io/bitnamicharts/redis");
     assert.equal(captured.managedRedis.chartVersion, "23.1.1");
+    assert.match(captured.managedRedis.chartArchiveSha256, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(await fileExists(resolve(backup, captured.managedRedis.chartArchiveFile)), true);
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
@@ -706,7 +792,9 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   const operationLog = resolve(directory, "operations.log");
   await writeFile(configPath, stableJson(config));
   await mkdir(backup, { recursive: true });
-  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis" } }));
+  const chartArchiveFile = "redis-22.3.4.tgz";
+  await writeFile(resolve(backup, chartArchiveFile), await readFile(resolve(fakeBin, "redis-fixture.tgz")));
+  await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: "oci://mirror.example.test/charts/redis", chartArchiveFile, chartArchiveSha256: managedChartFixtureSha256 } }));
   await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-22.3.4", revision: "4" }]));
   const capturedGatewayValues = { replicaCount: 1, redis: { mode: "managed", credentialsSecret: { name: "captured.redis-auth", passwordKey: "realtime" }, managedAdminPasswordKey: "redis-password" } };
   await writeFile(resolve(backup, `${release}.values.json`), stableJson(capturedGatewayValues));
@@ -715,7 +803,9 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   try {
     await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment });
     const operations = await readFile(operationLog, "utf8");
-    assert.match(operations, new RegExp(`upgrade --install ${release}-redis oci://mirror\\.example\\.test/charts/redis --version 22\\.3\\.4`));
+    assert.match(operations, new RegExp(`upgrade --install ${release}-redis .*redis-22\\.3\\.4[/\\\\]redis`));
+    assert.doesNotMatch(operations, new RegExp(`upgrade --install ${release}-redis .*--version`));
+    assert.doesNotMatch(operations, /^pull /m);
     assert.match(operations, new RegExp(`rollback ${release} 3 .*--kube-context kind-example`));
     assert.match(operations, /kubectl .*--context kind-example/);
     assert.match(operations, /get secret captured\.redis-auth/);

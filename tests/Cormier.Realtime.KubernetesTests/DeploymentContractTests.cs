@@ -104,6 +104,10 @@ public sealed class DeploymentContractTests
         Assert.Contains("appendonly yes", values, StringComparison.Ordinal);
         Assert.Contains("metrics:", values, StringComparison.Ordinal);
         Assert.Contains("networkPolicy:", values, StringComparison.Ordinal);
+        Assert.Contains("podManagementPolicy: OrderedReady", values, StringComparison.Ordinal);
+        Assert.Contains("failureThreshold: 60", values, StringComparison.Ordinal);
+        Assert.Contains("bitnamilegacy/redis", values, StringComparison.Ordinal);
+        Assert.Contains("digest: sha256:", values, StringComparison.Ordinal);
         Assert.DoesNotContain("password:", values, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -146,6 +150,7 @@ public sealed class DeploymentContractTests
         Assert.Contains("sameSite: {{ .Values.ingressRoute.affinityCookieSameSite | quote }}", route, StringComparison.Ordinal);
         Assert.Contains("secure: true", route, StringComparison.Ordinal);
         Assert.Contains("HttpFallback__BasePath: {{ .Values.ingressRoute.fallbackPath | quote }}", configMap, StringComparison.Ordinal);
+        Assert.Contains("Realtime__EndpointPath: {{ .Values.ingressRoute.path | quote }}", configMap, StringComparison.Ordinal);
         Assert.Contains(".Values.ingressRoute.entryPoint", route, StringComparison.Ordinal);
         Assert.Contains("flushInterval: \"-1ms\"", route, StringComparison.Ordinal);
         Assert.Contains("realtime.cormier.local", gatewayValues, StringComparison.Ordinal);

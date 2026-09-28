@@ -3,11 +3,12 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
+import { captureManagedRedisChart, copyCachedManagedRedisChart, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -15,6 +16,7 @@ const events = [];
 let activeLogPath = resolve(repositoryRoot, ".logs", `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
 
 function parse(arguments_) {
+  if (["help", "--help", "-h"].includes(arguments_[0])) return { action: "help" };
   const result = { action: arguments_[0], config: process.env.CORMIER_BOOTSTRAP_CONFIG ?? "bootstrap/config.example.json", timeoutSeconds: 300 };
   for (let index = 1; index < arguments_.length; index++) {
     const argument = arguments_[index];
@@ -33,6 +35,31 @@ function parse(arguments_) {
   if (result.nameSuffix !== undefined && !/^(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*$/.test(result.nameSuffix)) throw new Error("--name-suffix must be a DNS-label suffix from 1 through 27 characters.");
   return result;
 }
+
+const usage = `Cormier.Realtime bootstrap
+
+Usage:
+  realtime-bootstrap.sh ACTION --config FILE [options]
+  Realtime-Bootstrap.ps1 -Action ACTION -Config FILE [options]
+
+Actions:
+  prerequisites, plan, bootstrap, backup, install, update, validate,
+  rollback, recover, teardown, help
+
+Common options:
+  --profile ha|non-ha       Assert the topology selected by the config
+  --name-suffix VALUE       Override the deployable instance suffix
+  --timeout-seconds VALUE   Bound cluster commands from 60 through 1800
+  --dry-run                 Render and classify without external operations
+  --confirm-topology-change Confirm a reviewed HA/non-HA conversion
+  --backup DIRECTORY        Select a captured rollback snapshot
+  --force                   Confirm a guarded non-production teardown
+
+All domains, origins, image/chart versions and digests, Kubernetes identities,
+storage, resource bounds, Redis identities, and observability targets live in
+the versioned JSON configuration. Passwords are supplied separately through
+realtime-redis-secret.sh or Set-RealtimeRedisSecret.ps1.
+`;
 
 function emit(level, phase, message, fields = {}) {
   const event = { timestamp: new Date().toISOString(), level, phase, message, ...fields };
@@ -130,6 +157,12 @@ async function assertTarget(plan, config, options, mutation) {
     const pullSecret = await command("kubectl", ["get", "secret", config.image.pullSecretName, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate image pull Secret reference", { ...options, capture: true });
     if (!pullSecret) throw new Error(`Image pull Secret '${config.image.pullSecretName}' does not exist in '${plan.target.namespace}'.`);
   }
+  if (config.redis.mode === "managed") {
+    for (const secretName of config.redis.managedImagePullSecrets ?? []) {
+      const pullSecret = await command("kubectl", ["get", "secret", secretName, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate managed Redis image pull Secret reference", { ...options, capture: true });
+      if (!pullSecret) throw new Error(`Managed Redis image pull Secret '${secretName}' does not exist in '${plan.target.namespace}'.`);
+    }
+  }
   const secret = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--ignore-not-found", "-o", "name"], "Validate credential Secret reference", { ...options, capture: true });
   if (!secret) throw new Error(`Credential Secret '${config.redis.credentialsSecret}' does not exist in '${plan.target.namespace}'.`);
   const keyListing = await command("kubectl", ["get", "secret", config.redis.credentialsSecret, "--namespace", plan.target.namespace, "--output", "go-template={{range $key, $_ := .data}}{{$key}}{{\"\\n\"}}{{end}}"], "Validate credential Secret keys", { ...options, capture: true });
@@ -181,6 +214,33 @@ async function saveState(plan, config, options) {
           capturedPlan.managedRedis ??= {};
           capturedPlan.managedRedis.chart = chart;
           capturedPlan.managedRedis.chartVersion = chartVersion;
+          let capturedChart;
+          try {
+            capturedChart = await copyCachedManagedRedisChart({
+              chart,
+              version: chartVersion,
+              cacheDirectory: managedRedisChartOutput(options.generatedRoot, options.targetName, chartVersion),
+              outputDirectory: directory,
+            });
+          } catch (cacheError) {
+            if (options.action === "rollback") {
+              emit("warn", options.action, "Current managed Redis chart is not cached; continuing the explicitly selected self-contained rollback without a restorable pre-change chart archive.", { reason: cacheError.message });
+            } else {
+              capturedChart = await captureManagedRedisChart({
+                chart,
+                version: chartVersion,
+                outputDirectory: directory,
+                timeoutSeconds: options.timeoutSeconds,
+              });
+            }
+          }
+          if (capturedChart) {
+            capturedPlan.managedRedis.chartArchiveSha256 = capturedChart.archiveSha256;
+            capturedPlan.managedRedis.chartArchiveFile = basename(capturedChart.archivePath);
+          } else {
+            delete capturedPlan.managedRedis.chartArchiveSha256;
+            delete capturedPlan.managedRedis.chartArchiveFile;
+          }
         }
         await atomicWrite(resolve(directory, `${release}.values.json`), stableJson(values));
       }
@@ -244,6 +304,7 @@ async function readRollbackSnapshot(planTarget, options) {
     managedRedisValues: redisPresent ? await readJson(redisValuesPath) : undefined,
     managedRedisChart: redisPresent ? savedPlan.managedRedis?.chart : undefined,
     managedRedisChartVersion: redisPresent ? capturedRedisChartVersion(releases, planTarget.redisRelease) : undefined,
+    managedRedisChartArchiveSha256: redisPresent ? savedPlan.managedRedis?.chartArchiveSha256 : undefined,
   };
 }
 
@@ -268,12 +329,38 @@ function gatewayUpgradeArguments(plan, options, action = "upgrade") {
 
 async function apply(plan, config, options) {
   if (config.redis.mode === "managed") {
-    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, plan.managedRedis.chart, "--version", plan.managedRedis.chartVersion, "--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--history-max", "0", "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`];
+    const redisArgs = ["upgrade", "--install", plan.target.redisRelease, options.redisChartPath ?? plan.managedRedis.chart];
+    if (!options.redisChartPath) redisArgs.push("--version", plan.managedRedis.chartVersion);
+    redisArgs.push("--namespace", plan.target.namespace, "--create-namespace", "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath, "--history-max", "0", "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
     await command("helm", redisArgs, "Install or update managed Redis", options);
+    if (options.action === "recover") {
+      const statefulSetName = plan.managedRedis.values.architecture === "replication" ? `${plan.target.redisRelease}-node` : `${plan.target.redisRelease}-master`;
+      const statefulSet = `statefulset/${statefulSetName}`;
+      await command("kubectl", ["rollout", "restart", statefulSet, "--namespace", plan.target.namespace], "Restart managed Redis after referenced Secret rotation", options);
+      await command("kubectl", ["rollout", "status", statefulSet, "--namespace", plan.target.namespace, `--timeout=${options.timeoutSeconds}s`], "Verify managed Redis recovery rollout", options);
+    }
   }
   await command("helm", gatewayUpgradeArguments(plan, options), "Install or update realtime gateway", options);
   if (["update", "recover"].includes(options.action)) await command("kubectl", ["rollout", "restart", `deployment/${plan.target.release}`, "--namespace", plan.target.namespace], "Restart gateway after referenced Secret rotation", options);
   await command("kubectl", ["rollout", "status", `deployment/${plan.target.release}`, "--namespace", plan.target.namespace, `--timeout=${options.timeoutSeconds}s`], "Verify gateway rollout", options);
+}
+
+async function prepareRedisChart(managedRedis, options) {
+  const outputDirectory = managedRedisChartOutput(options.generatedRoot, options.targetName, managedRedis.chartVersion);
+  const prepared = await prepareManagedRedisChart({
+    chart: managedRedis.chart,
+    version: managedRedis.chartVersion,
+    archiveSha256: managedRedis.chartArchiveSha256,
+    archivePath: managedRedis.chartArchivePath,
+    outputDirectory,
+    timeoutSeconds: options.timeoutSeconds,
+  });
+  emit("pass", options.action, "Verified and patched managed Redis chart.", {
+    chart: managedRedis.chart,
+    chartVersion: managedRedis.chartVersion,
+    chartArchiveSha256: managedRedis.chartArchiveSha256,
+  });
+  return prepared.chartDirectory;
 }
 
 function processExists(pid) {
@@ -385,8 +472,19 @@ async function rollback(plan, options) {
       }
       const chart = savedPlan.managedRedis?.chart;
       if (typeof chart !== "string" || !chart) throw new Error("Backup plan does not contain the managed Redis chart repository.");
-      const arguments_ = ["upgrade", "--install", release, chart];
-      if (release !== plan.target.release) arguments_.push("--version", capturedRedisChartVersion(releaseInventory, release));
+      const chartVersion = capturedRedisChartVersion(releaseInventory, release);
+      const chartArchiveSha256 = savedPlan.managedRedis?.chartArchiveSha256 ?? plan.managedRedis?.chartArchiveSha256;
+      if (typeof chartArchiveSha256 !== "string" || !chartArchiveSha256) throw new Error("Backup plan does not contain the managed Redis chart archive checksum. A legacy backup can only be restored when its exact chart pin matches the current trusted configuration.");
+      const chartArchiveFile = savedPlan.managedRedis?.chartArchiveFile;
+      let chartArchivePath;
+      if (chartArchiveFile !== undefined) {
+        if (typeof chartArchiveFile !== "string" || basename(chartArchiveFile) !== chartArchiveFile) throw new Error("Backup plan contains an invalid managed Redis chart archive path.");
+        chartArchivePath = resolve(backup, chartArchiveFile);
+        assertPathInside(backup, chartArchivePath, "rollback chart archive");
+        if (!await fileExists(chartArchivePath)) throw new Error("Backup managed Redis chart archive is missing.");
+      }
+      const restoredChart = await prepareRedisChart({ chart, chartVersion, chartArchiveSha256, chartArchivePath }, options);
+      const arguments_ = ["upgrade", "--install", release, restoredChart];
       arguments_.push("--namespace", plan.target.namespace, "--values", valuesPath, "--atomic", "--wait", `--timeout=${options.timeoutSeconds}s`);
       await command("helm", arguments_, `Restore ${release}`, options);
     } else throw new Error(`Backup inventory includes '${release}' but its values snapshot is missing.`);
@@ -402,6 +500,7 @@ function configurationForPlan(config, plan) {
   captured.redis.credentialsSecret = values.redis?.credentialsSecret?.name ?? captured.redis.credentialsSecret;
   captured.redis.credentialKey = values.redis?.credentialsSecret?.passwordKey ?? captured.redis.credentialKey;
   captured.redis.adminCredentialKey = values.redis?.managedAdminPasswordKey ?? captured.redis.adminCredentialKey;
+  captured.redis.managedImagePullSecrets = plan.managedRedis?.values?.global?.imagePullSecrets ?? captured.redis.managedImagePullSecrets ?? [];
   captured.ingress.enabled = values.ingressRoute?.enabled ?? captured.ingress.enabled;
   captured.ingress.tlsSecretName = values.ingressRoute?.tlsSecretName ?? captured.ingress.tlsSecretName;
   captured.observability.serviceMonitor = values.observability?.serviceMonitor?.enabled ?? captured.observability.serviceMonitor;
@@ -417,6 +516,10 @@ function configurationForPlan(config, plan) {
 async function main() {
   const options = parse(process.argv.slice(2));
   options.action = options.action;
+  if (options.action === "help") {
+    process.stdout.write(usage);
+    return;
+  }
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error(`Configuration is invalid: Node.js 22 or later is required; detected ${process.version}.`);
   let { config, profile } = await loadContract(repositoryRoot, options.config, options.profile);
   options.kubeContext = config.kubernetes.context;
@@ -437,6 +540,7 @@ async function main() {
   activeLogPath = resolve(logRoot, `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
   const names = config.naming.suffix ? `realtime-${config.naming.suffix}` : "realtime";
   const targetRoot = resolve(options.generatedRoot, `${config.environment.name}-${names}`);
+  options.targetName = `${config.environment.name}-${names}`;
   assertPathInside(options.generatedRoot, targetRoot, "generated output");
   await mkdir(targetRoot, { recursive: true });
   const mutation = ["install", "update", "rollback", "recover", "teardown"].includes(options.action);
@@ -473,7 +577,13 @@ async function main() {
     if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent && installedState?.redisMode && installedState.redisMode !== rollbackSnapshot.redisMode) throw new Error(`Redis mode rollback conversion from '${installedState.redisMode}' to '${rollbackSnapshot.redisMode}' requires an explicit migration outside this bootstrap action.`);
     const previousTopology = installedState?.topology ?? (clusterAware ? undefined : priorState?.topology);
     let plan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology });
-    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChart, rollbackSnapshot.managedRedisChartVersion);
+    if (options.action === "rollback" && rollbackSnapshot?.gatewayPresent) {
+      const legacyTrustedChecksum = rollbackSnapshot.managedRedisChart === plan.managedRedis?.chart
+        && rollbackSnapshot.managedRedisChartVersion === plan.managedRedis?.chartVersion
+        ? plan.managedRedis.chartArchiveSha256
+        : undefined;
+      plan = useCapturedDeploymentValues(plan, rollbackSnapshot.gatewayValues, rollbackSnapshot.managedRedisValues, rollbackSnapshot.managedRedisChart, rollbackSnapshot.managedRedisChartVersion, rollbackSnapshot.managedRedisChartArchiveSha256 ?? legacyTrustedChecksum);
+    }
     options.valuesPath = resolve(targetRoot, "values.json");
     await atomicWrite(resolve(targetRoot, "plan.json"), stableJson(plan));
     await atomicWrite(options.valuesPath, stableJson(plan.values));
@@ -491,15 +601,22 @@ async function main() {
       return;
     }
 
+    if (plan.managedRedis && ["install", "update", "recover", "validate"].includes(options.action)) {
+      options.redisChartPath = await prepareRedisChart(plan.managedRedis, options);
+    }
+
     if (options.action === "prerequisites") {
       await command("node", ["--version"], "Validate Node.js", options);
       await command("git", ["--version"], "Validate Git", options);
       const dotnetVersion = await command(process.platform === "win32" ? "dotnet.exe" : "dotnet", ["--version"], "Validate .NET SDK", { ...options, capture: true });
       if (!/^10\./.test(dotnetVersion)) throw new Error(`.NET SDK 10.x is required; detected '${dotnetVersion}'.`);
       const helmVersion = await command("helm", ["version", "--short"], "Validate Helm", { ...options, capture: true });
-      if (!/^v4\.2\./.test(helmVersion)) throw new Error(`Helm 4.2.x is required; detected '${helmVersion}'.`);
+      const helmMatch = /^v(\d+)\.(\d+)\./.exec(helmVersion);
+      const helmSupported = helmMatch && (Number(helmMatch[1]) >= 4 || (Number(helmMatch[1]) === 3 && Number(helmMatch[2]) >= 21));
+      if (!helmSupported) throw new Error(`Helm 3.21 or later is required; detected '${helmVersion}'.`);
       await command("kubectl", ["version", "--client"], "Validate kubectl", options);
-      emit("pass", options.action, "Prerequisite validation completed.", { summary: { executed: 5, skipped: 0 } });
+      await command("tar", ["--version"], "Validate chart extraction tool", options);
+      emit("pass", options.action, "Prerequisite validation completed.", { summary: { executed: 6, skipped: 0 } });
       await flushLog();
       return;
     }
@@ -517,14 +634,22 @@ async function main() {
     else await assertTarget(plan, options.action === "rollback" ? configurationForPlan(config, plan) : config, options, mutation);
     if (plan.safety.requiresBackup || options.action === "backup") backup = await saveState(plan, config, options);
     if (["install", "update", "recover"].includes(options.action)) await apply(plan, config, options);
-    else if (options.action === "validate") await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath, "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor", "--api-versions", "monitoring.coreos.com/v1/PrometheusRule", "--api-versions", "monitoring.coreos.com/v1alpha1/AlertmanagerConfig"], "Render gateway manifests", options);
+    else if (options.action === "validate") {
+      await command("helm", ["template", plan.target.release, "helm/realtime-gateway", "--namespace", plan.target.namespace, "--values", options.valuesPath, "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor", "--api-versions", "monitoring.coreos.com/v1/PrometheusRule", "--api-versions", "monitoring.coreos.com/v1alpha1/AlertmanagerConfig"], "Render gateway manifests", options);
+      if (plan.managedRedis) {
+        const redisTemplateArgs = ["template", plan.target.redisRelease, options.redisChartPath ?? plan.managedRedis.chart];
+        if (!options.redisChartPath) redisTemplateArgs.push("--version", plan.managedRedis.chartVersion);
+        redisTemplateArgs.push("--namespace", plan.target.namespace, "--values", plan.managedRedis.baseValuesPath, "--values", options.redisValuesPath);
+        await command("helm", redisTemplateArgs, "Render verified managed Redis manifests", options);
+      }
+    }
     else if (options.action === "rollback") await rollback(plan, options);
     else if (options.action === "teardown") {
       await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
       if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
     if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) await rm(statePath, { force: true });
-    else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 1, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
+    else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 2, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
     emit("pass", options.action, "Lifecycle action completed.", {
       backup: backup ?? null,
       profile: config.topology,

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "environment": { "name": "dev", "class": "development" },
   "naming": { "suffix": "" },
   "paths": {
@@ -43,6 +43,29 @@
     "instancePrefix": "cormier:realtime:dev",
     "managedChart": "oci://registry-1.docker.io/bitnamicharts/redis",
     "managedChartVersion": "23.1.1",
+    "managedChartArchiveSha256": "sha256:05665707e771f9ed843842d3ebacb992ef1c4089f138b9711446b37db76ad60a",
+    "managedImagePullSecrets": [],
+    "managedImages": {
+      "allowInsecureRepositories": true,
+      "redis": {
+        "registry": "docker.io",
+        "repository": "bitnamilegacy/redis",
+        "tag": "8.2.1-debian-12-r0",
+        "digest": "sha256:25bf63f3caf75af4628c0dfcf39859ad1ac8abe135be85e99699f9637b16dc28"
+      },
+      "sentinel": {
+        "registry": "docker.io",
+        "repository": "bitnamilegacy/redis-sentinel",
+        "tag": "8.2.1-debian-12-r0",
+        "digest": "sha256:0ca3ea1d2f823c2d9265e0d9e682dc435f219f8d3385aed75b5bb0f365f516a9"
+      },
+      "exporter": {
+        "registry": "docker.io",
+        "repository": "bitnamilegacy/redis-exporter",
+        "tag": "1.76.0-debian-12-r0",
+        "digest": "sha256:d111b8a14d96f7edd67324776d6801b76023035d9390d03fbb13d1c21bda8b88"
+      }
+    },
     "legacyManagedChart": "oci://registry-1.docker.io/bitnamicharts/redis"
   },
   "ingress": {
@@ -50,6 +73,8 @@
     "host": "realtime.example.test",
     "allowedOrigins": ["https://realtime.example.test"],
     "entryPoint": "websecure",
+    "webSocketPath": "/realtime/ws",
+    "httpFallbackPath": "/realtime/http",
     "tlsSecretName": "dev-realtime-tls",
     "certificateName": ""
   },

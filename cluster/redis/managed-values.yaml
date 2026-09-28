@@ -1,5 +1,15 @@
-# Values for bitnamicharts/redis 23.1.1 (Redis 8.2.1).
+# Base values for the verified and locally patched bitnamicharts/redis 23.1.1.
+# Environment-specific image coordinates and digests are rendered by the bootstrap.
+global:
+  security:
+    # Required only when a reviewed mirror such as bitnamilegacy is configured.
+    allowInsecureImages: true
 architecture: replication
+image:
+  registry: docker.io
+  repository: bitnamilegacy/redis
+  tag: 8.2.1-debian-12-r0
+  digest: sha256:25bf63f3caf75af4628c0dfcf39859ad1ac8abe135be85e99699f9637b16dc28
 auth:
   enabled: true
   sentinel: true
@@ -26,6 +36,10 @@ master:
     - { maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway }
 replica:
   replicaCount: 3
+  # Start one member at a time. The patched Service publishes its endpoint before
+  # readiness so Redis and Sentinel can discover the first member during bootstrap.
+  podManagementPolicy: OrderedReady
+  startupProbe: { enabled: true, failureThreshold: 60 }
   persistence: { enabled: true, size: 8Gi }
   resources:
     requests: { cpu: 100m, memory: 256Mi }
@@ -35,11 +49,22 @@ replica:
 sentinel:
   enabled: true
   quorum: 2
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis-sentinel
+    tag: 8.2.1-debian-12-r0
+    digest: sha256:0ca3ea1d2f823c2d9265e0d9e682dc435f219f8d3385aed75b5bb0f365f516a9
+  startupProbe: { enabled: true, failureThreshold: 60 }
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 250m, memory: 256Mi }
 metrics:
   enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis-exporter
+    tag: 1.76.0-debian-12-r0
+    digest: sha256:d111b8a14d96f7edd67324776d6801b76023035d9390d03fbb13d1c21bda8b88
   resources:
     requests: { cpu: 25m, memory: 32Mi }
     limits: { cpu: 200m, memory: 128Mi }

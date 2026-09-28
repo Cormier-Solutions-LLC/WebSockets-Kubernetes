@@ -32,6 +32,17 @@ Describe 'Realtime-Bootstrap PowerShell entry point' {
         $content | Should -Match "'--name-suffix'"
     }
 
+    It 'parses the managed Redis helper entry points' {
+        foreach ($path in @(
+            (Join-Path $script:RepositoryRoot 'scripts/Prepare-ManagedRedisChart.ps1'),
+            (Join-Path $script:RepositoryRoot 'scripts/Set-RealtimeRedisSecret.ps1')
+        )) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors) | Out-Null
+            $errors | Should -BeNullOrEmpty
+        }
+    }
+
     It 'returns failure deterministically when Node is unavailable' {
         $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
         $priorPath = $env:PATH

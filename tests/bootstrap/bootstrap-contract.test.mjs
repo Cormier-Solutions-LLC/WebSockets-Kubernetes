@@ -55,6 +55,36 @@ test("environment path templates expand only the validated environment token", (
   assert.deepEqual(validateConfiguration(config), []);
   config.paths.generatedDirectory = ".bootstrap/env/{tenant}/lifecycle";
   assert(validateConfiguration(config).some(item => item.path === "$.paths.generatedDirectory"));
+
+  const outsideEnvironment = configuration();
+  outsideEnvironment.paths.generatedDirectory = ".bootstrap/lifecycle";
+  outsideEnvironment.paths.logDirectory = ".logs";
+  const outsideErrors = validateConfiguration(outsideEnvironment);
+  assert(outsideErrors.some(item => item.path === "$.paths.generatedDirectory" && /environmentDirectory/.test(item.message)));
+  assert(outsideErrors.some(item => item.path === "$.paths.logDirectory" && /environmentDirectory/.test(item.message)));
+
+  const reservedEnvironment = configuration();
+  reservedEnvironment.environment.name = "con";
+  assert(validateConfiguration(reservedEnvironment).some(item => item.path === "$.environment.name" && /Windows reserved/.test(item.message)));
+  assert.throws(() => expandEnvironmentPath(".bootstrap/env/{environment}", "con"), /not a valid bootstrap environment name/);
+  assert.equal(new RegExp(bootstrapSchema.properties.environment.properties.name.pattern).test("con"), false);
+});
+
+test("environment workspace relationship failures use the invalid-input exit code", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-paths-"));
+  const config = configuration();
+  config.paths.generatedDirectory = ".bootstrap/lifecycle";
+  config.paths.logDirectory = ".logs";
+  const configPath = resolve(directory, "config.json");
+  await writeFile(configPath, stableJson(config));
+  try {
+    await assert.rejects(
+      execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "plan", "--config", configPath], { cwd: repositoryRoot }),
+      error => error.code === 2 && /Configuration is invalid/.test(error.stdout) && /paths\.generatedDirectory/.test(error.stdout),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("legacy bootstrap artifacts are classified by their target slot rather than incidental suffixes", () => {
@@ -65,6 +95,7 @@ test("legacy bootstrap artifacts are classified by their target slot rather than
   assert.equal(classifyLegacyBootstrapArtifact("redis-prod.yaml"), "prod");
   assert.equal(classifyLegacyBootstrapArtifact("config.staging.json"), "staging");
   assert.equal(classifyLegacyBootstrapArtifact("gateway-qa.yaml"), "qa");
+  assert.equal(classifyLegacyBootstrapArtifact("config.con.json"), undefined);
   assert.equal(classifyLegacyBootstrapArtifact("update.test.dev-alias.log"), "test");
   assert.equal(classifyLegacyBootstrapArtifact("validate.test.dev-alias.log"), "test");
   assert.equal(classifyLegacyBootstrapArtifact("naming.json"), undefined);
@@ -132,6 +163,28 @@ test("environment organization previews, applies, remains idempotent, and restor
     assert.equal(restored.restored, files.length - 1);
     assert(await fileExists(resolve(bootstrapRoot, "update.test.dev-alias.log")));
     assert(await fileExists(resolve(bootstrapRoot, "env/test")));
+    await assert.rejects(restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath: applied.manifestPath }), /already been restored/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization fails safely while another organizer holds the workspace lock", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-lock-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const lockPath = resolve(bootstrapRoot, "locks/environment-organization");
+  await mkdir(lockPath, { recursive: true });
+  await writeFile(resolve(lockPath, "owner.json"), stableJson({
+    createdAt: new Date().toISOString(),
+    hostname: hostname(),
+    pid: process.pid,
+    token: "test-owner",
+  }));
+  await writeFile(resolve(bootstrapRoot, "config.test.json"), "test\n");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /organization lock/);
+    assert.equal(await readFile(resolve(bootstrapRoot, "config.test.json"), "utf8"), "test\n");
+    assert.equal(await fileExists(resolve(bootstrapRoot, "env/test/config.test.json")), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

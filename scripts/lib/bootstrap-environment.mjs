@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rename, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 
-import { assertPathInside, atomicWrite, fileExists, stableJson } from "./bootstrap-contract.mjs";
+import { assertPathInside, atomicWrite, fileExists, isValidEnvironmentName, stableJson } from "./bootstrap-contract.mjs";
 
 export const canonicalEnvironments = Object.freeze(["dev", "test", "prod"]);
 
@@ -11,7 +12,7 @@ const hyphenEnvironmentArtifact = /^(?:gateway|redis)-([a-z0-9]{1,10})(?:\.|$)/;
 
 export function expandEnvironmentPath(pathTemplate, environment) {
   if (typeof pathTemplate !== "string") throw new Error("Environment path template must be a string.");
-  if (!/^[a-z0-9]{1,10}$/.test(environment)) throw new Error(`Environment '${environment}' is not a valid bootstrap environment name.`);
+  if (!isValidEnvironmentName(environment)) throw new Error(`Environment '${environment}' is not a valid bootstrap environment name.`);
   const unknownTokens = [...pathTemplate.matchAll(/\{([^}]+)\}/g)].map(match => match[1]).filter(token => token !== "environment");
   if (unknownTokens.length > 0) throw new Error(`Unsupported bootstrap path token(s): ${[...new Set(unknownTokens)].join(", ")}.`);
   return pathTemplate.replaceAll("{environment}", environment);
@@ -19,7 +20,59 @@ export function expandEnvironmentPath(pathTemplate, environment) {
 
 export function classifyLegacyBootstrapArtifact(name) {
   const match = dotEnvironmentArtifact.exec(name) ?? hyphenEnvironmentArtifact.exec(name);
-  return match?.[1];
+  return isValidEnvironmentName(match?.[1]) ? match[1] : undefined;
+}
+
+function processExists(pid) {
+  if (!Number.isInteger(pid) || pid < 1) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return error.code === "EPERM"; }
+}
+
+async function acquireOrganizationLock(bootstrapRoot) {
+  const locksRoot = resolve(bootstrapRoot, "locks");
+  const lockPath = resolve(locksRoot, "environment-organization");
+  const ownerPath = resolve(lockPath, "owner.json");
+  const owner = { createdAt: new Date().toISOString(), hostname: hostname(), pid: process.pid, token: randomUUID() };
+  await mkdir(locksRoot, { recursive: true });
+  try {
+    await mkdir(lockPath);
+    await atomicWrite(ownerPath, stableJson(owner));
+    return { lockPath, token: owner.token };
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  let stale = false;
+  try {
+    const existing = JSON.parse(await readFile(ownerPath, "utf8"));
+    const age = Date.now() - Date.parse(existing.createdAt);
+    stale = existing.hostname === hostname() ? !processExists(existing.pid) : Number.isFinite(age) && age > 2 * 60 * 60 * 1000;
+  } catch {
+    stale = Date.now() - (await stat(lockPath)).mtimeMs > 2 * 60 * 60 * 1000;
+  }
+  if (!stale) throw new Error(`Another bootstrap environment operation holds the organization lock '${lockPath}'.`);
+  const stalePath = `${lockPath}.stale-${owner.token}`;
+  try { await rename(lockPath, stalePath); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  try {
+    await mkdir(lockPath);
+    await atomicWrite(ownerPath, stableJson(owner));
+  } catch (error) {
+    if (error.code === "EEXIST") throw new Error(`Another bootstrap environment operation holds the organization lock '${lockPath}'.`);
+    throw error;
+  } finally {
+    await rm(stalePath, { recursive: true, force: true });
+  }
+  return { lockPath, token: owner.token };
+}
+
+async function releaseOrganizationLock(lockPath, token) {
+  try {
+    const owner = JSON.parse(await readFile(resolve(lockPath, "owner.json"), "utf8"));
+    if (owner.token === token) await rm(lockPath, { recursive: true, force: true });
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
 }
 
 async function sha256(path) {
@@ -63,8 +116,7 @@ async function inventory(bootstrapRoot, environmentRoot) {
   return { moves, retained, collisions };
 }
 
-export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = false }) {
-  const bootstrapRoot = resolve(repositoryRoot, ".bootstrap");
+async function organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, bootstrapRoot }) {
   const environmentRoot = resolve(bootstrapRoot, "env");
   const result = await inventory(bootstrapRoot, environmentRoot);
   if (result.collisions.length > 0 && !dryRun) {
@@ -113,14 +165,24 @@ export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = fa
   return { manifest, manifestPath };
 }
 
-export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath, dryRun = false }) {
+export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = false }) {
   const bootstrapRoot = resolve(repositoryRoot, ".bootstrap");
+  const lock = dryRun ? undefined : await acquireOrganizationLock(bootstrapRoot);
+  try {
+    return await organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, bootstrapRoot });
+  } finally {
+    if (lock) await releaseOrganizationLock(lock.lockPath, lock.token);
+  }
+}
+
+async function restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath, dryRun, bootstrapRoot }) {
   const absoluteManifest = resolve(repositoryRoot, manifestPath);
   assertPathInside(resolve(bootstrapRoot, "organization"), absoluteManifest, "bootstrap organization manifest");
   const manifest = JSON.parse(await readFile(absoluteManifest, "utf8"));
   if (manifest?.schemaVersion !== 1 || manifest?.operation !== "organize-bootstrap-environments" || !Array.isArray(manifest.moves)) {
     throw new Error("Bootstrap organization manifest is invalid or unsupported.");
   }
+  if (manifest.status === "restored") throw new Error("Bootstrap organization manifest has already been restored.");
   const moves = Array.isArray(manifest.completedMoves) ? [...manifest.completedMoves] : [...manifest.moves];
   if (manifest.currentMove && !moves.some(move => move.source === manifest.currentMove.source && move.destination === manifest.currentMove.destination)) {
     moves.push(manifest.currentMove);
@@ -146,4 +208,14 @@ export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath
   manifest.restoredAt = new Date().toISOString();
   await atomicWrite(absoluteManifest, stableJson(manifest));
   return { restored: movesToRestore.length, planned: movesToRestore.length, manifestPath: absoluteManifest, dryRun: false };
+}
+
+export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath, dryRun = false }) {
+  const bootstrapRoot = resolve(repositoryRoot, ".bootstrap");
+  const lock = dryRun ? undefined : await acquireOrganizationLock(bootstrapRoot);
+  try {
+    return await restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath, dryRun, bootstrapRoot });
+  } finally {
+    if (lock) await releaseOrganizationLock(lock.lockPath, lock.token);
+  }
 }

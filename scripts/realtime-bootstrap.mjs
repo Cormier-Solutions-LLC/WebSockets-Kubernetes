@@ -705,6 +705,6 @@ main().catch(async error => {
   emit("error", "failure", error.message);
   try { await flushLog(); } catch (logError) { process.stderr.write(`Unable to write lifecycle log: ${logError.message}\n`); }
   if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
-  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|Backup target does not match|target lock/.test(error.message)) process.exitCode = 3;
+  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|Backup target does not match|target lock|organization lock|already been restored/.test(error.message)) process.exitCode = 3;
   else process.exitCode = 1;
 });

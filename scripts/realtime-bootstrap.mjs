@@ -363,11 +363,33 @@ async function apply(plan, config, options) {
 
 async function prepareRedisChart(managedRedis, options) {
   const outputDirectory = managedRedisChartOutput(options.generatedRoot, options.targetName, managedRedis.chart, managedRedis.chartVersion);
+  let archivePath = managedRedis.chartArchivePath;
+  if (!archivePath) {
+    const legacyGeneratedRoot = resolve(repositoryRoot, ".bootstrap/lifecycle");
+    const legacyCacheDirectories = [
+      managedRedisChartOutput(legacyGeneratedRoot, options.targetName, managedRedis.chart, managedRedis.chartVersion),
+      legacyManagedRedisChartOutput(legacyGeneratedRoot, options.targetName, managedRedis.chartVersion),
+    ];
+    for (const cacheDirectory of legacyCacheDirectories) {
+      if (resolve(cacheDirectory) === resolve(outputDirectory)) continue;
+      try {
+        const copied = await copyCachedManagedRedisChart({
+          chart: managedRedis.chart,
+          version: managedRedis.chartVersion,
+          cacheDirectory,
+          outputDirectory,
+        });
+        archivePath = copied.archivePath;
+        emit("info", options.action, "Reusing verified legacy managed Redis chart cache.", { cacheDirectory });
+        break;
+      } catch {}
+    }
+  }
   const prepared = await prepareManagedRedisChart({
     chart: managedRedis.chart,
     version: managedRedis.chartVersion,
     archiveSha256: managedRedis.chartArchiveSha256,
-    archivePath: managedRedis.chartArchivePath,
+    archivePath,
     outputDirectory,
     timeoutSeconds: options.timeoutSeconds,
   });
@@ -616,7 +638,9 @@ async function main() {
   }
   try {
     const statePath = resolve(targetRoot, "state.json");
-    const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
+    const legacyStatePath = resolve(repositoryRoot, ".bootstrap/lifecycle", options.targetName, "state.json");
+    const priorStatePath = await fileExists(statePath) ? statePath : await fileExists(legacyStatePath) ? legacyStatePath : undefined;
+    const priorState = priorStatePath ? await readJson(priorStatePath) : undefined;
     const provisionalPlan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology: priorState?.topology });
     const rollbackSnapshot = options.action === "rollback" ? await readRollbackSnapshot(provisionalPlan.target, options) : undefined;
     if (rollbackSnapshot?.gatewayPresent) {
@@ -706,8 +730,13 @@ async function main() {
       await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
       if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
-    if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) await rm(statePath, { force: true });
-    else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 2, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
+    if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) {
+      await rm(statePath, { force: true });
+      if (legacyStatePath !== statePath) await rm(legacyStatePath, { force: true });
+    } else if (["install", "update", "recover", "rollback"].includes(options.action)) {
+      await atomicWrite(statePath, stableJson({ contractVersion: 2, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
+      if (legacyStatePath !== statePath) await rm(legacyStatePath, { force: true });
+    }
     emit("pass", options.action, "Lifecycle action completed.", {
       backup: backup ?? null,
       profile: config.topology,

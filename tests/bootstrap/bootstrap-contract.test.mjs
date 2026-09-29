@@ -560,6 +560,30 @@ test("topology changes are classified and require backup and confirmation", () =
   assert.equal(plan.safety.requiresTopologyConfirmation, true);
 });
 
+test("offline plans preserve topology state from the legacy lifecycle root", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-legacy-state-"));
+  const config = configuration("ha");
+  config.naming.suffix = "legacy-state";
+  const release = "dev-realtime-legacy-state";
+  const configPath = resolve(directory, "config.json");
+  const targetRoot = generatedTarget(config, release);
+  const legacyTargetRoot = resolve(repositoryRoot, ".bootstrap/lifecycle", release);
+  await writeFile(configPath, stableJson(config));
+  await mkdir(legacyTargetRoot, { recursive: true });
+  await writeFile(resolve(legacyTargetRoot, "state.json"), stableJson({ contractVersion: 1, topology: "non-ha" }));
+  try {
+    const result = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "plan", "--config", configPath, "--dry-run"], { cwd: repositoryRoot });
+    const plan = normalizedPlan(result.stdout);
+    assert.equal(plan.topology.previous, "non-ha");
+    assert.equal(plan.topology.conversion, true);
+    assert.equal(plan.changeClass, "topology-conversion");
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(legacyTargetRoot, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("workspace bootstrap is non-mutating to cluster state and teardown is backed up", () => {
   const config = configuration();
   assert.equal(buildPlan("bootstrap", config, profiles["non-ha"]).safety.mutation, false);
@@ -1021,7 +1045,8 @@ test("update adopts only a verified legacy managed Redis release", { timeout: 30
   const targetRoot = generatedTarget(config, release);
   const targetBackups = backupTarget(config, release);
   const legacyGeneratedRoot = resolve(repositoryRoot, ".bootstrap/lifecycle");
-  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LEGACY_REDIS: "1", BOOTSTRAP_FAKE_REDIS_SECRET: config.redis.credentialsSecret, BOOTSTRAP_FAKE_REDIS_PREFIX: `${config.redis.instancePrefix}:${config.naming.suffix}` };
+  const operationLog = resolve(directory, "operations.log");
+  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_LOG: operationLog, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LEGACY_REDIS: "1", BOOTSTRAP_FAKE_REDIS_SECRET: config.redis.credentialsSecret, BOOTSTRAP_FAKE_REDIS_PREFIX: `${config.redis.instancePrefix}:${config.naming.suffix}` };
   try {
     await seedManagedChartCache(fakeBin, release, config.redis.legacyManagedChart, "23.1.1", true, config, legacyGeneratedRoot);
     const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: environment });
@@ -1029,6 +1054,8 @@ test("update adopts only a verified legacy managed Redis release", { timeout: 30
     assert(backup);
     assert.equal(JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8")).managedRedis.chart, config.redis.legacyManagedChart);
     assert.match(updated.stdout, /Adopting verified legacy managed Redis release metadata/);
+    assert.match(updated.stdout, /Reusing verified legacy managed Redis chart cache/);
+    assert.doesNotMatch(await readFile(operationLog, "utf8"), /^pull /m);
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_REDIS_PREFIX: "wrong:prefix" } }), error => error.code === 1 && /does not match the verified legacy deployment contract/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });

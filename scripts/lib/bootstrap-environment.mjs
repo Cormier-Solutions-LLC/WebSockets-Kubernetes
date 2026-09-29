@@ -6,8 +6,8 @@ import { assertPathInside, atomicWrite, fileExists, stableJson } from "./bootstr
 
 export const canonicalEnvironments = Object.freeze(["dev", "test", "prod"]);
 
-const dotEnvironmentArtifact = /^(?:bootstrap|config|install|plan|update|validate)\.(dev|test|prod)(?:\.|$)/;
-const hyphenEnvironmentArtifact = /^(?:gateway|redis)-(dev|test|prod)(?:\.|$)/;
+const dotEnvironmentArtifact = /^(?:bootstrap|config|install|plan|update|validate)\.([a-z0-9]{1,10})(?:\.|$)/;
+const hyphenEnvironmentArtifact = /^(?:gateway|redis)-([a-z0-9]{1,10})(?:\.|$)/;
 
 export function expandEnvironmentPath(pathTemplate, environment) {
   if (typeof pathTemplate !== "string") throw new Error("Environment path template must be a string.");
@@ -71,6 +71,9 @@ export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = fa
     throw new Error(`Bootstrap environment organization found ${result.collisions.length} destination collision(s); review a dry run and resolve them before applying.`);
   }
   const timestamp = new Date().toISOString();
+  const discoveredEnvironments = [...new Set(result.moves.map(move => move.environment))]
+    .filter(environment => !canonicalEnvironments.includes(environment))
+    .sort();
   const manifest = {
     schemaVersion: 1,
     operation: "organize-bootstrap-environments",
@@ -79,12 +82,12 @@ export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = fa
     status: dryRun ? "preview" : "applying",
     completedMoves: [],
     environmentRoot: portableRelative(repositoryRoot, environmentRoot),
-    environments: canonicalEnvironments,
+    environments: [...canonicalEnvironments, ...discoveredEnvironments],
     ...result,
   };
   if (dryRun) return { manifest, manifestPath: null };
 
-  for (const environment of canonicalEnvironments) await mkdir(resolve(environmentRoot, environment), { recursive: true });
+  for (const environment of manifest.environments) await mkdir(resolve(environmentRoot, environment), { recursive: true });
   const manifestPath = resolve(bootstrapRoot, "organization", `${timestamp.replaceAll(":", "-")}.json`);
   await atomicWrite(manifestPath, stableJson(manifest));
   try {
@@ -92,8 +95,11 @@ export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = fa
       const source = resolve(bootstrapRoot, move.source);
       const destination = resolve(bootstrapRoot, move.destination);
       await mkdir(dirname(destination), { recursive: true });
+      manifest.currentMove = move;
+      await atomicWrite(manifestPath, stableJson(manifest));
       await rename(source, destination);
       manifest.completedMoves.push(move);
+      delete manifest.currentMove;
       await atomicWrite(manifestPath, stableJson(manifest));
     }
     manifest.status = "applied";
@@ -107,7 +113,7 @@ export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = fa
   return { manifest, manifestPath };
 }
 
-export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath }) {
+export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath, dryRun = false }) {
   const bootstrapRoot = resolve(repositoryRoot, ".bootstrap");
   const absoluteManifest = resolve(repositoryRoot, manifestPath);
   assertPathInside(resolve(bootstrapRoot, "organization"), absoluteManifest, "bootstrap organization manifest");
@@ -115,20 +121,29 @@ export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath
   if (manifest?.schemaVersion !== 1 || manifest?.operation !== "organize-bootstrap-environments" || !Array.isArray(manifest.moves)) {
     throw new Error("Bootstrap organization manifest is invalid or unsupported.");
   }
-  const moves = Array.isArray(manifest.completedMoves) ? manifest.completedMoves : manifest.moves;
+  const moves = Array.isArray(manifest.completedMoves) ? [...manifest.completedMoves] : [...manifest.moves];
+  if (manifest.currentMove && !moves.some(move => move.source === manifest.currentMove.source && move.destination === manifest.currentMove.destination)) {
+    moves.push(manifest.currentMove);
+  }
+  const movesToRestore = [];
   for (const move of [...moves].reverse()) {
     const source = resolve(bootstrapRoot, move.destination);
     const destination = resolve(bootstrapRoot, move.source);
     assertPathInside(bootstrapRoot, source, "organized bootstrap artifact");
     assertPathInside(bootstrapRoot, destination, "restored bootstrap artifact");
-    if (!await fileExists(source)) throw new Error(`Cannot restore missing organized artifact '${move.destination}'.`);
-    if (await fileExists(destination)) throw new Error(`Cannot restore '${move.source}' because the destination already exists.`);
+    const sourceExists = await fileExists(source);
+    const destinationExists = await fileExists(destination);
+    if (sourceExists && destinationExists) throw new Error(`Cannot restore '${move.source}' because the destination already exists.`);
+    if (!sourceExists && !destinationExists) throw new Error(`Cannot restore missing organized artifact '${move.destination}'.`);
+    if (sourceExists) movesToRestore.push(move);
   }
-  for (const move of [...moves].reverse()) {
+  if (dryRun) return { restored: 0, planned: movesToRestore.length, manifestPath: absoluteManifest, dryRun: true };
+  for (const move of movesToRestore) {
     await rename(resolve(bootstrapRoot, move.destination), resolve(bootstrapRoot, move.source));
   }
+  delete manifest.currentMove;
   manifest.status = "restored";
   manifest.restoredAt = new Date().toISOString();
   await atomicWrite(absoluteManifest, stableJson(manifest));
-  return { restored: moves.length, manifestPath: absoluteManifest };
+  return { restored: movesToRestore.length, planned: movesToRestore.length, manifestPath: absoluteManifest, dryRun: false };
 }

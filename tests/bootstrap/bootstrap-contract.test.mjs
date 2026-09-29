@@ -63,6 +63,8 @@ test("legacy bootstrap artifacts are classified by their target slot rather than
   assert.equal(classifyLegacyBootstrapArtifact("bootstrap.prod.dry-run.log"), "prod");
   assert.equal(classifyLegacyBootstrapArtifact("gateway-dev.yaml"), "dev");
   assert.equal(classifyLegacyBootstrapArtifact("redis-prod.yaml"), "prod");
+  assert.equal(classifyLegacyBootstrapArtifact("config.staging.json"), "staging");
+  assert.equal(classifyLegacyBootstrapArtifact("gateway-qa.yaml"), "qa");
   assert.equal(classifyLegacyBootstrapArtifact("update.test.dev-alias.log"), "test");
   assert.equal(classifyLegacyBootstrapArtifact("validate.test.dev-alias.log"), "test");
   assert.equal(classifyLegacyBootstrapArtifact("naming.json"), undefined);
@@ -96,6 +98,7 @@ test("environment organization previews, applies, remains idempotent, and restor
     "validate.test.dev-alias.log",
     "validate.test.ingress-class.log",
     "validate.test.log",
+    "config.staging.json",
     "naming.json",
   ];
   for (const file of files) await writeFile(resolve(bootstrapRoot, file), `${file}\n`);
@@ -111,6 +114,7 @@ test("environment organization previews, applies, remains idempotent, and restor
     const applied = await organizeBootstrapEnvironment({ repositoryRoot: directory });
     assert(await fileExists(resolve(bootstrapRoot, "env/test/update.test.dev-alias.log")));
     assert(await fileExists(resolve(bootstrapRoot, "env/prod/gateway-prod.yaml")));
+    assert(await fileExists(resolve(bootstrapRoot, "env/staging/config.staging.json")));
     assert(await fileExists(resolve(bootstrapRoot, "env/dev")));
     assert(await fileExists(resolve(bootstrapRoot, "naming.json")));
     assert(applied.manifestPath);
@@ -119,10 +123,44 @@ test("environment organization previews, applies, remains idempotent, and restor
     assert.equal(repeated.manifest.moves.length, 0);
     assert.equal(repeated.manifest.collisions.length, 0);
 
+    const restorePreview = await restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath: applied.manifestPath, dryRun: true });
+    assert.equal(restorePreview.restored, 0);
+    assert.equal(restorePreview.planned, files.length - 1);
+    assert(await fileExists(resolve(bootstrapRoot, "env/test/update.test.dev-alias.log")));
+
     const restored = await restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath: applied.manifestPath });
     assert.equal(restored.restored, files.length - 1);
     assert(await fileExists(resolve(bootstrapRoot, "update.test.dev-alias.log")));
     assert(await fileExists(resolve(bootstrapRoot, "env/test")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment restoration reconciles a journaled move interrupted after rename", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-journal-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const manifestPath = resolve(bootstrapRoot, "organization/interrupted.json");
+  const move = { environment: "qa", source: "config.qa.json", destination: "env/qa/config.qa.json" };
+  await mkdir(resolve(bootstrapRoot, "env/qa"), { recursive: true });
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(resolve(bootstrapRoot, move.destination), "qa\n");
+  await writeFile(manifestPath, stableJson({
+    schemaVersion: 1,
+    operation: "organize-bootstrap-environments",
+    status: "applying",
+    moves: [move],
+    completedMoves: [],
+    currentMove: move,
+  }));
+  try {
+    const restored = await restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath });
+    assert.equal(restored.restored, 1);
+    assert.equal(await readFile(resolve(bootstrapRoot, move.source), "utf8"), "qa\n");
+    assert.equal(await fileExists(resolve(bootstrapRoot, move.destination)), false);
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    assert.equal(manifest.status, "restored");
+    assert.equal(manifest.currentMove, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

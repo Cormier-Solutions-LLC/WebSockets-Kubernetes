@@ -537,8 +537,11 @@ async function main() {
   }
   if (options.action === "restore-layout") {
     if (!options.manifest) throw new Error("restore-layout requires --manifest FILE.");
-    const result = await restoreBootstrapEnvironment({ repositoryRoot, manifestPath: options.manifest });
-    emit("pass", options.action, "Bootstrap environment organization was restored.", { manifest: result.manifestPath, summary: { restored: result.restored } });
+    const result = await restoreBootstrapEnvironment({ repositoryRoot, manifestPath: options.manifest, dryRun: options.dryRun });
+    emit("pass", options.action, options.dryRun ? "Bootstrap environment restoration preview completed." : "Bootstrap environment organization was restored.", {
+      manifest: result.manifestPath,
+      summary: { restored: result.restored, planned: result.planned },
+    });
     await flushLog();
     return;
   }

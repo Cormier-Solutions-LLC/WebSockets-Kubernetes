@@ -135,6 +135,7 @@ async function inventory(bootstrapRoot, environmentRoot) {
 
 async function organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, bootstrapRoot }) {
   const environmentRoot = resolve(bootstrapRoot, "env");
+  await assertNoSymlinkSegments(bootstrapRoot, environmentRoot, true, "Bootstrap environment root");
   const result = await inventory(bootstrapRoot, environmentRoot);
   if (result.collisions.length > 0 && !dryRun) {
     throw new Error(`Bootstrap environment organization found ${result.collisions.length} destination collision(s); review a dry run and resolve them before applying.`);

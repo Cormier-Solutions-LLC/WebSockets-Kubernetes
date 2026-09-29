@@ -215,6 +215,23 @@ test("environment organization rejects symlinked destination directories", async
   }
 });
 
+test("environment organization rejects a symlinked environment root without movable files", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-root-symlink-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const outside = resolve(directory, "outside");
+  await mkdir(bootstrapRoot, { recursive: true });
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, resolve(bootstrapRoot, "env"), process.platform === "win32" ? "junction" : "dir");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /symbolic link/);
+    assert.equal(await fileExists(resolve(outside, "dev")), false);
+    assert.equal(await fileExists(resolve(outside, "test")), false);
+    assert.equal(await fileExists(resolve(outside, "prod")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("environment restoration reconciles a journaled move interrupted after rename", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-journal-"));
   const bootstrapRoot = resolve(directory, ".bootstrap");

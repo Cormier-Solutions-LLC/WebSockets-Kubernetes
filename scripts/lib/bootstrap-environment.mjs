@@ -10,6 +10,12 @@ export const canonicalEnvironments = Object.freeze(["dev", "test", "prod"]);
 const dotEnvironmentArtifact = /^(?:bootstrap|config|install|plan|update|validate)\.([a-z0-9]{1,10})(?:\.|$)/;
 const hyphenEnvironmentArtifact = /^(?:gateway|redis)-([a-z0-9]{1,10})(?:\.|$)/;
 
+function layoutError(message, exitCode) {
+  const error = new Error(message);
+  error.exitCode = exitCode;
+  return error;
+}
+
 export function expandEnvironmentPath(pathTemplate, environment) {
   if (typeof pathTemplate !== "string") throw new Error("Environment path template must be a string.");
   if (!isValidEnvironmentName(environment)) throw new Error(`Environment '${environment}' is not a valid bootstrap environment name.`);
@@ -51,7 +57,7 @@ async function acquireOrganizationLock(bootstrapRoot) {
   } catch {
     stale = Date.now() - (await stat(lockPath)).mtimeMs > 2 * 60 * 60 * 1000;
   }
-  if (!stale) throw new Error(`Another bootstrap environment operation holds the organization lock '${lockPath}'.`);
+  if (!stale) throw layoutError(`Another bootstrap environment operation holds the organization lock '${lockPath}'.`, 3);
   const stalePath = `${lockPath}.stale-${owner.token}`;
   try { await rename(lockPath, stalePath); }
   catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -59,7 +65,7 @@ async function acquireOrganizationLock(bootstrapRoot) {
     await mkdir(lockPath);
     await atomicWrite(ownerPath, stableJson(owner));
   } catch (error) {
-    if (error.code === "EEXIST") throw new Error(`Another bootstrap environment operation holds the organization lock '${lockPath}'.`);
+    if (error.code === "EEXIST") throw layoutError(`Another bootstrap environment operation holds the organization lock '${lockPath}'.`, 3);
     throw error;
   } finally {
     await rm(stalePath, { recursive: true, force: true });
@@ -83,7 +89,7 @@ async function assertNoSymlinkSegments(root, target, includeTarget, label) {
   for (const segment of segments.slice(0, count)) {
     current = resolve(current, segment);
     try {
-      if ((await lstat(current)).isSymbolicLink()) throw new Error(`${label} cannot traverse symbolic link '${current}'.`);
+      if ((await lstat(current)).isSymbolicLink()) throw layoutError(`${label} cannot traverse symbolic link '${current}'.`, 3);
     } catch (error) {
       if (error.code === "ENOENT") break;
       throw error;
@@ -136,9 +142,11 @@ async function inventory(bootstrapRoot, environmentRoot) {
 async function organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, bootstrapRoot }) {
   const environmentRoot = resolve(bootstrapRoot, "env");
   await assertNoSymlinkSegments(bootstrapRoot, environmentRoot, true, "Bootstrap environment root");
+  const organizationRoot = resolve(bootstrapRoot, "organization");
+  if (!dryRun) await assertNoSymlinkSegments(bootstrapRoot, organizationRoot, true, "Bootstrap organization root");
   const result = await inventory(bootstrapRoot, environmentRoot);
   if (result.collisions.length > 0 && !dryRun) {
-    throw new Error(`Bootstrap environment organization found ${result.collisions.length} destination collision(s); review a dry run and resolve them before applying.`);
+    throw layoutError(`Bootstrap environment organization found ${result.collisions.length} destination collision(s); review a dry run and resolve them before applying.`, 3);
   }
   const timestamp = new Date().toISOString();
   const discoveredEnvironments = [...new Set(result.moves.map(move => move.environment))]
@@ -158,7 +166,7 @@ async function organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, boot
   if (dryRun) return { manifest, manifestPath: null };
 
   for (const environment of manifest.environments) await mkdir(resolve(environmentRoot, environment), { recursive: true });
-  const manifestPath = resolve(bootstrapRoot, "organization", `${timestamp.replaceAll(":", "-")}.json`);
+  const manifestPath = resolve(organizationRoot, `${timestamp.replaceAll(":", "-")}.json`);
   await atomicWrite(manifestPath, stableJson(manifest));
   try {
     for (const move of result.moves) {
@@ -197,13 +205,18 @@ export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = fa
 }
 
 async function restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath, dryRun, bootstrapRoot }) {
+  const organizationRoot = resolve(bootstrapRoot, "organization");
   const absoluteManifest = resolve(repositoryRoot, manifestPath);
-  assertPathInside(resolve(bootstrapRoot, "organization"), absoluteManifest, "bootstrap organization manifest");
-  const manifest = JSON.parse(await readFile(absoluteManifest, "utf8"));
+  assertPathInside(organizationRoot, absoluteManifest, "bootstrap organization manifest");
+  await assertNoSymlinkSegments(bootstrapRoot, organizationRoot, true, "Bootstrap organization root");
+  await assertNoSymlinkSegments(bootstrapRoot, absoluteManifest, true, "Bootstrap organization manifest");
+  let manifest;
+  try { manifest = JSON.parse(await readFile(absoluteManifest, "utf8")); }
+  catch (error) { throw layoutError(`Bootstrap organization manifest is invalid: ${error.message}`, 2); }
   if (manifest?.schemaVersion !== 1 || manifest?.operation !== "organize-bootstrap-environments" || !Array.isArray(manifest.moves)) {
-    throw new Error("Bootstrap organization manifest is invalid or unsupported.");
+    throw layoutError("Bootstrap organization manifest is invalid or unsupported.", 2);
   }
-  if (manifest.status === "restored") throw new Error("Bootstrap organization manifest has already been restored.");
+  if (manifest.status === "restored") throw layoutError("Bootstrap organization manifest has already been restored.", 3);
   const moves = Array.isArray(manifest.completedMoves) ? [...manifest.completedMoves] : [...manifest.moves];
   if (manifest.currentMove && !moves.some(move => move.source === manifest.currentMove.source && move.destination === manifest.currentMove.destination)) {
     moves.push(manifest.currentMove);
@@ -218,8 +231,8 @@ async function restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath,
     await assertNoSymlinkSegments(bootstrapRoot, destination, false, "Restored bootstrap artifact");
     const sourceExists = await fileExists(source);
     const destinationExists = await fileExists(destination);
-    if (sourceExists && destinationExists) throw new Error(`Cannot restore '${move.source}' because the destination already exists.`);
-    if (!sourceExists && !destinationExists) throw new Error(`Cannot restore missing organized artifact '${move.destination}'.`);
+    if (sourceExists && destinationExists) throw layoutError(`Cannot restore '${move.source}' because the destination already exists.`, 3);
+    if (!sourceExists && !destinationExists) throw layoutError(`Cannot restore missing organized artifact '${move.destination}'.`, 3);
     if (sourceExists) movesToRestore.push(move);
   }
   if (dryRun) return { restored: 0, planned: movesToRestore.length, manifestPath: absoluteManifest, dryRun: true };

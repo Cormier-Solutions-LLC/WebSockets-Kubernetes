@@ -235,6 +235,8 @@ async function saveState(plan, config, options) {
           for (const cacheDirectory of [
             managedRedisChartOutput(options.generatedRoot, options.targetName, chart, chartVersion),
             legacyManagedRedisChartOutput(options.generatedRoot, options.targetName, chartVersion),
+            managedRedisChartOutput(resolve(repositoryRoot, ".bootstrap/lifecycle"), options.targetName, chart, chartVersion),
+            legacyManagedRedisChartOutput(resolve(repositoryRoot, ".bootstrap/lifecycle"), options.targetName, chartVersion),
           ]) {
             try {
               capturedChart = await copyCachedManagedRedisChart({ chart, version: chartVersion, cacheDirectory, outputDirectory: directory });
@@ -549,7 +551,11 @@ async function main() {
     return;
   }
   if (options.action === "restore-layout") {
-    if (!options.manifest) throw new Error("restore-layout requires --manifest FILE.");
+    if (!options.manifest) {
+      const error = new Error("restore-layout requires --manifest FILE.");
+      error.exitCode = 2;
+      throw error;
+    }
     const result = await restoreBootstrapEnvironment({ repositoryRoot, manifestPath: options.manifest, dryRun: options.dryRun });
     emit("pass", options.action, options.dryRun ? "Bootstrap environment restoration preview completed." : "Bootstrap environment organization was restored.", {
       manifest: result.manifestPath,
@@ -717,7 +723,8 @@ async function main() {
 main().catch(async error => {
   emit("error", "failure", error.message);
   try { await flushLog(); } catch (logError) { process.stderr.write(`Unable to write lifecycle log: ${logError.message}\n`); }
-  if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
+  if ([1, 2, 3].includes(error.exitCode)) process.exitCode = error.exitCode;
+  else if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
   else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|Backup target does not match|target lock|organization lock|already been restored/.test(error.message)) process.exitCode = 3;
   else process.exitCode = 1;
 });

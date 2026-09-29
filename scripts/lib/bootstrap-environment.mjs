@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 import { assertPathInside, atomicWrite, fileExists, isValidEnvironmentName, stableJson } from "./bootstrap-contract.mjs";
 
@@ -34,6 +34,7 @@ async function acquireOrganizationLock(bootstrapRoot) {
   const lockPath = resolve(locksRoot, "environment-organization");
   const ownerPath = resolve(lockPath, "owner.json");
   const owner = { createdAt: new Date().toISOString(), hostname: hostname(), pid: process.pid, token: randomUUID() };
+  await assertNoSymlinkSegments(bootstrapRoot, locksRoot, true, "Bootstrap locks root");
   await mkdir(locksRoot, { recursive: true });
   try {
     await mkdir(lockPath);
@@ -75,6 +76,21 @@ async function releaseOrganizationLock(lockPath, token) {
   }
 }
 
+async function assertNoSymlinkSegments(root, target, includeTarget, label) {
+  const segments = relative(root, target).split(sep).filter(Boolean);
+  const count = includeTarget ? segments.length : Math.max(0, segments.length - 1);
+  let current = root;
+  for (const segment of segments.slice(0, count)) {
+    current = resolve(current, segment);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error(`${label} cannot traverse symbolic link '${current}'.`);
+    } catch (error) {
+      if (error.code === "ENOENT") break;
+      throw error;
+    }
+  }
+}
+
 async function sha256(path) {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
@@ -102,6 +118,7 @@ async function inventory(bootstrapRoot, environmentRoot) {
     const destination = resolve(environmentRoot, environment, entry.name);
     assertPathInside(bootstrapRoot, source, "legacy bootstrap artifact");
     assertPathInside(environmentRoot, destination, "environment bootstrap artifact");
+    await assertNoSymlinkSegments(bootstrapRoot, destination, false, "Environment bootstrap artifact");
     if (await fileExists(destination)) {
       const sourceStat = await stat(source);
       const destinationStat = await stat(destination);
@@ -146,7 +163,9 @@ async function organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, boot
     for (const move of result.moves) {
       const source = resolve(bootstrapRoot, move.source);
       const destination = resolve(bootstrapRoot, move.destination);
+      await assertNoSymlinkSegments(bootstrapRoot, destination, false, "Environment bootstrap artifact");
       await mkdir(dirname(destination), { recursive: true });
+      await assertNoSymlinkSegments(bootstrapRoot, destination, false, "Environment bootstrap artifact");
       manifest.currentMove = move;
       await atomicWrite(manifestPath, stableJson(manifest));
       await rename(source, destination);
@@ -167,6 +186,7 @@ async function organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, boot
 
 export async function organizeBootstrapEnvironment({ repositoryRoot, dryRun = false }) {
   const bootstrapRoot = resolve(repositoryRoot, ".bootstrap");
+  await assertNoSymlinkSegments(repositoryRoot, bootstrapRoot, true, "Bootstrap root");
   const lock = dryRun ? undefined : await acquireOrganizationLock(bootstrapRoot);
   try {
     return await organizeBootstrapEnvironmentLocked({ repositoryRoot, dryRun, bootstrapRoot });
@@ -193,6 +213,8 @@ async function restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath,
     const destination = resolve(bootstrapRoot, move.source);
     assertPathInside(bootstrapRoot, source, "organized bootstrap artifact");
     assertPathInside(bootstrapRoot, destination, "restored bootstrap artifact");
+    await assertNoSymlinkSegments(bootstrapRoot, source, false, "Organized bootstrap artifact");
+    await assertNoSymlinkSegments(bootstrapRoot, destination, false, "Restored bootstrap artifact");
     const sourceExists = await fileExists(source);
     const destinationExists = await fileExists(destination);
     if (sourceExists && destinationExists) throw new Error(`Cannot restore '${move.source}' because the destination already exists.`);
@@ -212,6 +234,7 @@ async function restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath,
 
 export async function restoreBootstrapEnvironment({ repositoryRoot, manifestPath, dryRun = false }) {
   const bootstrapRoot = resolve(repositoryRoot, ".bootstrap");
+  await assertNoSymlinkSegments(repositoryRoot, bootstrapRoot, true, "Bootstrap root");
   const lock = dryRun ? undefined : await acquireOrganizationLock(bootstrapRoot);
   try {
     return await restoreBootstrapEnvironmentLocked({ repositoryRoot, manifestPath, dryRun, bootstrapRoot });

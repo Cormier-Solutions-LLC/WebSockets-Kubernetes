@@ -15,6 +15,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const events = [];
 let activeLogPath = resolve(repositoryRoot, ".logs", `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
+let logPersistenceEnabled = true;
 
 function parse(arguments_) {
   if (["help", "--help", "-h"].includes(arguments_[0])) return { action: "help" };
@@ -72,7 +73,18 @@ function emit(level, phase, message, fields = {}) {
 }
 
 async function flushLog() {
+  if (!logPersistenceEnabled) return;
   await atomicWrite(activeLogPath, events.map(event => JSON.stringify(event)).join("\n") + "\n");
+}
+
+function assertRollbackSource(planTarget, options, backup) {
+  try {
+    assertPathInside(options.backupRoot, backup, "rollback source");
+  } catch (error) {
+    const legacyReleaseRoot = resolve(repositoryRoot, ".backups", "bootstrap", planTarget.release);
+    try { assertPathInside(legacyReleaseRoot, backup, "legacy rollback source"); }
+    catch { throw error; }
+  }
 }
 
 async function archiveOldLogs(logRoot) {
@@ -284,7 +296,7 @@ async function installedReleaseState(planTarget, options) {
 async function readRollbackSnapshot(planTarget, options) {
   const backup = options.backup ? resolve(options.backup) : undefined;
   if (!backup) throw new Error("rollback requires --backup pointing to a captured backup directory.");
-  assertPathInside(options.backupRoot, backup, "rollback source");
+  assertRollbackSource(planTarget, options, backup);
   const savedPlan = await readJson(resolve(backup, "plan.json"));
   if (savedPlan.target.context !== planTarget.context || savedPlan.target.namespace !== planTarget.namespace || savedPlan.target.release !== planTarget.release) throw new Error("Backup target does not match the requested context, namespace, and release.");
   const releases = await readJson(resolve(backup, "releases.json"));
@@ -457,7 +469,7 @@ function capturedReleaseRevision(releaseInventory, release) {
 async function rollback(plan, options) {
   const backup = options.backup ? resolve(options.backup) : undefined;
   if (!backup) throw new Error("rollback requires --backup pointing to a captured backup directory.");
-  assertPathInside(options.backupRoot, backup, "rollback source");
+  assertRollbackSource(plan.target, options, backup);
   const savedPlan = await readJson(resolve(backup, "plan.json"));
   if (savedPlan.target.context !== plan.target.context || savedPlan.target.namespace !== plan.target.namespace || savedPlan.target.release !== plan.target.release) throw new Error("Backup target does not match the requested context, namespace, and release.");
   const releaseInventory = await readJson(resolve(backup, "releases.json"));
@@ -518,6 +530,7 @@ function configurationForPlan(config, plan) {
 async function main() {
   const options = parse(process.argv.slice(2));
   options.action = options.action;
+  if (options.dryRun && ["organize", "restore-layout"].includes(options.action)) logPersistenceEnabled = false;
   if (options.action === "help") {
     process.stdout.write(usage);
     return;

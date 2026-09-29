@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,6 +85,14 @@ test("environment workspace relationship failures use the invalid-input exit cod
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("environment organization dry runs do not persist lifecycle logs", async () => {
+  const logRoot = resolve(repositoryRoot, ".logs");
+  const before = await fileExists(logRoot) ? (await readdir(logRoot)).sort() : [];
+  await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "organize", "--dry-run"], { cwd: repositoryRoot });
+  const after = await fileExists(logRoot) ? (await readdir(logRoot)).sort() : [];
+  assert.deepEqual(after, before);
 });
 
 test("legacy bootstrap artifacts are classified by their target slot rather than incidental suffixes", () => {
@@ -185,6 +193,23 @@ test("environment organization fails safely while another organizer holds the wo
     await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /organization lock/);
     assert.equal(await readFile(resolve(bootstrapRoot, "config.test.json"), "utf8"), "test\n");
     assert.equal(await fileExists(resolve(bootstrapRoot, "env/test/config.test.json")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization rejects symlinked destination directories", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-symlink-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const outside = resolve(directory, "outside");
+  await mkdir(resolve(bootstrapRoot, "env"), { recursive: true });
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, resolve(bootstrapRoot, "env/test"), process.platform === "win32" ? "junction" : "dir");
+  await writeFile(resolve(bootstrapRoot, "config.test.json"), "test\n");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /symbolic link/);
+    assert.equal(await readFile(resolve(bootstrapRoot, "config.test.json"), "utf8"), "test\n");
+    assert.equal(await fileExists(resolve(outside, "config.test.json")), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1068,7 +1093,8 @@ test("rollback classifies conversion from installed topology to backup topology"
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-rollback-topology";
   const targetRoot = generatedTarget(config, release);
-  const backup = resolve(backupTarget(config, release), "fixture");
+  const legacyBackupRoot = resolve(repositoryRoot, ".backups/bootstrap", release);
+  const backup = resolve(legacyBackupRoot, "fixture");
   await mkdir(backup, { recursive: true });
   await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: config.redis.managedChart } }));
   await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-23.1.1", revision: "4" }]));
@@ -1078,7 +1104,7 @@ test("rollback classifies conversion from installed topology to backup topology"
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_TOPOLOGY: "non-ha" } }), error => error.code === 3 && /confirm-topology-change/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
-    await rm(backupTarget(config, release), { recursive: true, force: true });
+    await rm(legacyBackupRoot, { recursive: true, force: true });
   }
 });
 

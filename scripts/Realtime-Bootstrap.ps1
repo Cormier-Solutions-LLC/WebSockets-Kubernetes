@@ -2,13 +2,15 @@
 .SYNOPSIS
   Runs the versioned Cormier.Realtime bootstrap and Kubernetes lifecycle contract.
 .PARAMETER Action
-  prerequisites, plan, bootstrap, backup, install, update, validate, rollback, recover, or teardown.
+  prerequisites, plan, bootstrap, backup, install, update, validate, rollback, recover, teardown, organize, or restore-layout.
 .PARAMETER Config
   Path to the versioned JSON configuration. CORMIER_BOOTSTRAP_CONFIG is the shared environment-variable alternative.
 .PARAMETER Topology
   Optional assertion that the configuration selects ha or non-ha. Profile is a compatibility alias.
 .PARAMETER NameSuffix
   Optional DNS-label suffix used to derive the deployable instance naming contract.
+.PARAMETER Manifest
+  Organization manifest used by restore-layout.
 .EXAMPLE
   ./scripts/Realtime-Bootstrap.ps1 -Action plan -Config ./.bootstrap/prod.json -Topology ha
 .EXAMPLE
@@ -29,6 +31,7 @@ param(
     [string]$NameSuffix,
     [string]$TimeoutSeconds = '300',
     [string]$Backup,
+    [string]$Manifest,
     [switch]$DryRun,
     [switch]$ConfirmTopologyChange,
     [switch]$Force
@@ -39,6 +42,7 @@ if ($Config) { $arguments += @('--config', $Config) }
 if ($Topology) { $arguments += @('--profile', $Topology) }
 if ($NameSuffix) { $arguments += @('--name-suffix', $NameSuffix) }
 if ($Backup) { $arguments += @('--backup', $Backup) }
+if ($Manifest) { $arguments += @('--manifest', $Manifest) }
 if ($DryRun) { $arguments += '--dry-run' }
 if ($ConfirmTopologyChange) { $arguments += '--confirm-topology-change' }
 if ($Force) { $arguments += '--force' }

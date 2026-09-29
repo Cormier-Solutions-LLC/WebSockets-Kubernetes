@@ -32,6 +32,12 @@ Describe 'Realtime-Bootstrap PowerShell entry point' {
         $content | Should -Match "'--name-suffix'"
     }
 
+    It 'exposes layout restore manifests through the shared engine' {
+        $content = Get-Content $script:EntryPoint -Raw
+        $content | Should -Match '\[string\]\$Manifest'
+        $content | Should -Match "'--manifest'"
+    }
+
     It 'parses the managed Redis helper entry points' {
         foreach ($path in @(
             (Join-Path $script:RepositoryRoot 'scripts/Prepare-ManagedRedisChart.ps1'),

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 export const contractVersion = 2;
 export const actions = Object.freeze([
-  "prerequisites", "plan", "bootstrap", "backup", "install", "update", "validate", "rollback", "recover", "teardown",
+  "prerequisites", "plan", "bootstrap", "backup", "install", "update", "validate", "rollback", "recover", "teardown", "organize", "restore-layout",
 ]);
 
 const dnsLabel = /^(?=.{1,63}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -20,6 +20,10 @@ const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
 const memoryQuantity = /^[1-9][0-9]*(?:Mi|Gi)$/;
 const storageQuantity = /^[1-9][0-9]*(?:Mi|Gi|Ti)$/;
+const environmentPathSegment = String.raw`(?:[A-Za-z0-9._-]+|\{environment\})`;
+const bootstrapPath = new RegExp(String.raw`^\.bootstrap(?:\/(?!\.{1,2}(?:\/|$))${environmentPathSegment})*$`);
+const backupPath = new RegExp(String.raw`^\.backups(?:\/(?!\.{1,2}(?:\/|$))${environmentPathSegment})*$`);
+const logPath = new RegExp(String.raw`^(?:\.logs|\.bootstrap)(?:\/(?!\.{1,2}(?:\/|$))${environmentPathSegment})*$`);
 const secretValueKey = /(?:password|token|secret|credential|private.?key|api.?key|authorization|cookie)s?$/i;
 
 function isSecretReferenceField(key, parentPath = "") {
@@ -128,10 +132,11 @@ export function validateConfiguration(input) {
   requireString(naming.suffix, "$.naming.suffix", errors, /^(?:|(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*)$/, true);
 
   const paths = requireRecord(config.paths, "$.paths", errors);
-  requireKeys(paths, "$.paths", ["generatedDirectory", "backupDirectory", "logDirectory"], errors);
-  requireString(paths.generatedDirectory, "$.paths.generatedDirectory", errors, /^\.bootstrap(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
-  requireString(paths.backupDirectory, "$.paths.backupDirectory", errors, /^\.backups(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
-  requireString(paths.logDirectory, "$.paths.logDirectory", errors, /^\.logs(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
+  requireKeys(paths, "$.paths", ["generatedDirectory", "backupDirectory", "logDirectory"], errors, ["environmentDirectory"]);
+  requireString(paths.environmentDirectory ?? ".bootstrap/env/{environment}", "$.paths.environmentDirectory", errors, bootstrapPath);
+  requireString(paths.generatedDirectory, "$.paths.generatedDirectory", errors, bootstrapPath);
+  requireString(paths.backupDirectory, "$.paths.backupDirectory", errors, backupPath);
+  requireString(paths.logDirectory, "$.paths.logDirectory", errors, logPath);
 
   const image = requireRecord(config.image, "$.image", errors);
   requireKeys(image, "$.image", ["repository", "tag", "pullPolicy", "pullSecretName"], errors, ["digest"]);

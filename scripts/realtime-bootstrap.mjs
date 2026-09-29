@@ -9,6 +9,7 @@ import {
   actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
 import { copyCachedManagedRedisChart, legacyManagedRedisChartOutput, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
+import { expandEnvironmentPath, organizeBootstrapEnvironment, restoreBootstrapEnvironment } from "./lib/bootstrap-environment.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -23,7 +24,7 @@ function parse(arguments_) {
     if (argument === "--dry-run") result.dryRun = true;
     else if (argument === "--confirm-topology-change") result.confirmTopologyChange = true;
     else if (argument === "--force") result.force = true;
-    else if (["--config", "--profile", "--timeout-seconds", "--backup", "--name-suffix"].includes(argument)) {
+    else if (["--config", "--profile", "--timeout-seconds", "--backup", "--name-suffix", "--manifest"].includes(argument)) {
       const value = arguments_[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value.`);
       result[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
@@ -44,7 +45,7 @@ Usage:
 
 Actions:
   prerequisites, plan, bootstrap, backup, install, update, validate,
-  rollback, recover, teardown, help
+  rollback, recover, teardown, organize, restore-layout, help
 
 Common options:
   --profile ha|non-ha       Assert the topology selected by the config
@@ -54,6 +55,7 @@ Common options:
   --confirm-topology-change Confirm a reviewed HA/non-HA conversion
   --backup DIRECTORY        Select a captured rollback snapshot
   --force                   Confirm a guarded non-production teardown
+  --manifest FILE           Select an organization manifest to restore
 
 All domains, origins, image/chart versions and digests, Kubernetes identities,
 storage, resource bounds, Redis identities, and observability targets live in
@@ -521,6 +523,25 @@ async function main() {
     return;
   }
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error(`Configuration is invalid: Node.js 22 or later is required; detected ${process.version}.`);
+  if (options.action === "organize") {
+    const result = await organizeBootstrapEnvironment({ repositoryRoot, dryRun: options.dryRun });
+    emit("pass", options.action, options.dryRun ? "Bootstrap environment organization preview completed." : "Bootstrap environment organization completed.", {
+      manifest: result.manifestPath,
+      moves: result.manifest.moves,
+      retained: result.manifest.retained,
+      collisions: result.manifest.collisions,
+      summary: { moved: options.dryRun ? 0 : result.manifest.moves.length, planned: result.manifest.moves.length, retained: result.manifest.retained.length, collisions: result.manifest.collisions.length },
+    });
+    await flushLog();
+    return;
+  }
+  if (options.action === "restore-layout") {
+    if (!options.manifest) throw new Error("restore-layout requires --manifest FILE.");
+    const result = await restoreBootstrapEnvironment({ repositoryRoot, manifestPath: options.manifest });
+    emit("pass", options.action, "Bootstrap environment organization was restored.", { manifest: result.manifestPath, summary: { restored: result.restored } });
+    await flushLog();
+    return;
+  }
   let { config, profile } = await loadContract(repositoryRoot, options.config, options.profile);
   options.kubeContext = config.kubernetes.context;
   if (options.nameSuffix !== undefined) {
@@ -531,12 +552,24 @@ async function main() {
     config = structuredClone(config);
     config.redis.instancePrefix = `${config.redis.instancePrefix}:${config.naming.suffix}`;
   }
+  const environmentDirectoryConfigured = config.paths.environmentDirectory !== undefined;
+  config = structuredClone(config);
+  config.paths.environmentDirectory = expandEnvironmentPath(config.paths.environmentDirectory ?? ".bootstrap/env/{environment}", config.environment.name);
+  config.paths.generatedDirectory = expandEnvironmentPath(config.paths.generatedDirectory, config.environment.name);
+  config.paths.backupDirectory = expandEnvironmentPath(config.paths.backupDirectory, config.environment.name);
+  config.paths.logDirectory = expandEnvironmentPath(config.paths.logDirectory, config.environment.name);
+  const environmentRoot = resolve(repositoryRoot, config.paths.environmentDirectory);
   options.generatedRoot = resolve(repositoryRoot, config.paths.generatedDirectory);
   options.backupRoot = resolve(repositoryRoot, config.paths.backupDirectory);
   const logRoot = resolve(repositoryRoot, config.paths.logDirectory);
+  assertPathInside(repositoryRoot, environmentRoot, "environment output");
   assertPathInside(repositoryRoot, options.generatedRoot, "generated output");
   assertPathInside(repositoryRoot, options.backupRoot, "backup output");
   assertPathInside(repositoryRoot, logRoot, "log output");
+  if (environmentDirectoryConfigured) {
+    assertPathInside(environmentRoot, options.generatedRoot, "environment generated output");
+    assertPathInside(environmentRoot, logRoot, "environment log output");
+  }
   activeLogPath = resolve(logRoot, `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
   const names = config.naming.suffix ? `realtime-${config.naming.suffix}` : "realtime";
   const targetRoot = resolve(options.generatedRoot, `${config.environment.name}-${names}`);

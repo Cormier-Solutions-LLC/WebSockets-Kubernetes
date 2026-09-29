@@ -56,17 +56,17 @@ Diagnostics endpoints are disabled by default and have separate production, auth
 Copy `bootstrap/config.example.json` to an ignored or external location, replace every example target, keep credentials in existing Secret providers, and preview one explicit topology before making changes:
 
 ```powershell
-New-Item -ItemType Directory -Force ./.bootstrap | Out-Null
-Copy-Item ./bootstrap/config.example.json ./.bootstrap/config.json
-pwsh ./scripts/Realtime-Bootstrap.ps1 -Action plan -Config ./.bootstrap/config.json -Profile non-ha
+New-Item -ItemType Directory -Force ./.bootstrap/env/dev | Out-Null
+Copy-Item ./bootstrap/config.example.json ./.bootstrap/env/dev/config.json
+pwsh ./scripts/Realtime-Bootstrap.ps1 -Action plan -Config ./.bootstrap/env/dev/config.json -Profile non-ha
 ```
 
 The equivalent Bash command is:
 
 ```bash
-mkdir -p ./.bootstrap
-cp ./bootstrap/config.example.json ./.bootstrap/config.json
-bash ./scripts/realtime-bootstrap.sh plan --config ./.bootstrap/config.json --profile non-ha
+mkdir -p ./.bootstrap/env/dev
+cp ./bootstrap/config.example.json ./.bootstrap/env/dev/config.json
+bash ./scripts/realtime-bootstrap.sh plan --config ./.bootstrap/env/dev/config.json --profile non-ha
 ```
 
 Both wrappers call the same Node.js engine, validate the same versioned schema, and produce deterministic secret-redacted plans and Helm values. The supported actions cover prerequisites, planning, build bootstrap, backup, install, update, validation, rollback, recovery, and guarded teardown. Review the [bootstrap guide](docs/bootstrap.md) and [bootstrap contract](docs/bootstrap-contract.md) before applying a plan. The older PowerShell-only bootstrap and deployment scripts remain compatibility entry points during the version 1 transition.

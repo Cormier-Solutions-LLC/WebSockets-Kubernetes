@@ -1,6 +1,6 @@
 {
   "name": "@cormier/realtime",
-  "version": "1.0.5-beta",
+  "version": "1.0.6-beta",
   "description": "Browser and TypeScript client for Cormier.Realtime",
   "license": "MIT",
   "packageManager": "npm@12.1.0",

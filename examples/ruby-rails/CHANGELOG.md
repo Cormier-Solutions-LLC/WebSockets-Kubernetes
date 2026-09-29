@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6-beta - 2026-09-29
+
+- Updated the example to the coordinated `1.0.6-beta` gateway and browser assets; see `docs/release-notes/1.0.6-beta.md`.
+
 ## 1.0.5-beta - 2026-09-28
 
 - See the coordinated release notes in `docs/release-notes/1.0.5-beta.md`.

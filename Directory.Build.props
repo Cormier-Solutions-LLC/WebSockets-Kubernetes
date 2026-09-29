@@ -1,14 +1,14 @@
 <Project>
   <PropertyGroup>
-    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1.0.5-beta</ApplicationVersion>
-    <ContainerVersion Condition="'$(ContainerVersion)' == ''">1.0.5-beta</ContainerVersion>
-    <ContractsVersion Condition="'$(ContractsVersion)' == ''">1.0.5-beta</ContractsVersion>
-    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">1.0.5-beta</RedisAdapterVersion>
-    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.5-beta</AspNetCoreIntegrationVersion>
-    <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.5-beta</DotNetClientVersion>
-    <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.5-beta</BrowserPackageVersion>
-    <HttpFallbackVersion Condition="'$(HttpFallbackVersion)' == ''">1.0.5-beta</HttpFallbackVersion>
-    <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">1.0.5-beta</HelmChartVersion>
+    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1.0.6-beta</ApplicationVersion>
+    <ContainerVersion Condition="'$(ContainerVersion)' == ''">1.0.6-beta</ContainerVersion>
+    <ContractsVersion Condition="'$(ContractsVersion)' == ''">1.0.6-beta</ContractsVersion>
+    <RedisAdapterVersion Condition="'$(RedisAdapterVersion)' == ''">1.0.6-beta</RedisAdapterVersion>
+    <AspNetCoreIntegrationVersion Condition="'$(AspNetCoreIntegrationVersion)' == ''">1.0.6-beta</AspNetCoreIntegrationVersion>
+    <DotNetClientVersion Condition="'$(DotNetClientVersion)' == ''">1.0.6-beta</DotNetClientVersion>
+    <BrowserPackageVersion Condition="'$(BrowserPackageVersion)' == ''">1.0.6-beta</BrowserPackageVersion>
+    <HttpFallbackVersion Condition="'$(HttpFallbackVersion)' == ''">1.0.6-beta</HttpFallbackVersion>
+    <HelmChartVersion Condition="'$(HelmChartVersion)' == ''">1.0.6-beta</HelmChartVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
     <Authors>Cormier</Authors>

@@ -673,14 +673,14 @@ fi
   await writeFile(kubectlPath, kubectl, { mode: 0o755 });
 }
 
-async function seedManagedChartCache(fakeBin, release, chart = "oci://registry-1.docker.io/bitnamicharts/redis", version = "23.1.1", legacy = false) {
+async function seedManagedChartCache(fakeBin, release, chart = "oci://registry-1.docker.io/bitnamicharts/redis", version = "23.1.1", legacy = false, bootstrapConfig = configuration()) {
   await prepareManagedRedisChart({
     chart,
     version,
     archiveSha256: managedChartFixtureSha256,
     outputDirectory: legacy
-      ? resolve(generatedTarget(config, release), `charts/redis-${version}`)
-      : managedRedisChartOutput(resolve(repositoryRoot, expandEnvironmentPath(config.paths.generatedDirectory, config.environment.name)), release, chart, version),
+      ? resolve(generatedTarget(bootstrapConfig, release), `charts/redis-${version}`)
+      : managedRedisChartOutput(resolve(repositoryRoot, expandEnvironmentPath(bootstrapConfig.paths.generatedDirectory, bootstrapConfig.environment.name)), release, chart, version),
     helm: resolve(fakeBin, "helm"),
   });
 }

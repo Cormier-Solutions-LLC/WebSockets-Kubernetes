@@ -173,8 +173,9 @@ class HttpStreamingSocket implements WebSocketLike {
   private sendTail: Promise<void> = Promise.resolve();
 
   public constructor(websocketUrl: string, options: HttpStreamingOptions) {
-    this.fetcher = options.fetch ?? globalThis.fetch;
-    if (this.fetcher === undefined) throw new TypeError("HTTP streaming requires the Fetch API.");
+    const fetcher = options.fetch ?? globalThis.fetch;
+    if (fetcher === undefined) throw new TypeError("HTTP streaming requires the Fetch API.");
+    this.fetcher = options.fetch === undefined ? fetcher.bind(globalThis) : fetcher;
     this.baseUrl = new URL(options.url.toString(), globalThis.location?.href);
     if (this.baseUrl.protocol !== "http:" && this.baseUrl.protocol !== "https:") {
       throw new TypeError("The HTTP streaming URL must use http or https.");

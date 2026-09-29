@@ -49,6 +49,29 @@ test("HTTP streaming can be the primary transport", async () => {
   await client.disconnect();
 });
 
+test("HTTP streaming binds the native Fetch API to the global object", async () => {
+  const originalFetch = globalThis.fetch;
+  const harness = httpHarness();
+  globalThis.fetch = function (...args) {
+    assert.equal(this, globalThis);
+    return harness.fetch(...args);
+  };
+
+  try {
+    const client = new RealtimeClient({
+      url: "https://gateway.example/realtime/ws",
+      transports: ["http-streaming"],
+      httpStreaming: { url: "https://gateway.example/realtime/http" },
+      heartbeatIntervalMilliseconds: 60_000,
+    });
+    await client.connect();
+    assert.equal(client.activeTransport, "http-streaming");
+    await client.disconnect();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("initial WebSocket failure falls through to HTTP streaming", async () => {
   const harness = httpHarness();
   const client = new RealtimeClient({

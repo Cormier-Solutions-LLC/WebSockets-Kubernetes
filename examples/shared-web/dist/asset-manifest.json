@@ -39,29 +39,29 @@
         {
           "path": "readable/index.html",
           "bytes": 2466,
-          "gzipBytes": 1115,
-          "sha256": "c4093ec7e2b0c6e27993e7e4856b867abbf1774f432f27c972c2c2d857ceb3f8",
-          "integrity": "sha384-NDP7VkwCq7qxgEgZ93nCLYpU5HwgwAMvtG7umlIcOSIaX58iQdZ+ClGUvSniKLzP"
+          "gzipBytes": 1117,
+          "sha256": "f5b41b05addb09d25c35504f97da0ccfefca370c146917c8249227e646ee17a7",
+          "integrity": "sha384-+tqalbfL1DnLmXIcFDaKGiwhkOD22b+8NFV7cjQ1xuczeiw42aqnBUB2NdqKHFTo"
         },
         {
           "path": "readable/fallback.html",
           "bytes": 2466,
-          "gzipBytes": 1115,
-          "sha256": "c4093ec7e2b0c6e27993e7e4856b867abbf1774f432f27c972c2c2d857ceb3f8",
-          "integrity": "sha384-NDP7VkwCq7qxgEgZ93nCLYpU5HwgwAMvtG7umlIcOSIaX58iQdZ+ClGUvSniKLzP"
+          "gzipBytes": 1117,
+          "sha256": "f5b41b05addb09d25c35504f97da0ccfefca370c146917c8249227e646ee17a7",
+          "integrity": "sha384-+tqalbfL1DnLmXIcFDaKGiwhkOD22b+8NFV7cjQ1xuczeiw42aqnBUB2NdqKHFTo"
         },
         {
           "path": "readable/failover.html",
           "bytes": 2466,
-          "gzipBytes": 1115,
-          "sha256": "c4093ec7e2b0c6e27993e7e4856b867abbf1774f432f27c972c2c2d857ceb3f8",
-          "integrity": "sha384-NDP7VkwCq7qxgEgZ93nCLYpU5HwgwAMvtG7umlIcOSIaX58iQdZ+ClGUvSniKLzP"
+          "gzipBytes": 1117,
+          "sha256": "f5b41b05addb09d25c35504f97da0ccfefca370c146917c8249227e646ee17a7",
+          "integrity": "sha384-+tqalbfL1DnLmXIcFDaKGiwhkOD22b+8NFV7cjQ1xuczeiw42aqnBUB2NdqKHFTo"
         }
       ],
       "sdk": {
         "path": "cormier-realtime.iife.js",
-        "sha256": "f276c438f4b11cce2197951b183da022eab8cf07e58fb10d6e4a1c33a369cb44",
-        "integrity": "sha384-5K+GkIt5aS7SKUCVPks3LW0ThrIXsO24ltpWAHRyUPW+GOv+0Q9SBR11S0ZhtBj7"
+        "sha256": "8219097489ee842cd9e1d8f9106af77dec4406d58b72cdcd6c943e37e17b205f",
+        "integrity": "sha384-2kJG38ymzo4ya83IC7MryXBJmO2wGwTDKKp5x+QAr555yYE3cSN5pBFkqKogVTGf"
       }
     },
     "optimized": {
@@ -83,23 +83,23 @@
         {
           "path": "optimized/index.html",
           "bytes": 2305,
-          "gzipBytes": 1091,
-          "sha256": "cbf9909e98a61b5fe1869d54c62ec76fec170be90df346c1e0e4a4f25a295f4c",
-          "integrity": "sha384-GtIPr645NTIrFMWjpCa01GYEt4XR8GO2IpnupJjMVnzml/7t2Ya9q8K+wV5ifHjJ"
+          "gzipBytes": 1093,
+          "sha256": "d9973f26a98dfe14c2be34c053958b4335f80a06be6cbbf27f085703b55718ae",
+          "integrity": "sha384-xx0HK9GHJGb7lLIRtmCZ6GXURzOpelAKSMms03nXRNSnsZZrSy7dzprncBviU8cW"
         },
         {
           "path": "optimized/fallback.html",
           "bytes": 2305,
-          "gzipBytes": 1091,
-          "sha256": "cbf9909e98a61b5fe1869d54c62ec76fec170be90df346c1e0e4a4f25a295f4c",
-          "integrity": "sha384-GtIPr645NTIrFMWjpCa01GYEt4XR8GO2IpnupJjMVnzml/7t2Ya9q8K+wV5ifHjJ"
+          "gzipBytes": 1093,
+          "sha256": "d9973f26a98dfe14c2be34c053958b4335f80a06be6cbbf27f085703b55718ae",
+          "integrity": "sha384-xx0HK9GHJGb7lLIRtmCZ6GXURzOpelAKSMms03nXRNSnsZZrSy7dzprncBviU8cW"
         },
         {
           "path": "optimized/failover.html",
           "bytes": 2305,
-          "gzipBytes": 1091,
-          "sha256": "cbf9909e98a61b5fe1869d54c62ec76fec170be90df346c1e0e4a4f25a295f4c",
-          "integrity": "sha384-GtIPr645NTIrFMWjpCa01GYEt4XR8GO2IpnupJjMVnzml/7t2Ya9q8K+wV5ifHjJ"
+          "gzipBytes": 1093,
+          "sha256": "d9973f26a98dfe14c2be34c053958b4335f80a06be6cbbf27f085703b55718ae",
+          "integrity": "sha384-xx0HK9GHJGb7lLIRtmCZ6GXURzOpelAKSMms03nXRNSnsZZrSy7dzprncBviU8cW"
         },
         {
           "path": "source-maps/optimized/app.css.map",
@@ -118,8 +118,8 @@
       ],
       "sdk": {
         "path": "cormier-realtime.iife.min.js",
-        "sha256": "37dd706a86413adf8de9024d605724aad80abeaa50ba2f5c4e531b8570a7460c",
-        "integrity": "sha384-2JwunMRxTqCYitGmI3w0tesBEfcHlv10wDgb1H0IhMlXQQ8Ed8Ctzn55MDfSBlcf"
+        "sha256": "baaa18cb6250e34f9c8e02a5884b827af1693a815c044703eb1a60371571ab66",
+        "integrity": "sha384-FhMSNR5dBZBBbIYvsxf/2UKK+2lacO9UOeFPu4Ni02m2IVYhVRw9FZzj6CHk58un"
       }
     }
   },

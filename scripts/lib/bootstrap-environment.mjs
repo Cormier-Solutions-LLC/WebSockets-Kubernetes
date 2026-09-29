@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rename, stat } from "node:fs/promises";
-import { basename, dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 
 import { assertPathInside, atomicWrite, fileExists, stableJson } from "./bootstrap-contract.mjs";
 

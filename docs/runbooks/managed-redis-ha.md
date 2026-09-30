@@ -14,7 +14,7 @@ Copy `bootstrap/config.ha.example.json` to an ignored or external location. It i
 
 The committed example pins the verified Bitnami Redis chart `23.1.1` archive and the Redis `8.2.1` image family by multi-platform digest. The image base distribution is part of that tested artifact. Do not independently replace it with a Debian 13 or rolling `latest` image: doing so changes Redis binaries, entrypoint behavior, and possibly the persisted RDB/AOF format. Test a chart/image/data upgrade together and retain a verified backup before changing any digest.
 
-The bootstrap downloads the chart, verifies its archive checksum, and applies the reviewed Sentinel Service patch locally. The patch adds `publishNotReadyAddresses: true` to the normal Redis/Sentinel Service. The chart already sets it on the headless Service. This lets the first ordered member discover Sentinel before readiness without exposing Redis outside the cluster. Keep the ignored `.bootstrap/lifecycle/<release>/charts` cache with the administration workspace; later backups intentionally refuse to invent provenance by downloading new bytes for an old chart tag.
+The bootstrap downloads the chart, verifies its archive checksum, and applies the reviewed Sentinel Service patch locally. The patch adds `publishNotReadyAddresses: true` to the normal Redis/Sentinel Service. The chart already sets it on the headless Service. This lets the first ordered member discover Sentinel before readiness without exposing Redis outside the cluster. Keep the ignored `.bootstrap/env/<environment>/lifecycle/<release>/charts` cache with the administration workspace; later backups intentionally refuse to invent provenance by downloading new bytes for an old chart tag.
 
 ## 1. Verify the target
 
@@ -110,7 +110,7 @@ bash ./scripts/realtime-bootstrap.sh validate --config /secure/realtime-prod.jso
 ./scripts/Realtime-Bootstrap.ps1 -Action validate -Config C:\secure\realtime-prod.json -Topology ha -TimeoutSeconds 1200
 ```
 
-Review `.bootstrap/lifecycle/<release>/plan.json`, `values.json`, and `redis-values.json`. The HA Redis render must contain:
+Review `.bootstrap/env/<environment>/lifecycle/<release>/plan.json`, `values.json`, and `redis-values.json`. The HA Redis render must contain:
 
 - three Redis/Sentinel pods and Sentinel quorum two;
 - `podManagementPolicy: OrderedReady`;

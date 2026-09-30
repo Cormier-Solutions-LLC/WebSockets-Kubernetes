@@ -3,9 +3,10 @@
   "environment": { "name": "prod", "class": "production" },
   "naming": { "suffix": "" },
   "paths": {
-    "generatedDirectory": ".bootstrap/lifecycle",
-    "backupDirectory": ".backups/bootstrap",
-    "logDirectory": ".logs"
+    "environmentDirectory": ".bootstrap/env/{environment}",
+    "generatedDirectory": ".bootstrap/env/{environment}/lifecycle",
+    "backupDirectory": ".backups/bootstrap/{environment}",
+    "logDirectory": ".bootstrap/env/{environment}/logs"
   },
   "image": {
     "repository": "ghcr.io/example-org/cormier-realtime-gateway",

@@ -9,11 +9,13 @@ import {
   actions, assertPathInside, atomicWrite, buildPlan, fileExists, inlineSecretPaths, loadContract, readJson, releaseNames, stableJson, useCapturedDeploymentValues,
 } from "./lib/bootstrap-contract.mjs";
 import { copyCachedManagedRedisChart, legacyManagedRedisChartOutput, managedRedisChartOutput, prepareManagedRedisChart } from "./lib/managed-redis-chart.mjs";
+import { expandEnvironmentPath, organizeBootstrapEnvironment, restoreBootstrapEnvironment } from "./lib/bootstrap-environment.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const events = [];
 let activeLogPath = resolve(repositoryRoot, ".logs", `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
+let logPersistenceEnabled = true;
 
 function parse(arguments_) {
   if (["help", "--help", "-h"].includes(arguments_[0])) return { action: "help" };
@@ -23,7 +25,7 @@ function parse(arguments_) {
     if (argument === "--dry-run") result.dryRun = true;
     else if (argument === "--confirm-topology-change") result.confirmTopologyChange = true;
     else if (argument === "--force") result.force = true;
-    else if (["--config", "--profile", "--timeout-seconds", "--backup", "--name-suffix"].includes(argument)) {
+    else if (["--config", "--profile", "--timeout-seconds", "--backup", "--name-suffix", "--manifest"].includes(argument)) {
       const value = arguments_[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value.`);
       result[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
@@ -44,7 +46,7 @@ Usage:
 
 Actions:
   prerequisites, plan, bootstrap, backup, install, update, validate,
-  rollback, recover, teardown, help
+  rollback, recover, teardown, organize, restore-layout, help
 
 Common options:
   --profile ha|non-ha       Assert the topology selected by the config
@@ -54,6 +56,7 @@ Common options:
   --confirm-topology-change Confirm a reviewed HA/non-HA conversion
   --backup DIRECTORY        Select a captured rollback snapshot
   --force                   Confirm a guarded non-production teardown
+  --manifest FILE           Select an organization manifest to restore
 
 All domains, origins, image/chart versions and digests, Kubernetes identities,
 storage, resource bounds, Redis identities, and observability targets live in
@@ -70,7 +73,18 @@ function emit(level, phase, message, fields = {}) {
 }
 
 async function flushLog() {
+  if (!logPersistenceEnabled) return;
   await atomicWrite(activeLogPath, events.map(event => JSON.stringify(event)).join("\n") + "\n");
+}
+
+function assertRollbackSource(planTarget, options, backup) {
+  try {
+    assertPathInside(options.backupRoot, backup, "rollback source");
+  } catch (error) {
+    const legacyReleaseRoot = resolve(repositoryRoot, ".backups", "bootstrap", planTarget.release);
+    try { assertPathInside(legacyReleaseRoot, backup, "legacy rollback source"); }
+    catch { throw error; }
+  }
 }
 
 async function archiveOldLogs(logRoot) {
@@ -221,6 +235,8 @@ async function saveState(plan, config, options) {
           for (const cacheDirectory of [
             managedRedisChartOutput(options.generatedRoot, options.targetName, chart, chartVersion),
             legacyManagedRedisChartOutput(options.generatedRoot, options.targetName, chartVersion),
+            managedRedisChartOutput(resolve(repositoryRoot, ".bootstrap/lifecycle"), options.targetName, chart, chartVersion),
+            legacyManagedRedisChartOutput(resolve(repositoryRoot, ".bootstrap/lifecycle"), options.targetName, chartVersion),
           ]) {
             try {
               capturedChart = await copyCachedManagedRedisChart({ chart, version: chartVersion, cacheDirectory, outputDirectory: directory });
@@ -282,7 +298,7 @@ async function installedReleaseState(planTarget, options) {
 async function readRollbackSnapshot(planTarget, options) {
   const backup = options.backup ? resolve(options.backup) : undefined;
   if (!backup) throw new Error("rollback requires --backup pointing to a captured backup directory.");
-  assertPathInside(options.backupRoot, backup, "rollback source");
+  assertRollbackSource(planTarget, options, backup);
   const savedPlan = await readJson(resolve(backup, "plan.json"));
   if (savedPlan.target.context !== planTarget.context || savedPlan.target.namespace !== planTarget.namespace || savedPlan.target.release !== planTarget.release) throw new Error("Backup target does not match the requested context, namespace, and release.");
   const releases = await readJson(resolve(backup, "releases.json"));
@@ -347,11 +363,33 @@ async function apply(plan, config, options) {
 
 async function prepareRedisChart(managedRedis, options) {
   const outputDirectory = managedRedisChartOutput(options.generatedRoot, options.targetName, managedRedis.chart, managedRedis.chartVersion);
+  let archivePath = managedRedis.chartArchivePath;
+  if (!archivePath) {
+    const legacyGeneratedRoot = resolve(repositoryRoot, ".bootstrap/lifecycle");
+    const legacyCacheDirectories = [
+      managedRedisChartOutput(legacyGeneratedRoot, options.targetName, managedRedis.chart, managedRedis.chartVersion),
+      legacyManagedRedisChartOutput(legacyGeneratedRoot, options.targetName, managedRedis.chartVersion),
+    ];
+    for (const cacheDirectory of legacyCacheDirectories) {
+      if (resolve(cacheDirectory) === resolve(outputDirectory)) continue;
+      try {
+        const copied = await copyCachedManagedRedisChart({
+          chart: managedRedis.chart,
+          version: managedRedis.chartVersion,
+          cacheDirectory,
+          outputDirectory,
+        });
+        archivePath = copied.archivePath;
+        emit("info", options.action, "Reusing verified legacy managed Redis chart cache.", { cacheDirectory });
+        break;
+      } catch {}
+    }
+  }
   const prepared = await prepareManagedRedisChart({
     chart: managedRedis.chart,
     version: managedRedis.chartVersion,
     archiveSha256: managedRedis.chartArchiveSha256,
-    archivePath: managedRedis.chartArchivePath,
+    archivePath,
     outputDirectory,
     timeoutSeconds: options.timeoutSeconds,
   });
@@ -455,7 +493,7 @@ function capturedReleaseRevision(releaseInventory, release) {
 async function rollback(plan, options) {
   const backup = options.backup ? resolve(options.backup) : undefined;
   if (!backup) throw new Error("rollback requires --backup pointing to a captured backup directory.");
-  assertPathInside(options.backupRoot, backup, "rollback source");
+  assertRollbackSource(plan.target, options, backup);
   const savedPlan = await readJson(resolve(backup, "plan.json"));
   if (savedPlan.target.context !== plan.target.context || savedPlan.target.namespace !== plan.target.namespace || savedPlan.target.release !== plan.target.release) throw new Error("Backup target does not match the requested context, namespace, and release.");
   const releaseInventory = await readJson(resolve(backup, "releases.json"));
@@ -516,11 +554,38 @@ function configurationForPlan(config, plan) {
 async function main() {
   const options = parse(process.argv.slice(2));
   options.action = options.action;
+  if (options.dryRun && ["organize", "restore-layout"].includes(options.action)) logPersistenceEnabled = false;
   if (options.action === "help") {
     process.stdout.write(usage);
     return;
   }
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error(`Configuration is invalid: Node.js 22 or later is required; detected ${process.version}.`);
+  if (options.action === "organize") {
+    const result = await organizeBootstrapEnvironment({ repositoryRoot, dryRun: options.dryRun });
+    emit("pass", options.action, options.dryRun ? "Bootstrap environment organization preview completed." : "Bootstrap environment organization completed.", {
+      manifest: result.manifestPath,
+      moves: result.manifest.moves,
+      retained: result.manifest.retained,
+      collisions: result.manifest.collisions,
+      summary: { moved: options.dryRun ? 0 : result.manifest.moves.length, planned: result.manifest.moves.length, retained: result.manifest.retained.length, collisions: result.manifest.collisions.length },
+    });
+    await flushLog();
+    return;
+  }
+  if (options.action === "restore-layout") {
+    if (!options.manifest) {
+      const error = new Error("restore-layout requires --manifest FILE.");
+      error.exitCode = 2;
+      throw error;
+    }
+    const result = await restoreBootstrapEnvironment({ repositoryRoot, manifestPath: options.manifest, dryRun: options.dryRun });
+    emit("pass", options.action, options.dryRun ? "Bootstrap environment restoration preview completed." : "Bootstrap environment organization was restored.", {
+      manifest: result.manifestPath,
+      summary: { restored: result.restored, planned: result.planned },
+    });
+    await flushLog();
+    return;
+  }
   let { config, profile } = await loadContract(repositoryRoot, options.config, options.profile);
   options.kubeContext = config.kubernetes.context;
   if (options.nameSuffix !== undefined) {
@@ -531,12 +596,24 @@ async function main() {
     config = structuredClone(config);
     config.redis.instancePrefix = `${config.redis.instancePrefix}:${config.naming.suffix}`;
   }
+  const environmentDirectoryConfigured = config.paths.environmentDirectory !== undefined;
+  config = structuredClone(config);
+  config.paths.environmentDirectory = expandEnvironmentPath(config.paths.environmentDirectory ?? ".bootstrap/env/{environment}", config.environment.name);
+  config.paths.generatedDirectory = expandEnvironmentPath(config.paths.generatedDirectory, config.environment.name);
+  config.paths.backupDirectory = expandEnvironmentPath(config.paths.backupDirectory, config.environment.name);
+  config.paths.logDirectory = expandEnvironmentPath(config.paths.logDirectory, config.environment.name);
+  const environmentRoot = resolve(repositoryRoot, config.paths.environmentDirectory);
   options.generatedRoot = resolve(repositoryRoot, config.paths.generatedDirectory);
   options.backupRoot = resolve(repositoryRoot, config.paths.backupDirectory);
   const logRoot = resolve(repositoryRoot, config.paths.logDirectory);
+  assertPathInside(repositoryRoot, environmentRoot, "environment output");
   assertPathInside(repositoryRoot, options.generatedRoot, "generated output");
   assertPathInside(repositoryRoot, options.backupRoot, "backup output");
   assertPathInside(repositoryRoot, logRoot, "log output");
+  if (environmentDirectoryConfigured) {
+    assertPathInside(environmentRoot, options.generatedRoot, "environment generated output");
+    assertPathInside(environmentRoot, logRoot, "environment log output");
+  }
   activeLogPath = resolve(logRoot, `Realtime-Bootstrap-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
   const names = config.naming.suffix ? `realtime-${config.naming.suffix}` : "realtime";
   const targetRoot = resolve(options.generatedRoot, `${config.environment.name}-${names}`);
@@ -561,7 +638,9 @@ async function main() {
   }
   try {
     const statePath = resolve(targetRoot, "state.json");
-    const priorState = await fileExists(statePath) ? await readJson(statePath) : undefined;
+    const legacyStatePath = resolve(repositoryRoot, ".bootstrap/lifecycle", options.targetName, "state.json");
+    const priorStatePath = await fileExists(statePath) ? statePath : await fileExists(legacyStatePath) ? legacyStatePath : undefined;
+    const priorState = priorStatePath ? await readJson(priorStatePath) : undefined;
     const provisionalPlan = buildPlan(options.action, config, profile, { dryRun: options.dryRun, timeoutSeconds: options.timeoutSeconds, previousTopology: priorState?.topology });
     const rollbackSnapshot = options.action === "rollback" ? await readRollbackSnapshot(provisionalPlan.target, options) : undefined;
     if (rollbackSnapshot?.gatewayPresent) {
@@ -651,8 +730,13 @@ async function main() {
       await command("helm", ["uninstall", plan.target.release, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove realtime gateway", options);
       if (config.redis.mode === "managed" || installedState?.redisMode === "managed") await command("helm", ["uninstall", plan.target.redisRelease, "--namespace", plan.target.namespace, "--ignore-not-found", "--keep-history", "--wait", `--timeout=${options.timeoutSeconds}s`], "Remove managed Redis", options);
     }
-    if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) await rm(statePath, { force: true });
-    else if (["install", "update", "recover", "rollback"].includes(options.action)) await atomicWrite(statePath, stableJson({ contractVersion: 2, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
+    if (options.action === "teardown" || (options.action === "rollback" && rollbackSnapshot?.gatewayPresent === false)) {
+      await rm(statePath, { force: true });
+      if (legacyStatePath !== statePath) await rm(legacyStatePath, { force: true });
+    } else if (["install", "update", "recover", "rollback"].includes(options.action)) {
+      await atomicWrite(statePath, stableJson({ contractVersion: 2, topology: config.topology, valuesSha256: plan.valuesSha256, backup: backup ?? options.backup ?? null }));
+      if (legacyStatePath !== statePath) await rm(legacyStatePath, { force: true });
+    }
     emit("pass", options.action, "Lifecycle action completed.", {
       backup: backup ?? null,
       profile: config.topology,
@@ -668,7 +752,8 @@ async function main() {
 main().catch(async error => {
   emit("error", "failure", error.message);
   try { await flushLog(); } catch (logError) { process.stderr.write(`Unable to write lifecycle log: ${logError.message}\n`); }
-  if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
-  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|Backup target does not match|target lock/.test(error.message)) process.exitCode = 3;
+  if ([1, 2, 3].includes(error.exitCode)) process.exitCode = error.exitCode;
+  else if (/^(?:Action must|Unknown argument|--.+ (?:requires|must)|--timeout-seconds)|Configuration is invalid|Requested profile|Cannot read JSON|Derived Helm release/.test(error.message)) process.exitCode = 2;
+  else if (/requires --|requires an explicit migration|forbidden for production|Target mismatch|Backup target does not match|target lock|organization lock|already been restored/.test(error.message)) process.exitCode = 3;
   else process.exitCode = 1;
 });

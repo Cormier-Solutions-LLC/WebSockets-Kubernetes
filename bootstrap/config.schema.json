@@ -72,7 +72,7 @@
       "additionalProperties": false,
       "required": ["name", "class"],
       "properties": {
-        "name": { "type": "string", "pattern": "^[a-z0-9]{1,10}$" },
+        "name": { "type": "string", "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$)[a-z0-9]{1,10}$" },
         "class": { "enum": ["development", "test", "staging", "production"] }
       }
     },
@@ -87,9 +87,10 @@
       "additionalProperties": false,
       "required": ["generatedDirectory", "backupDirectory", "logDirectory"],
       "properties": {
-        "generatedDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" },
-        "backupDirectory": { "type": "string", "pattern": "^\\.backups(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" },
-        "logDirectory": { "type": "string", "pattern": "^\\.logs(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$" }
+        "environmentDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/(?!\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+|\\{environment\\}))*$" },
+        "generatedDirectory": { "type": "string", "pattern": "^\\.bootstrap(?:/(?!\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+|\\{environment\\}))*$" },
+        "backupDirectory": { "type": "string", "pattern": "^\\.backups(?:/(?!\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+|\\{environment\\}))*$" },
+        "logDirectory": { "type": "string", "pattern": "^(?:\\.logs|\\.bootstrap)(?:/(?!\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+|\\{environment\\}))*$" }
       }
     },
     "image": {

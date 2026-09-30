@@ -5,7 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 export const contractVersion = 2;
 export const actions = Object.freeze([
-  "prerequisites", "plan", "bootstrap", "backup", "install", "update", "validate", "rollback", "recover", "teardown",
+  "prerequisites", "plan", "bootstrap", "backup", "install", "update", "validate", "rollback", "recover", "teardown", "organize", "restore-layout",
 ]);
 
 const dnsLabel = /^(?=.{1,63}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -20,7 +20,20 @@ const secretKey = /^[A-Za-z0-9._-]+$/;
 const redisPrefix = /^[A-Za-z0-9:_-]+$/;
 const memoryQuantity = /^[1-9][0-9]*(?:Mi|Gi)$/;
 const storageQuantity = /^[1-9][0-9]*(?:Mi|Gi|Ti)$/;
+const environmentPathSegment = String.raw`(?:[A-Za-z0-9._-]+|\{environment\})`;
+const bootstrapPath = new RegExp(String.raw`^\.bootstrap(?:\/(?!\.{1,2}(?:\/|$))${environmentPathSegment})*$`);
+const backupPath = new RegExp(String.raw`^\.backups(?:\/(?!\.{1,2}(?:\/|$))${environmentPathSegment})*$`);
+const logPath = new RegExp(String.raw`^(?:\.logs|\.bootstrap)(?:\/(?!\.{1,2}(?:\/|$))${environmentPathSegment})*$`);
 const secretValueKey = /(?:password|token|secret|credential|private.?key|api.?key|authorization|cookie)s?$/i;
+const windowsDeviceName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+export function isValidEnvironmentName(value) {
+  return typeof value === "string" && /^[a-z0-9]{1,10}$/.test(value) && !windowsDeviceName.test(value);
+}
+
+function pathIsWithin(parent, child) {
+  return child === parent || child.startsWith(`${parent}/`);
+}
 
 function isSecretReferenceField(key, parentPath = "") {
   return /^(?:existingSecret|userSecret|credentialsSecret|otlpHeadersSecret|headersSecret|scrapeTokenSecret|operatorTokenSecret|webhookSecret|tlsSecretName|secretName|managedImagePullSecrets|imagePullSecrets)$/i.test(key)
@@ -121,6 +134,9 @@ export function validateConfiguration(input) {
   const environment = requireRecord(config.environment, "$.environment", errors);
   requireKeys(environment, "$.environment", ["name", "class"], errors);
   requireString(environment.name, "$.environment.name", errors, /^[a-z0-9]{1,10}$/);
+  if (typeof environment.name === "string" && /^[a-z0-9]{1,10}$/.test(environment.name) && !isValidEnvironmentName(environment.name)) {
+    errors.push(problem("$.environment.name", "must not use a Windows reserved device name"));
+  }
   if (!["development", "test", "staging", "production"].includes(environment.class)) errors.push(problem("$.environment.class", "must be development, test, staging, or production"));
 
   const naming = requireRecord(config.naming, "$.naming", errors);
@@ -128,10 +144,23 @@ export function validateConfiguration(input) {
   requireString(naming.suffix, "$.naming.suffix", errors, /^(?:|(?=.{1,27}$)[a-z0-9]+(?:-[a-z0-9]+)*)$/, true);
 
   const paths = requireRecord(config.paths, "$.paths", errors);
-  requireKeys(paths, "$.paths", ["generatedDirectory", "backupDirectory", "logDirectory"], errors);
-  requireString(paths.generatedDirectory, "$.paths.generatedDirectory", errors, /^\.bootstrap(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
-  requireString(paths.backupDirectory, "$.paths.backupDirectory", errors, /^\.backups(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
-  requireString(paths.logDirectory, "$.paths.logDirectory", errors, /^\.logs(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]+)*$/);
+  requireKeys(paths, "$.paths", ["generatedDirectory", "backupDirectory", "logDirectory"], errors, ["environmentDirectory"]);
+  requireString(paths.environmentDirectory ?? ".bootstrap/env/{environment}", "$.paths.environmentDirectory", errors, bootstrapPath);
+  requireString(paths.generatedDirectory, "$.paths.generatedDirectory", errors, bootstrapPath);
+  requireString(paths.backupDirectory, "$.paths.backupDirectory", errors, backupPath);
+  requireString(paths.logDirectory, "$.paths.logDirectory", errors, logPath);
+  if (paths.environmentDirectory !== undefined && isValidEnvironmentName(environment.name)
+    && typeof paths.environmentDirectory === "string" && bootstrapPath.test(paths.environmentDirectory)) {
+    const environmentDirectory = paths.environmentDirectory.replaceAll("{environment}", environment.name);
+    if (typeof paths.generatedDirectory === "string" && bootstrapPath.test(paths.generatedDirectory)) {
+      const generatedDirectory = paths.generatedDirectory.replaceAll("{environment}", environment.name);
+      if (!pathIsWithin(environmentDirectory, generatedDirectory)) errors.push(problem("$.paths.generatedDirectory", "must be within paths.environmentDirectory"));
+    }
+    if (typeof paths.logDirectory === "string" && logPath.test(paths.logDirectory)) {
+      const logDirectory = paths.logDirectory.replaceAll("{environment}", environment.name);
+      if (!pathIsWithin(environmentDirectory, logDirectory)) errors.push(problem("$.paths.logDirectory", "must be within paths.environmentDirectory"));
+    }
+  }
 
   const image = requireRecord(config.image, "$.image", errors);
   requireKeys(image, "$.image", ["repository", "tag", "pullPolicy", "pullSecretName"], errors, ["digest"]);

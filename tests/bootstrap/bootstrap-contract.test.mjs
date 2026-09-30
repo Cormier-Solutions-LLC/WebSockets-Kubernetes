@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,9 @@ import {
 import { managedRedisChartOutput, patchSentinelService, prepareManagedRedisChart } from "../../scripts/lib/managed-redis-chart.mjs";
 import { buildCertificateManifest, parseCertificateArguments } from "../../scripts/realtime-certificate.mjs";
 import { normalizePasswordBytes, resolveRedisSecretOptions } from "../../scripts/realtime-redis-secret.mjs";
+import {
+  classifyLegacyBootstrapArtifact, expandEnvironmentPath, organizeBootstrapEnvironment, restoreBootstrapEnvironment,
+} from "../../scripts/lib/bootstrap-environment.mjs";
 
 const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -33,6 +36,285 @@ function configuration(topology = "non-ha") {
   if (managedChartFixtureSha256) result.redis.managedChartArchiveSha256 = managedChartFixtureSha256;
   return result;
 }
+
+function generatedTarget(config, release) {
+  return resolve(repositoryRoot, expandEnvironmentPath(config.paths.generatedDirectory, config.environment.name), release);
+}
+
+function backupTarget(config, release) {
+  return resolve(repositoryRoot, expandEnvironmentPath(config.paths.backupDirectory, config.environment.name), release);
+}
+
+test("environment path templates expand only the validated environment token", () => {
+  assert.equal(expandEnvironmentPath(".bootstrap/env/{environment}/lifecycle", "test"), ".bootstrap/env/test/lifecycle");
+  assert.equal(expandEnvironmentPath(".backups/bootstrap/{environment}", "prod"), ".backups/bootstrap/prod");
+  assert.throws(() => expandEnvironmentPath(".bootstrap/{tenant}", "test"), /Unsupported bootstrap path token/);
+  assert.throws(() => expandEnvironmentPath(".bootstrap/env/{environment}", "../prod"), /not a valid bootstrap environment name/);
+
+  const config = configuration();
+  assert.deepEqual(validateConfiguration(config), []);
+  config.paths.generatedDirectory = ".bootstrap/env/{tenant}/lifecycle";
+  assert(validateConfiguration(config).some(item => item.path === "$.paths.generatedDirectory"));
+
+  const outsideEnvironment = configuration();
+  outsideEnvironment.paths.generatedDirectory = ".bootstrap/lifecycle";
+  outsideEnvironment.paths.logDirectory = ".logs";
+  const outsideErrors = validateConfiguration(outsideEnvironment);
+  assert(outsideErrors.some(item => item.path === "$.paths.generatedDirectory" && /environmentDirectory/.test(item.message)));
+  assert(outsideErrors.some(item => item.path === "$.paths.logDirectory" && /environmentDirectory/.test(item.message)));
+
+  const reservedEnvironment = configuration();
+  reservedEnvironment.environment.name = "con";
+  assert(validateConfiguration(reservedEnvironment).some(item => item.path === "$.environment.name" && /Windows reserved/.test(item.message)));
+  assert.throws(() => expandEnvironmentPath(".bootstrap/env/{environment}", "con"), /not a valid bootstrap environment name/);
+  assert.equal(new RegExp(bootstrapSchema.properties.environment.properties.name.pattern).test("con"), false);
+});
+
+test("environment workspace relationship failures use the invalid-input exit code", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-paths-"));
+  const config = configuration();
+  config.paths.generatedDirectory = ".bootstrap/lifecycle";
+  config.paths.logDirectory = ".logs";
+  const configPath = resolve(directory, "config.json");
+  await writeFile(configPath, stableJson(config));
+  try {
+    await assert.rejects(
+      execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "plan", "--config", configPath], { cwd: repositoryRoot }),
+      error => error.code === 2 && /Configuration is invalid/.test(error.stdout) && /paths\.generatedDirectory/.test(error.stdout),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization dry runs do not persist lifecycle logs", async () => {
+  const logRoot = resolve(repositoryRoot, ".logs");
+  const before = await fileExists(logRoot) ? (await readdir(logRoot)).sort() : [];
+  await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "organize", "--dry-run"], { cwd: repositoryRoot });
+  const after = await fileExists(logRoot) ? (await readdir(logRoot)).sort() : [];
+  assert.deepEqual(after, before);
+});
+
+test("layout actions expose invalid-input and safety-stop exit classifications", async () => {
+  await assert.rejects(
+    execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "restore-layout"], { cwd: repositoryRoot }),
+    error => error.code === 2 && /requires --manifest/.test(error.stdout),
+  );
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-invalid-manifest-"));
+  const manifestPath = resolve(directory, ".bootstrap/organization/invalid.json");
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, "{}\n");
+  try {
+    await assert.rejects(
+      restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath }),
+      error => error.exitCode === 2 && /invalid or unsupported/.test(error.message),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("legacy bootstrap artifacts are classified by their target slot rather than incidental suffixes", () => {
+  assert.equal(classifyLegacyBootstrapArtifact("config.test.json"), "test");
+  assert.equal(classifyLegacyBootstrapArtifact("config.test.json.before-test-config"), "test");
+  assert.equal(classifyLegacyBootstrapArtifact("bootstrap.prod.dry-run.log"), "prod");
+  assert.equal(classifyLegacyBootstrapArtifact("gateway-dev.yaml"), "dev");
+  assert.equal(classifyLegacyBootstrapArtifact("redis-prod.yaml"), "prod");
+  assert.equal(classifyLegacyBootstrapArtifact("config.staging.json"), "staging");
+  assert.equal(classifyLegacyBootstrapArtifact("gateway-qa.yaml"), "qa");
+  assert.equal(classifyLegacyBootstrapArtifact("config.con.json"), undefined);
+  assert.equal(classifyLegacyBootstrapArtifact("update.test.dev-alias.log"), "test");
+  assert.equal(classifyLegacyBootstrapArtifact("validate.test.dev-alias.log"), "test");
+  assert.equal(classifyLegacyBootstrapArtifact("naming.json"), undefined);
+  assert.equal(classifyLegacyBootstrapArtifact("my-dev-notes.txt"), undefined);
+});
+
+test("environment organization previews, applies, remains idempotent, and restores from its manifest", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environments-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  await mkdir(resolve(bootstrapRoot, "lifecycle"), { recursive: true });
+  const files = [
+    "config.test.json",
+    "config.prod.json",
+    "config.test.json.before-test-config",
+    "bootstrap.prod.dry-run.log",
+    "bootstrap.test.dry-run.log",
+    "gateway-prod.yaml",
+    "gateway-test.yaml",
+    "install.test.log",
+    "plan.prod.log",
+    "plan.prod.scheduled.log",
+    "plan.test.log",
+    "plan.test.scheduled.log",
+    "redis-prod.yaml",
+    "redis-test.yaml",
+    "update.test.dev-alias.log",
+    "update.test.ingress-class.log",
+    "validate.prod.dev-alias.log",
+    "validate.prod.ingress-class.log",
+    "validate.prod.log",
+    "validate.test.dev-alias.log",
+    "validate.test.ingress-class.log",
+    "validate.test.log",
+    "config.staging.json",
+    "naming.json",
+  ];
+  for (const file of files) await writeFile(resolve(bootstrapRoot, file), `${file}\n`);
+  try {
+    const preview = await organizeBootstrapEnvironment({ repositoryRoot: directory, dryRun: true });
+    assert.equal(preview.manifestPath, null);
+    assert.equal(preview.manifest.moves.length, files.length - 1);
+    assert(preview.manifest.moves.some(move => move.source === "update.test.dev-alias.log" && move.environment === "test"));
+    assert(preview.manifest.retained.some(item => item.name === "lifecycle" && item.reason === "shared-or-directory"));
+    assert(preview.manifest.retained.some(item => item.name === "naming.json" && item.reason === "unrecognized"));
+    assert.equal(await fileExists(resolve(bootstrapRoot, "env")), false);
+
+    const applied = await organizeBootstrapEnvironment({ repositoryRoot: directory });
+    assert(await fileExists(resolve(bootstrapRoot, "env/test/update.test.dev-alias.log")));
+    assert(await fileExists(resolve(bootstrapRoot, "env/prod/gateway-prod.yaml")));
+    assert(await fileExists(resolve(bootstrapRoot, "env/staging/config.staging.json")));
+    assert(await fileExists(resolve(bootstrapRoot, "env/dev")));
+    assert(await fileExists(resolve(bootstrapRoot, "naming.json")));
+    assert(applied.manifestPath);
+
+    const repeated = await organizeBootstrapEnvironment({ repositoryRoot: directory, dryRun: true });
+    assert.equal(repeated.manifest.moves.length, 0);
+    assert.equal(repeated.manifest.collisions.length, 0);
+
+    const restorePreview = await restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath: applied.manifestPath, dryRun: true });
+    assert.equal(restorePreview.restored, 0);
+    assert.equal(restorePreview.planned, files.length - 1);
+    assert(await fileExists(resolve(bootstrapRoot, "env/test/update.test.dev-alias.log")));
+
+    const restored = await restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath: applied.manifestPath });
+    assert.equal(restored.restored, files.length - 1);
+    assert(await fileExists(resolve(bootstrapRoot, "update.test.dev-alias.log")));
+    assert(await fileExists(resolve(bootstrapRoot, "env/test")));
+    await assert.rejects(restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath: applied.manifestPath }), /already been restored/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization fails safely while another organizer holds the workspace lock", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-lock-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const lockPath = resolve(bootstrapRoot, "locks/environment-organization");
+  await mkdir(lockPath, { recursive: true });
+  await writeFile(resolve(lockPath, "owner.json"), stableJson({
+    createdAt: new Date().toISOString(),
+    hostname: hostname(),
+    pid: process.pid,
+    token: "test-owner",
+  }));
+  await writeFile(resolve(bootstrapRoot, "config.test.json"), "test\n");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /organization lock/);
+    assert.equal(await readFile(resolve(bootstrapRoot, "config.test.json"), "utf8"), "test\n");
+    assert.equal(await fileExists(resolve(bootstrapRoot, "env/test/config.test.json")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization rejects symlinked destination directories", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-symlink-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const outside = resolve(directory, "outside");
+  await mkdir(resolve(bootstrapRoot, "env"), { recursive: true });
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, resolve(bootstrapRoot, "env/test"), process.platform === "win32" ? "junction" : "dir");
+  await writeFile(resolve(bootstrapRoot, "config.test.json"), "test\n");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /symbolic link/);
+    assert.equal(await readFile(resolve(bootstrapRoot, "config.test.json"), "utf8"), "test\n");
+    assert.equal(await fileExists(resolve(outside, "config.test.json")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization rejects a symlinked environment root without movable files", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-root-symlink-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const outside = resolve(directory, "outside");
+  await mkdir(bootstrapRoot, { recursive: true });
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, resolve(bootstrapRoot, "env"), process.platform === "win32" ? "junction" : "dir");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), /symbolic link/);
+    assert.equal(await fileExists(resolve(outside, "dev")), false);
+    assert.equal(await fileExists(resolve(outside, "test")), false);
+    assert.equal(await fileExists(resolve(outside, "prod")), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization rejects a symlinked manifest directory before moving files", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-organization-symlink-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const outside = resolve(directory, "outside");
+  await mkdir(bootstrapRoot, { recursive: true });
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, resolve(bootstrapRoot, "organization"), process.platform === "win32" ? "junction" : "dir");
+  await writeFile(resolve(bootstrapRoot, "config.test.json"), "test\n");
+  try {
+    await assert.rejects(organizeBootstrapEnvironment({ repositoryRoot: directory }), error => error.exitCode === 3 && /symbolic link/.test(error.message));
+    assert.equal(await readFile(resolve(bootstrapRoot, "config.test.json"), "utf8"), "test\n");
+    assert.deepEqual(await readdir(outside), []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment restoration reconciles a journaled move interrupted after rename", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-journal-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  const manifestPath = resolve(bootstrapRoot, "organization/interrupted.json");
+  const move = { environment: "qa", source: "config.qa.json", destination: "env/qa/config.qa.json" };
+  await mkdir(resolve(bootstrapRoot, "env/qa"), { recursive: true });
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(resolve(bootstrapRoot, move.destination), "qa\n");
+  await writeFile(manifestPath, stableJson({
+    schemaVersion: 1,
+    operation: "organize-bootstrap-environments",
+    status: "applying",
+    moves: [move],
+    completedMoves: [],
+    currentMove: move,
+  }));
+  try {
+    const restored = await restoreBootstrapEnvironment({ repositoryRoot: directory, manifestPath });
+    assert.equal(restored.restored, 1);
+    assert.equal(await readFile(resolve(bootstrapRoot, move.source), "utf8"), "qa\n");
+    assert.equal(await fileExists(resolve(bootstrapRoot, move.destination)), false);
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    assert.equal(manifest.status, "restored");
+    assert.equal(manifest.currentMove, undefined);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("environment organization fails closed before moving files when a destination collides", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-environment-collision-"));
+  const bootstrapRoot = resolve(directory, ".bootstrap");
+  await mkdir(resolve(bootstrapRoot, "env/test"), { recursive: true });
+  await writeFile(resolve(bootstrapRoot, "plan.test.log"), "legacy\n");
+  await writeFile(resolve(bootstrapRoot, "env/test/plan.test.log"), "different\n");
+  try {
+    const preview = await organizeBootstrapEnvironment({ repositoryRoot: directory, dryRun: true });
+    assert.deepEqual(preview.manifest.collisions, [{ source: "plan.test.log", destination: "env/test/plan.test.log", identical: false }]);
+    await assert.rejects(
+      organizeBootstrapEnvironment({ repositoryRoot: directory }),
+      error => error.exitCode === 3 && /destination collision/.test(error.message),
+    );
+    assert.equal(await readFile(resolve(bootstrapRoot, "plan.test.log"), "utf8"), "legacy\n");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("both explicit topology profiles validate and render their availability controls", () => {
   const nonHa = configuration();
@@ -278,6 +560,30 @@ test("topology changes are classified and require backup and confirmation", () =
   assert.equal(plan.safety.requiresTopologyConfirmation, true);
 });
 
+test("offline plans preserve topology state from the legacy lifecycle root", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-legacy-state-"));
+  const config = configuration("ha");
+  config.naming.suffix = "legacy-state";
+  const release = "dev-realtime-legacy-state";
+  const configPath = resolve(directory, "config.json");
+  const targetRoot = generatedTarget(config, release);
+  const legacyTargetRoot = resolve(repositoryRoot, ".bootstrap/lifecycle", release);
+  await writeFile(configPath, stableJson(config));
+  await mkdir(legacyTargetRoot, { recursive: true });
+  await writeFile(resolve(legacyTargetRoot, "state.json"), stableJson({ contractVersion: 1, topology: "non-ha" }));
+  try {
+    const result = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "plan", "--config", configPath, "--dry-run"], { cwd: repositoryRoot });
+    const plan = normalizedPlan(result.stdout);
+    assert.equal(plan.topology.previous, "non-ha");
+    assert.equal(plan.topology.conversion, true);
+    assert.equal(plan.changeClass, "topology-conversion");
+  } finally {
+    await rm(targetRoot, { recursive: true, force: true });
+    await rm(legacyTargetRoot, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("workspace bootstrap is non-mutating to cluster state and teardown is backed up", () => {
   const config = configuration();
   assert.equal(buildPlan("bootstrap", config, profiles["non-ha"]).safety.mutation, false);
@@ -454,7 +760,7 @@ test("installed Helm topology remains authoritative when local state is absent",
   config.naming.suffix = "contract-test";
   const path = resolve(directory, "config.json");
   await writeFile(path, stableJson(config));
-  const targetRoot = resolve(repositoryRoot, ".bootstrap/lifecycle/dev-realtime-contract-test");
+  const targetRoot = generatedTarget(config, "dev-realtime-contract-test");
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", path], {
       cwd: repositoryRoot,
@@ -475,7 +781,7 @@ test("an orphaned managed Redis release still requires topology-conversion confi
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-orphan-redis";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const targetRoot = generatedTarget(config, release);
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_ORPHAN_REDIS: "1", BOOTSTRAP_FAKE_REDIS_ARCHITECTURE: "standalone" } }), error => error.code === 3 && /confirm-topology-change/.test(error.stdout));
   } finally {
@@ -488,10 +794,12 @@ test("an existing target lock produces the safety-stop exit code", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "cormier-bootstrap-lock-"));
   const config = configuration();
   config.naming.suffix = "lock-test";
-  config.paths.generatedDirectory = ".bootstrap/alternate-lock-output";
+  config.paths.environmentDirectory = ".bootstrap/alternate-lock-output";
+  config.paths.generatedDirectory = ".bootstrap/alternate-lock-output/lifecycle";
+  config.paths.logDirectory = ".bootstrap/alternate-lock-output/logs";
   const path = resolve(directory, "config.json");
   await writeFile(path, stableJson(config));
-  const targetRoot = resolve(repositoryRoot, ".bootstrap/alternate-lock-output/dev-realtime-lock-test");
+  const targetRoot = resolve(repositoryRoot, ".bootstrap/alternate-lock-output/lifecycle/dev-realtime-lock-test");
   const lockPath = resolve(repositoryRoot, ".bootstrap/locks/dev-realtime-lock-test");
   await mkdir(lockPath, { recursive: true });
   try {
@@ -561,14 +869,14 @@ fi
   await writeFile(kubectlPath, kubectl, { mode: 0o755 });
 }
 
-async function seedManagedChartCache(fakeBin, release, chart = "oci://registry-1.docker.io/bitnamicharts/redis", version = "23.1.1", legacy = false) {
+async function seedManagedChartCache(fakeBin, release, chart = "oci://registry-1.docker.io/bitnamicharts/redis", version = "23.1.1", legacy = false, bootstrapConfig = configuration(), generatedRoot = resolve(repositoryRoot, expandEnvironmentPath(bootstrapConfig.paths.generatedDirectory, bootstrapConfig.environment.name))) {
   await prepareManagedRedisChart({
     chart,
     version,
     archiveSha256: managedChartFixtureSha256,
     outputDirectory: legacy
-      ? resolve(repositoryRoot, `.bootstrap/lifecycle/${release}/charts/redis-${version}`)
-      : managedRedisChartOutput(resolve(repositoryRoot, ".bootstrap/lifecycle"), release, chart, version),
+      ? resolve(generatedRoot, release, `charts/redis-${version}`)
+      : managedRedisChartOutput(generatedRoot, release, chart, version),
     helm: resolve(fakeBin, "helm"),
   });
 }
@@ -637,8 +945,8 @@ test("both shells execute the complete lifecycle for both profiles with identica
         const [file, args] = shellInvocation(shell, action, configPath, extra);
         return execute(file, args, { cwd: repositoryRoot, env: { ...environment, ...additionalEnvironment } });
       };
-      const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-      const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+      const targetRoot = generatedTarget(config, release);
+      const targetBackups = backupTarget(config, release);
       try {
         await invoke("install", [], { BOOTSTRAP_FAKE_EMPTY_RELEASES: "1" });
         await invoke("install");
@@ -680,8 +988,8 @@ test("managed Redis uses the hardened ACL values and rollback removes releases a
   const operationLog = resolve(directory, "helm.log");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-rollback-fresh";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
   const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_TOPOLOGY: "non-ha", BOOTSTRAP_FAKE_LOG: operationLog };
   try {
     const installed = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "install", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_EMPTY_RELEASES: "1" } });
@@ -734,20 +1042,26 @@ test("update adopts only a verified legacy managed Redis release", { timeout: 30
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-legacy-adopt";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
-  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LEGACY_REDIS: "1", BOOTSTRAP_FAKE_REDIS_SECRET: config.redis.credentialsSecret, BOOTSTRAP_FAKE_REDIS_PREFIX: `${config.redis.instancePrefix}:${config.naming.suffix}` };
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
+  const legacyGeneratedRoot = resolve(repositoryRoot, ".bootstrap/lifecycle");
+  const operationLog = resolve(directory, "operations.log");
+  const environment = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_LOG: operationLog, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_LEGACY_REDIS: "1", BOOTSTRAP_FAKE_REDIS_SECRET: config.redis.credentialsSecret, BOOTSTRAP_FAKE_REDIS_PREFIX: `${config.redis.instancePrefix}:${config.naming.suffix}` };
   try {
-    await seedManagedChartCache(fakeBin, release, config.redis.legacyManagedChart, "23.1.1", true);
+    await seedManagedChartCache(fakeBin, release, config.redis.legacyManagedChart, "23.1.1", true, config, legacyGeneratedRoot);
+    await seedManagedChartCache(fakeBin, release, config.redis.managedChart, "23.1.1", false, config, legacyGeneratedRoot);
     const updated = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: environment });
     const backup = updated.stdout.trim().split(/\r?\n/).map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(event => event?.message === "Pre-change state captured.")?.backup;
     assert(backup);
     assert.equal(JSON.parse(await readFile(resolve(backup, "plan.json"), "utf8")).managedRedis.chart, config.redis.legacyManagedChart);
     assert.match(updated.stdout, /Adopting verified legacy managed Redis release metadata/);
+    assert.match(updated.stdout, /Reusing verified legacy managed Redis chart cache/);
+    assert.doesNotMatch(await readFile(operationLog, "utf8"), /^pull /m);
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_REDIS_PREFIX: "wrong:prefix" } }), error => error.code === 1 && /does not match the verified legacy deployment contract/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
     await rm(targetBackups, { recursive: true, force: true });
+    await rm(resolve(legacyGeneratedRoot, release), { recursive: true, force: true });
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -765,8 +1079,8 @@ test("standalone backup captures installed managed Redis while desired configura
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-drift-backup";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
   try {
     await seedManagedChartCache(fakeBin, release);
     const result = await execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis` } });
@@ -794,8 +1108,8 @@ test("backup refuses to mint managed Redis chart provenance from a registry down
   const operationLog = resolve(directory, "operations.log");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-missing-provenance";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], {
       cwd: repositoryRoot,
@@ -822,8 +1136,8 @@ test("backup rejects and removes snapshots containing inline Helm credentials", 
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-secret-backup";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "backup", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_INLINE_SECRET: "1" } }), error => error.code === 1 && /Refusing to persist inline credential values/.test(error.stdout));
     const entries = await fileExists(targetBackups) ? await (await import("node:fs/promises")).readdir(targetBackups) : [];
@@ -847,7 +1161,7 @@ test("Redis mode changes require an explicit migration", { timeout: 30_000 }, as
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-mode-change";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
+  const targetRoot = generatedTarget(config, release);
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "update", "--config", configPath], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_REDIS_MODE: "managed" } }), error => error.code === 3 && /requires an explicit migration/.test(error.stdout));
   } finally { await rm(targetRoot, { recursive: true, force: true }); }
@@ -864,8 +1178,9 @@ test("rollback classifies conversion from installed topology to backup topology"
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-rollback-topology";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/fixture`);
+  const targetRoot = generatedTarget(config, release);
+  const legacyBackupRoot = resolve(repositoryRoot, ".backups/bootstrap", release);
+  const backup = resolve(legacyBackupRoot, "fixture");
   await mkdir(backup, { recursive: true });
   await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "kind-example", namespace: "dev-realtime", release }, managedRedis: { chart: config.redis.managedChart } }));
   await writeFile(resolve(backup, "releases.json"), stableJson([{ name: release, chart: "realtime-gateway-0.1.0", revision: "3" }, { name: `${release}-redis`, chart: "redis-23.1.1", revision: "4" }]));
@@ -875,7 +1190,7 @@ test("rollback classifies conversion from installed topology to backup topology"
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, BOOTSTRAP_FAKE_RELEASE: release, BOOTSTRAP_FAKE_REDIS_RELEASE: `${release}-redis`, BOOTSTRAP_FAKE_TOPOLOGY: "non-ha" } }), error => error.code === 3 && /confirm-topology-change/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
-    await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+    await rm(legacyBackupRoot, { recursive: true, force: true });
   }
 });
 
@@ -886,15 +1201,15 @@ test("rollback rejects a cross-target backup with the safety-stop exit code", as
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-cross-target";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/mismatch`);
+  const targetRoot = generatedTarget(config, release);
+  const backup = resolve(backupTarget(config, release), "mismatch");
   await mkdir(backup, { recursive: true });
   await writeFile(resolve(backup, "plan.json"), stableJson({ target: { context: "another-context", namespace: "dev-realtime", release } }));
   try {
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot }), error => error.code === 3 && /Backup target does not match/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
-    await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+    await rm(backupTarget(config, release), { recursive: true, force: true });
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -908,8 +1223,8 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
   config.naming.suffix = "rollback-version";
   const configPath = resolve(directory, "config.json");
   const release = "dev-realtime-rollback-version";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const backup = resolve(repositoryRoot, `.backups/bootstrap/${release}/fixture`);
+  const targetRoot = generatedTarget(config, release);
+  const backup = resolve(backupTarget(config, release), "fixture");
   const operationLog = resolve(directory, "operations.log");
   await writeFile(configPath, stableJson(config));
   await mkdir(backup, { recursive: true });
@@ -941,7 +1256,7 @@ test("rollback rejects cross-mode restoration and restores the captured Redis ch
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "rollback", "--config", configPath, "--backup", backup], { cwd: repositoryRoot, env: environment }), error => error.code === 3 && /Redis mode rollback conversion.*explicit migration/.test(error.stdout));
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
-    await rm(resolve(repositoryRoot, `.backups/bootstrap/${release}`), { recursive: true, force: true });
+    await rm(backupTarget(config, release), { recursive: true, force: true });
   }
 });
 
@@ -955,8 +1270,8 @@ test("teardown skips desired-state prerequisites while retaining target and dele
   const configPath = resolve(directory, "config.json");
   const operationLog = resolve(directory, "operations.log");
   const release = "dev-realtime-teardown-preflight";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
   await writeFile(configPath, stableJson(config));
   await mkdir(targetRoot, { recursive: true });
   await writeFile(resolve(targetRoot, "state.json"), stableJson({ contractVersion: 1, topology: "non-ha" }));
@@ -1001,8 +1316,8 @@ test("external Redis skips unused storage and HA excludes untolerated nodes", { 
     await writeFile(haPath, stableJson(ha));
     await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "validate", "--config", haPath], { cwd: repositoryRoot, env: { ...environment, BOOTSTRAP_FAKE_TAINTED_NODES: "1" } }), error => error.code === 1 && /ready schedulable nodes/.test(error.stdout));
   } finally {
-    await rm(resolve(repositoryRoot, ".bootstrap/lifecycle/dev-realtime-external-storage"), { recursive: true, force: true });
-    await rm(resolve(repositoryRoot, ".bootstrap/lifecycle/dev-realtime-tainted-capacity"), { recursive: true, force: true });
+    await rm(generatedTarget(configuration("ha"), "dev-realtime-external-storage"), { recursive: true, force: true });
+    await rm(generatedTarget(configuration("ha"), "dev-realtime-tainted-capacity"), { recursive: true, force: true });
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -1017,8 +1332,8 @@ test("stale lifecycle locks are recovered with bounded owner metadata", { timeou
   const configPath = resolve(directory, "config.json");
   await writeFile(configPath, stableJson(config));
   const release = "dev-realtime-stale-lock";
-  const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-  const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+  const targetRoot = generatedTarget(config, release);
+  const targetBackups = backupTarget(config, release);
   const lockPath = resolve(repositoryRoot, `.bootstrap/locks/${release}`);
   await seedManagedChartCache(fakeBin, release);
   await mkdir(lockPath, { recursive: true });
@@ -1075,8 +1390,8 @@ test("cluster, permission, credential, Redis, and rollout failures stop safely a
     const configPath = resolve(directory, "config.json");
     await writeFile(configPath, stableJson(config));
     const release = `dev-realtime-failure-${failure}`;
-    const targetRoot = resolve(repositoryRoot, `.bootstrap/lifecycle/${release}`);
-    const targetBackups = resolve(repositoryRoot, `.backups/bootstrap/${release}`);
+    const targetRoot = generatedTarget(config, release);
+    const targetBackups = backupTarget(config, release);
     try {
       await assert.rejects(execute(process.execPath, [resolve(repositoryRoot, "scripts/realtime-bootstrap.mjs"), "install", "--config", configPath], {
         cwd: repositoryRoot,

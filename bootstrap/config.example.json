@@ -3,9 +3,10 @@
   "environment": { "name": "dev", "class": "development" },
   "naming": { "suffix": "" },
   "paths": {
-    "generatedDirectory": ".bootstrap/lifecycle",
-    "backupDirectory": ".backups/bootstrap",
-    "logDirectory": ".logs"
+    "environmentDirectory": ".bootstrap/env/{environment}",
+    "generatedDirectory": ".bootstrap/env/{environment}/lifecycle",
+    "backupDirectory": ".backups/bootstrap/{environment}",
+    "logDirectory": ".bootstrap/env/{environment}/logs"
   },
   "image": {
     "repository": "registry.example.com/cormier/realtime-gateway",

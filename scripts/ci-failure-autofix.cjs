@@ -44,6 +44,12 @@ function sanitize(text) {
   return String(text).replace(/`{3,}/g, "'''").replace(/@(?=[\w-])/g, '@\u200b').slice(0, 300);
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+}
+
 function analyzeJob(job, log) {
   const reasons = classifyLog(log);
   if (infrastructureConclusions.has(job.conclusion)) reasons.push(`job ${job.conclusion}`);
@@ -123,7 +129,13 @@ async function analyzeCiFailure({ github, context, core }) {
   const maxAttempts = Number.parseInt(process.env.CI_AUTOFIX_MAX_ATTEMPTS || '3', 10) || 3;
   const mention = process.env.CI_AUTOFIX_AGENT_MENTION || '@copilot';
   const tokenConfigured = process.env.CI_AUTOFIX_TOKEN_CONFIGURED === 'true';
-  const stop = message => { core.notice(message); core.setOutput('dispatch', 'false'); };
+  const stop = async message => {
+    core.notice(message);
+    core.setOutput('dispatch', 'false');
+    await core.summary.addHeading('Automatic CI repair not started')
+      .addRaw(escapeHtml(message), true)
+      .addLink('Inspect the CI run', run.html_url).write();
+  };
 
   if (run.name === process.env.CI_AUTOFIX_WORKFLOW_NAME) return stop('Ignoring this workflow to prevent a loop.');
   if (run.event !== 'pull_request' || run.head_repository?.full_name !== repository) {
@@ -166,9 +178,20 @@ async function analyzeCiFailure({ github, context, core }) {
     summary = 'The `CI_AUTOFIX_TOKEN` repository secret is not configured, so the coding agent cannot be started.';
   }
 
-  await core.summary.addHeading('CI failure analysis')
+  core.summary.addHeading('CI failure analysis')
+    .addLink('Inspect the CI run', run.html_url)
+    .addRaw(escapeHtml(summary || 'Automatic CI repair will be requested.'), true)
     .addTable([['Job', 'Conclusion', 'Needs input'],
-      ...analyzed.map(job => [job.name, job.conclusion, job.reasons.join(', ') || 'no'])]).write();
+      ...analyzed.map(job => [job.name, job.conclusion, job.reasons.join(', ') || 'no'].map(escapeHtml))]);
+  for (const job of analyzed) {
+    core.summary.addHeading(escapeHtml(job.name), 3);
+    if (job.url) core.summary.addLink('Inspect failed job logs', job.url);
+    if (job.excerpt.length) core.summary.addCodeBlock(escapeHtml(job.excerpt.join('\n')), 'text');
+  }
+  if (summary) core.summary.addRaw(
+    'Resolve the reported requirements, then re-run the failed CI jobs. No automatic repair was requested.', true,
+  );
+  await core.summary.write();
 
   if (summary) {
     const people = [...new Set([pr.user?.login, run.triggering_actor?.login].filter(login => login && !login.endsWith('[bot]')))];

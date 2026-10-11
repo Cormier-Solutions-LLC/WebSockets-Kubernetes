@@ -45,6 +45,7 @@ jobs:
             const { analyzeCiFailure } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci-failure-autofix.cjs`);
             await analyzeCiFailure({ github, context, core });
       - name: Start Copilot repair task
+        id: request_fix
         if: steps.analyze.outputs.dispatch == 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
@@ -59,3 +60,23 @@ jobs:
               issue_number: Number(process.env.CI_AUTOFIX_PULL_NUMBER),
               body: process.env.CI_AUTOFIX_BODY,
             });
+      - name: Report automatic repair failure
+        if: failure()
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          CI_AUTOFIX_ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
+          CI_AUTOFIX_REQUEST_OUTCOME: ${{ steps.request_fix.outcome }}
+          CI_AUTOFIX_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        with:
+          script: |
+            await core.summary
+              .addHeading('Automatic CI repair could not complete')
+              .addRaw('No successful repair request was confirmed. Inspect this workflow job’s failed step and annotations for the exact error.', true)
+              .addTable([
+                ['Step', 'Outcome'],
+                ['Analyze CI failure', process.env.CI_AUTOFIX_ANALYZE_OUTCOME],
+                ['Start Copilot repair task', process.env.CI_AUTOFIX_REQUEST_OUTCOME],
+              ])
+              .addLink('Inspect the original CI run', process.env.CI_AUTOFIX_RUN_URL)
+              .addRaw('Check runner prerequisites and workflow permissions. If dispatch failed, verify CI_AUTOFIX_TOKEN is configured, unexpired, and has Issues/Pull requests write access and coding agent access. Resolve the requirement before rerunning; this workflow does not retry itself.', true)
+              .write();

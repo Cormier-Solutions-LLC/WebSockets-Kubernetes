@@ -30,6 +30,8 @@ If any of these are found, it stops. It also stops after `CI_AUTOFIX_MAX_ATTEMPT
 
 Agent mentions posted with `GITHUB_TOKEN` do not start tasks. Configure the repository secret `CI_AUTOFIX_TOKEN` with a token for a user who has write access and Copilot coding agent access. The token needs Pull requests/Issues read and write. It is used only to post the repair comment; analysis uses the workflow's `GITHUB_TOKEN` (`actions: read`, `issues`/`pull-requests: write`). Keep that token's expiry current. No token value belongs in source control.
 
+The repair workflow's run summary shows why repair was not started, links to the original CI run and failed jobs, and sanitized error excerpts. Analyzer or dispatch failures also produce a summary directing operators to the failed step's logs and annotations, including token/permission checks. It never retries its own failures. If GitHub blocks the workflow before jobs start (for example, an `action_required` approval or policy requirement), no workflow step can publish a summary or comment; inspect the run page's native approval/policy notice and repository Actions settings, resolve the requirement, and rerun.
+
 ## Automatic PR branch synchronization
 
 The [branch synchronization workflow](../.github/workflows/sync-open-branches.yml) runs on every push to `main` (or manually) and merges the latest `main` into same-repository branches with open pull requests targeting `main`, including drafts. It does not merge PRs into `main`, update branches without open PRs, or write to forks. Runs are serialized, duplicate PR branches are processed once, and already-current branches are unchanged.

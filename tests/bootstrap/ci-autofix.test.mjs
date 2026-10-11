@@ -17,6 +17,10 @@ test('workflow triggers only on failed CI runs and runs on Cormier runners with 
   assert.match(workflow, /persist-credentials: false/);
   assert.doesNotMatch(workflow, /ref: \$\{\{ github\.event\.workflow_run\.head/);
   assert.match(workflow, /github-token: \$\{\{ secrets\.CI_AUTOFIX_TOKEN \}\}/);
+  assert.match(workflow, /id: request_fix/);
+  assert.match(workflow, /name: Report automatic repair failure\n        if: failure\(\)/);
+  assert.match(workflow, /Automatic CI repair could not complete/);
+  assert.match(workflow, /steps\.request_fix\.outcome/);
   assert.match(readFileSync(new URL('.github/workflows/ci.yml', root), 'utf8'), /^name: Realtime gateway CI$/m);
 });
 
@@ -77,7 +81,7 @@ test('prior markers dedupe commits and count repair attempts', () => {
   assert.deepEqual(priorRequests(comments.map(comment => ({ ...comment, ...untrusted })), 'def'), { copilotAttempts: 0, handledSha: false });
 });
 
-function harness({ log, comments = [], token = 'true', listed = true, openPrs = null, actor = 'dev' }) {
+function harness({ log, comments = [], token = 'true', listed = true, openPrs = null, actor = 'dev', jobName = 'go-gin' }) {
   const run = {
     id: 9, name: 'Realtime gateway CI', html_url: 'https://example.invalid/run', event: 'pull_request',
     head_sha: 'b'.repeat(40), head_branch: 'feature', head_repository: { full_name: 'o/r' },
@@ -85,7 +89,7 @@ function harness({ log, comments = [], token = 'true', listed = true, openPrs = 
   };
   const outputs = {};
   const posted = [];
-  const jobs = [{ id: 1, name: 'go-gin', conclusion: 'failure' }, { id: 2, name: 'ci-success', conclusion: 'failure' }];
+  const jobs = [{ id: 1, name: jobName, conclusion: 'failure', html_url: 'https://example.invalid/job' }, { id: 2, name: 'ci-success', conclusion: 'failure' }];
   const pr = { state: 'open', number: 5, head: { sha: run.head_sha }, user: { login: actor === 'dev' ? 'author' : actor } };
   const github = {
     paginate: async method => method(),
@@ -95,12 +99,16 @@ function harness({ log, comments = [], token = 'true', listed = true, openPrs = 
       issues: { listComments: () => comments, createComment: async args => posted.push(args) },
     },
   };
-  const summary = { addHeading: () => summary, addTable: () => summary, write: async () => {} };
+  const summaryEntries = [];
+  const summary = Object.fromEntries(['addHeading', 'addTable', 'addRaw', 'addLink', 'addCodeBlock'].map(method => [
+    method, (...args) => { summaryEntries.push({ method, args }); return summary; },
+  ]));
+  summary.write = async () => {};
   const core = { notice() {}, warning() {}, setOutput: (k, v) => { outputs[k] = v; }, summary };
   Object.assign(process.env, {
     CI_AUTOFIX_TOKEN_CONFIGURED: token, CI_AUTOFIX_WORKFLOW_NAME: 'Repair failed CI', CI_AUTOFIX_MAX_ATTEMPTS: '2',
   });
-  return { run: () => analyzeCiFailure({ github, context: { repo: { owner: 'o', repo: 'r' }, payload: { workflow_run: run } }, core }), outputs, posted };
+  return { run: () => analyzeCiFailure({ github, context: { repo: { owner: 'o', repo: 'r' }, payload: { workflow_run: run } }, core }), outputs, posted, summaryEntries };
 }
 
 test('repairable failures dispatch Copilot without posting a GITHUB_TOKEN comment', async () => {
@@ -123,6 +131,10 @@ test('unresolvable failures, missing token, and attempt limits stop and prompt t
     assert.equal(h.posted.length, 1);
     assert.match(h.posted[0].body, /^@author @dev Automatic CI repair was \*\*not\*\* started/);
     assert.match(h.posted[0].body, /cormier-ci-autofix:input sha=b{40} run=9/);
+    assert.ok(h.summaryEntries.some(entry => entry.method === 'addRaw' && /No automatic repair was requested/.test(entry.args[0])));
+    assert.ok(h.summaryEntries.some(entry => entry.method === 'addLink' && entry.args[1] === 'https://example.invalid/run'));
+    assert.ok(h.summaryEntries.some(entry => entry.method === 'addCodeBlock' && entry.args[0] === options.log));
+    assert.ok(h.summaryEntries.some(entry => entry.method === 'addRaw' && /cannot supply|not configured|limit/.test(entry.args[0])));
   }
 });
 
@@ -131,6 +143,16 @@ test('already handled commits are not processed again', async () => {
   await h.run();
   assert.equal(h.outputs.dispatch, 'false');
   assert.equal(h.posted.length, 0);
+  assert.ok(h.summaryEntries.some(entry => entry.method === 'addRaw' && /already handled/.test(entry.args[0])));
+});
+
+test('workflow summaries keep error excerpts fenced and escape job names', async () => {
+  const h = harness({ log: '##[error]Username and password required ``` @someone <script>', jobName: '<script>&job' });
+  await h.run();
+  const excerpt = h.summaryEntries.find(entry => entry.method === 'addCodeBlock');
+  assert.equal(excerpt.args[0], '##[error]Username and password required &#39;&#39;&#39; @\u200bsomeone &lt;script&gt;');
+  assert.ok(h.summaryEntries.some(entry => entry.method === 'addHeading' && entry.args[0] === '&lt;script&gt;&amp;job'));
+  assert.ok(h.summaryEntries.some(entry => entry.method === 'addLink' && entry.args[1] === 'https://example.invalid/job'));
 });
 
 test('PRs are found by branch when the run lists none, and bot-only runs use the fallback mention', async () => {

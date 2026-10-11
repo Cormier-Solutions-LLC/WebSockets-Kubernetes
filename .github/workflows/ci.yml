@@ -49,7 +49,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Pull Prometheus validation image
         run: bash scripts/pull-ci-image.sh "$CI_PROMETHEUS_IMAGE"
       - name: Install Node runtime prerequisites

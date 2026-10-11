@@ -12,6 +12,17 @@ if [[ "$(uname -m)" != "x86_64" ]]; then
   exit 1
 fi
 
+manifest="${CI_RUNNER_MANIFEST:-/opt/ci-tools/manifest.json}"
+# shellcheck disable=SC2016 # PowerShell expands this expression.
+if command -v pwsh >/dev/null && [[ -f "$manifest" ]] &&
+  jq --exit-status --arg checksum "$CI_POWERSHELL_LINUX_X64_SHA256" \
+    '.downloads["pwsh.tar.gz"].sha256 == $checksum' "$manifest" >/dev/null &&
+  [[ "$(pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')" == "$CI_POWERSHELL_VERSION" ]]; then
+  printf '%s\n' "$(dirname "$(command -v pwsh)")" >> "$GITHUB_PATH"
+  printf 'Using preinstalled PowerShell %s\n' "$CI_POWERSHELL_VERSION"
+  exit 0
+fi
+
 install_dir="${RUNNER_TEMP}/powershell-${CI_POWERSHELL_VERSION}"
 archive="${RUNNER_TEMP}/powershell-${CI_POWERSHELL_VERSION}-linux-x64.tar.gz"
 

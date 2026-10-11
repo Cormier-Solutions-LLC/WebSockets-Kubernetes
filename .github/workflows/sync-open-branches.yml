@@ -1,0 +1,33 @@
+name: Sync main into open PR branches
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: sync-main-open-branches
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          BRANCH_SYNC_TOKEN: ${{ secrets.BRANCH_SYNC_TOKEN || github.token }}
+          BRANCH_SYNC_SERVER_URL: ${{ github.server_url }}
+        with:
+          github-token: ${{ secrets.BRANCH_SYNC_TOKEN || github.token }}
+          script: |
+            const { syncOpenBranches } = require(`${process.env.GITHUB_WORKSPACE}/scripts/sync-open-pr-branches.cjs`);
+            await syncOpenBranches({ github, context, core });

@@ -8,6 +8,7 @@ import test from 'node:test';
 const root = new URL('../../', import.meta.url);
 const action = readFileSync(new URL('.github/actions/setup-cormier-runner/action.yml', root), 'utf8');
 const setup = './.github/actions/setup-cormier-runner';
+const linuxOnly = { skip: process.platform !== 'linux' };
 const scripts = [...action.matchAll(/^      run: \|\n((?:        .*\n|\n)+)/gm)]
   .map(match => match[1].replace(/^        /gm, ''));
 
@@ -78,11 +79,13 @@ function fixture(t, overrides = {}) {
   };
   return {
     run: (index = 0) => spawnSync('bash', ['-c', scripts[index]], { env, encoding: 'utf8' }),
+    runNodePrerequisites: () => spawnSync('bash', [new URL('scripts/setup-ci-node-prerequisites.sh', root).pathname], { env, encoding: 'utf8' }),
+    directory,
     log,
   };
 }
 
-test('installs common and requested native prerequisites without a daemon startup', t => {
+test('installs common and requested native prerequisites without a daemon startup', linuxOnly, t => {
   assert.equal(scripts.length, 2);
   const current = fixture(t, { SETUP_NATIVE_AOT: 'true', SETUP_BUILD_TOOLS: 'true', SETUP_SHELLCHECK: 'true' });
   const result = current.run();
@@ -95,14 +98,22 @@ test('installs common and requested native prerequisites without a daemon startu
   assert.doesNotMatch(action, /(?:systemctl|service) (?:start|restart)|dockerd &/);
 });
 
-test('preinstalled prerequisites need no package installation', t => {
+test('preinstalled prerequisites need no package installation', linuxOnly, t => {
   const current = fixture(t, { FIXTURE_INSTALLED: 'true' });
   const result = current.run();
   assert.equal(result.status, 0, result.stderr);
   assert.throws(() => readFileSync(current.log), { code: 'ENOENT' });
 });
 
-test('rejects unsupported runners and invalid inputs before installing', t => {
+test('Node prerequisite detection drains ldconfig output without reinstalling packages', linuxOnly, t => {
+  const current = fixture(t);
+  writeFileSync(join(current.directory, 'ldconfig'), '#!/bin/bash\nprintf "libatomic.so.1\\n"\nprintf "other-library-%s\\n" {1..10000}\n', { mode: 0o755 });
+  const result = current.runNodePrerequisites();
+  assert.equal(result.status, 0, result.stderr);
+  assert.throws(() => readFileSync(current.log), { code: 'ENOENT' });
+});
+
+test('rejects unsupported runners and invalid inputs before installing', linuxOnly, t => {
   for (const override of [{ RUNNER_OS: 'Windows' }, { RUNNER_ARCH: 'ARM64' }, { SETUP_DOCKER: 'yes' }]) {
     const current = fixture(t, override);
     assert.notEqual(current.run().status, 0);
@@ -110,13 +121,13 @@ test('rejects unsupported runners and invalid inputs before installing', t => {
   }
 });
 
-test('Docker jobs fail clearly when the runner daemon is unavailable', t => {
+test('Docker jobs fail clearly when the runner daemon is unavailable', linuxOnly, t => {
   const current = fixture(t, { FIXTURE_DOCKER: 'false' });
   const result = current.run(1);
   assert.notEqual(result.status, 0);
   // Buildx must be available before checking the daemon.
   const daemon = fixture(t);
-  writeFileSync(join(daemon.log, '..', 'docker'), '#!/bin/bash\n[[ "$1" != info ]]\n', { mode: 0o755 });
+  writeFileSync(join(daemon.directory, 'docker'), '#!/bin/bash\n[[ "$1" != info ]]\n', { mode: 0o755 });
   const failure = daemon.run(1);
   assert.notEqual(failure.status, 0);
   assert.match(failure.stderr, /Configure ARC with Docker-in-Docker/);

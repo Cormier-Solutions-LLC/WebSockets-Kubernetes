@@ -1,5 +1,5 @@
 ARG SWIFT_BUILD_IMAGE=swift:6.3.3-noble@sha256:dd115b20969a2acf74c8dcf6da7c4aeda086053c27453dad59052a65bafc8d0c
-ARG GO_IMAGE=golang:1.26.7-alpine3.24@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468
+ARG GO_IMAGE=golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
 ARG SWIFT_RUNTIME_IMAGE=swift:6.3.3-noble-slim@sha256:d20e340aeaf7109919b2a15c95569470070cca4d34dae40dfa58339a2aa734df
 FROM ${SWIFT_BUILD_IMAGE} AS build
 WORKDIR /source
@@ -16,7 +16,7 @@ FROM ${GO_IMAGE} AS caddy
 WORKDIR /source
 RUN go mod init caddy-build \
     && go get github.com/caddyserver/caddy/v2/cmd/caddy@v2.11.4 \
-    && go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 google.golang.org/grpc@v1.83.2 \
+    && go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 google.golang.org/grpc@v1.83.2 \
     && CGO_ENABLED=0 go build -o /out/caddy github.com/caddyserver/caddy/v2/cmd/caddy
 FROM ${SWIFT_RUNTIME_IMAGE}
 RUN apt-get update \

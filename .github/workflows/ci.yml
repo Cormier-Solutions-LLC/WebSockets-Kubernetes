@@ -1282,7 +1282,7 @@ jobs:
         shell: pwsh
         run: ./scripts/FullCircle.ps1 -Action cleanup -Profile '${{ matrix.profile }}'
 
-  ci-success:
+  ci-failed:
     if: ${{ always() }}
     runs-on: cormier-runners
     needs:

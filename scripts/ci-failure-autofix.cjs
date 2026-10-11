@@ -1,5 +1,5 @@
 const MARKER = 'cormier-ci-autofix';
-const AGGREGATE_JOB = 'ci-success';
+const AGGREGATE_JOB = 'ci-failed';
 const MAX_EXCERPT_LINES = 15;
 
 // Failures that a code change cannot resolve: credentials, permissions, or runner infrastructure.
@@ -34,7 +34,7 @@ function failedJobs(jobs, ownWorkflowJobs = []) {
   const ignored = new Set(ownWorkflowJobs);
   const failed = jobs.filter(job => !ignored.has(job.name)
     && job.conclusion && !['success', 'skipped', 'neutral'].includes(job.conclusion));
-  // ci-success only aggregates other results; analyze it alone only if nothing else failed.
+  // ci-failed only aggregates other results; analyze it alone only if nothing else failed.
   const specific = failed.filter(job => job.name !== AGGREGATE_JOB);
   return specific.length > 0 ? specific : failed;
 }

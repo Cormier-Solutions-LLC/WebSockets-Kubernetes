@@ -137,13 +137,13 @@ test('success gate accepts only intended skips and requires every selected job t
 
 test('all workflow validations are gated by the selector and included in the stable required gate', () => {
   const jobs = [...workflow.slice(workflow.indexOf('\njobs:\n')).matchAll(/^  ([\w-]+):\n((?:(?!^  [\w-]+:)[\s\S])*)/gm)];
-  assert.deepEqual(jobs.map(match => match[1]).sort(), ['changes', ...validationJobs, 'ci-success'].sort());
+  assert.deepEqual(jobs.map(match => match[1]).sort(), ['changes', ...validationJobs, 'ci-failed'].sort());
   for (const job of validationJobs) {
     const body = jobs.find(match => match[1] === job)[2];
     assert.match(body, /needs: changes/);
     assert.ok(body.includes(`contains(fromJSON(needs.changes.outputs.selected), '${job}')`), job);
   }
-  const gate = jobs.find(match => match[1] === 'ci-success')[2];
+  const gate = jobs.find(match => match[1] === 'ci-failed')[2];
   assert.match(gate, /if: \$\{\{ always\(\) \}\}/);
   for (const job of ['changes', ...validationJobs]) assert.ok(gate.includes(`      - ${job}\n`), job);
   assert.match(gate, /CI_SELECTED_JOBS: \$\{\{ needs\.changes\.outputs\.selected \}\}/);

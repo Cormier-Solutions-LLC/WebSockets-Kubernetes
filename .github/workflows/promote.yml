@@ -74,6 +74,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: refs/heads/main
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Install pinned deployment tools

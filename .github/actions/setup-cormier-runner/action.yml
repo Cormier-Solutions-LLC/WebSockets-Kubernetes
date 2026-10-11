@@ -1,0 +1,77 @@
+name: Set up Cormier runner
+description: Install Linux prerequisites on each ephemeral runner; language SDKs remain workflow-specific.
+inputs:
+  docker:
+    description: Install Docker CLI and Buildx if missing, and require a reachable runner-managed daemon.
+    default: 'false'
+  native-aot:
+    description: Install the compiler and zlib headers for .NET Native AOT.
+    default: 'false'
+  build-tools:
+    description: Install the native build toolchain for source compilation.
+    default: 'false'
+  shellcheck:
+    description: Install ShellCheck for Bash static analysis.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install system prerequisites
+      shell: bash
+      env:
+        SETUP_DOCKER: ${{ inputs.docker }}
+        SETUP_NATIVE_AOT: ${{ inputs.native-aot }}
+        SETUP_BUILD_TOOLS: ${{ inputs.build-tools }}
+        SETUP_SHELLCHECK: ${{ inputs.shellcheck }}
+      run: |
+        set -Eeuo pipefail
+        if [[ "$RUNNER_OS" != Linux || "$RUNNER_ARCH" != X64 ]]; then
+          echo 'Cormier workflows require a Linux x64 runner.' >&2
+          exit 1
+        fi
+        for option in "$SETUP_DOCKER" "$SETUP_NATIVE_AOT" "$SETUP_BUILD_TOOLS" "$SETUP_SHELLCHECK"; do
+          if [[ "$option" != true && "$option" != false ]]; then
+            echo 'Setup inputs must be true or false.' >&2
+            exit 1
+          fi
+        done
+        if ! command -v apt-get >/dev/null; then
+          echo 'Cormier runner setup requires an Ubuntu/Debian apt-based image.' >&2
+          exit 1
+        fi
+        packages=(ca-certificates curl git jq unzip zip tar gzip procps libatomic1 libicu-dev libssl-dev libunwind8 libgssapi-krb5-2 tzdata)
+        [[ "$SETUP_NATIVE_AOT" != true ]] || packages+=(clang zlib1g-dev)
+        [[ "$SETUP_BUILD_TOOLS" != true ]] || packages+=(build-essential)
+        [[ "$SETUP_SHELLCHECK" != true ]] || packages+=(shellcheck)
+        if [[ "$SETUP_DOCKER" == true ]]; then
+          command -v docker >/dev/null || packages+=(docker.io)
+          docker buildx version >/dev/null 2>&1 || packages+=(docker-buildx)
+        fi
+        missing=()
+        for package in "${packages[@]}"; do
+          if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != 'install ok installed' ]]; then
+            missing+=("$package")
+          fi
+        done
+        if (( ${#missing[@]} )); then
+          privilege=()
+          if (( EUID != 0 )); then
+            if ! command -v sudo >/dev/null || ! sudo -n true; then
+              echo 'Preinstall prerequisites or provide passwordless sudo on the runner.' >&2
+              exit 1
+            fi
+            privilege=(sudo -n)
+          fi
+          "${privilege[@]}" apt-get update
+          "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends "${missing[@]}"
+        fi
+    - name: Verify Docker capability
+      if: inputs.docker == 'true'
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        docker buildx version
+        if ! docker info >/dev/null; then
+          echo 'Configure ARC with Docker-in-Docker and a shared workspace before scheduling Docker jobs; setup does not start a privileged daemon.' >&2
+          exit 1
+        fi

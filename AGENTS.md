@@ -1,6 +1,6 @@
 # Repository agent guidance
 
-## Product identity
+## Product identity (force update)
 
 - Use `Cormier` for the distributable brand and `Cormier.Realtime` for .NET solution, project, namespace, assembly, and package identities.
 - Treat customer, tenant, environment, and deployment suffixes as configuration. Never encode a customer-specific or legacy brand in source-controlled identifiers.

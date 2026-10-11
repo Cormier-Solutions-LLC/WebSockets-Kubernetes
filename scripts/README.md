@@ -1,5 +1,15 @@
 # Scripts
 
+## Automatic PR branch synchronization
+
+The [branch synchronization workflow](../.github/workflows/sync-open-branches.yml) runs on every push to `main` (or manually) and merges the latest `main` into same-repository branches with open pull requests targeting `main`, including drafts. It does not merge PRs into `main`, update branches without open PRs, or write to forks. Runs are serialized, duplicate PR branches are processed once, and already-current branches are unchanged.
+
+Content conflicts use Git's `ort` strategy with `-X ours`: **the PR branch wins conflicting content**, while nonconflicting changes from `main` are retained. This is a mechanical policy, not a guarantee of semantic correctness; review the resulting changes and run CI. Structural conflicts that Git cannot resolve (such as modify/delete conflicts) leave the remote branch unchanged, appear in the job summary, and fail the run while other PRs continue. Resolve these manually and rerun the workflow. Updates use ordinary merge commits and never force-push; protected branches and concurrent divergent writes can also reject updates.
+
+The default `GITHUB_TOKEN` needs `contents: write` and `pull-requests: read`. Branch protection/rulesets still apply. Pushes with this token do **not** trigger subsequent push/PR workflows. To trigger normal CI, configure the optional repository secret `BRANCH_SYNC_TOKEN` with a GitHub App installation token or fine-grained PAT having repository Contents read/write and Pull requests read permissions (and Workflows write when updating workflow files). Use a least-privilege automation identity, maintain token expiry, and ensure it is permitted by applicable rulesets; token-triggered CI runs PR code under that CI workflow's own security policy. No token value belongs in source control.
+
+The script executes only trusted code from `main`; PR files are merged in a disposable repository with Git hooks disabled and no inherited global/system Git configuration. Fork contributions must synchronize their own branches.
+
 The production bootstrap and Kubernetes lifecycle is documented in [`docs/bootstrap.md`](../docs/bootstrap.md). `Realtime-Bootstrap.ps1` and `realtime-bootstrap.sh` are equivalent wrappers around one versioned configuration, normalized plan, and implementation. The full-circle packaged-consumer lifecycle is documented separately in [`examples/full-circle/README.md`](../examples/full-circle/README.md).
 
 The shared bootstrap supports Bash 5+ or PowerShell 7+ and requires Node.js 22+ on PATH. Cluster actions additionally require the configured .NET/Git/Helm/kubectl prerequisites described in the bootstrap guide. Edge validation requires PowerShell 7.4+ for pinned authenticated WebSocket transport. The [Scripts Standard 4.2 snapshot](../refs/scripts-standard-v4.2.md) provides reference guidance; individual script contracts define implemented behavior. The older `Bootstrap-Realtime.ps1` and `Deploy-Realtime.ps1` remain compatibility entry points during the v1 migration; new lifecycle features belong in the shared engine and both wrappers.

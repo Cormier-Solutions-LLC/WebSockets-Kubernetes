@@ -16,6 +16,20 @@ Documentation-only changes under `docs`/`refs` and root README/changelog/license
 
 The stable `ci-success` check always runs and requires every selected job to succeed; it accepts skips only for unselected jobs and fails if change detection fails. Require this aggregate check in branch protection rather than every individually conditional job. Pushes to `main` keep the full suite (except PR-only dependency review) so image/package publication continues to consume fully validated artifacts; PR filtering does not alter release or deployment approval policies.
 
+## Automatic CI failure repair
+
+The [CI repair workflow](../.github/workflows/ci-failure-autofix.yml) runs on `cormier-runners` when a CI run completes with failure. It acts only when the `ci-success` gate failed for a same-repository pull request whose head commit has not changed since that run. It is triggered only by the CI workflow, so its own runs and job failures are never repaired (no loop). It checks out trusted default-branch code only and never executes PR code. [The analyzer](ci-failure-autofix.cjs) downloads the failed jobs' logs. The aggregate `ci-success` job is analyzed only if nothing else failed. Error lines are checked for problems a code change cannot fix:
+
+- missing or rejected credentials (for example, a missing username or password, `Input required and not supplied`, or registry/API authentication failures)
+- authorization errors
+- runner/Docker infrastructure failures
+- cancelled or startup-failed jobs
+- unavailable logs
+
+If any of these are found, it stops. It also stops after `CI_AUTOFIX_MAX_ATTEMPTS` (repository variable, default `3`) repair requests on the PR, or if no repair token is configured. When it stops, it comments on the PR, mentioning the author and the user who triggered the run, or `CI_AUTOFIX_FALLBACK_MENTION` when both are bots, and lists the input needed. Otherwise, it posts a comment that starts the coding agent (`CI_AUTOFIX_AGENT_MENTION`, default `@copilot`). The comment contains links to the failed jobs, sanitized error excerpts, and an instruction to stop and ask if credentials, settings, or decisions are required. Hidden markers make sure each head commit is handled once. Only markers in comments from bots, owners, members, or collaborators are counted. Classification is heuristic and errs toward asking a person.
+
+Agent mentions posted with `GITHUB_TOKEN` do not start tasks. Configure the repository secret `CI_AUTOFIX_TOKEN` with a token for a user who has write access and Copilot coding agent access. The token needs Pull requests/Issues read and write. It is used only to post the repair comment; analysis uses the workflow's `GITHUB_TOKEN` (`actions: read`, `issues`/`pull-requests: write`). Keep that token's expiry current. No token value belongs in source control.
+
 ## Automatic PR branch synchronization
 
 The [branch synchronization workflow](../.github/workflows/sync-open-branches.yml) runs on every push to `main` (or manually) and merges the latest `main` into same-repository branches with open pull requests targeting `main`, including drafts. It does not merge PRs into `main`, update branches without open PRs, or write to forks. Runs are serialized, duplicate PR branches are processed once, and already-current branches are unchanged.

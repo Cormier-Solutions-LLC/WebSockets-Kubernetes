@@ -11,6 +11,7 @@ const needsInputPatterns = [
   ['runner infrastructure', /\b(?:Cannot connect to the Docker daemon|No space left on device|The runner has received a shutdown signal|lost communication with the server|No runner (?:is )?available)/i],
 ];
 const errorLine = /##\[error\]|\berror\b|\bfatal\b|\bfail(?:ed|ure)?\b|\bdenied\b|\bunauthorized\b|\bInput required\b/i;
+const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const infrastructureConclusions = new Set(['cancelled', 'startup_failure', 'action_required', 'stale']);
 
 function stripLogPrefix(line) {
@@ -60,6 +61,8 @@ function priorRequests(comments, sha) {
   const copilot = [];
   let handledSha = false;
   for (const comment of comments) {
+    // Ignore markers pasted by untrusted commenters so they cannot suppress or exhaust repairs.
+    if (comment.user?.type !== 'Bot' && !trustedAssociations.has(comment.author_association)) continue;
     const match = pattern.exec(comment.body ?? '');
     if (!match) continue;
     if (match[1] === 'copilot') copilot.push(match[2]);
@@ -92,7 +95,7 @@ function buildCopilotRequest({ mention, run, jobs, sha, attempt, maxAttempts }) 
 
 function buildInputRequest({ people, run, jobs, sha, summary }) {
   return [
-    `${people.map(person => `@${person}`).join(' ')} Automatic CI repair was **not** started for the [${run.name} run](${run.html_url}) on \`${sha.slice(0, 12)}\`.`,
+    `${people.map(person => `${person.startsWith('@') ? '' : '@'}${person} `).join('')}Automatic CI repair was **not** started for the [${run.name} run](${run.html_url}) on \`${sha.slice(0, 12)}\`.`,
     '',
     summary,
     '',
@@ -169,6 +172,7 @@ async function analyzeCiFailure({ github, context, core }) {
 
   if (summary) {
     const people = [...new Set([pr.user?.login, run.triggering_actor?.login].filter(login => login && !login.endsWith('[bot]')))];
+    if (people.length === 0 && process.env.CI_AUTOFIX_FALLBACK_MENTION) people.push(process.env.CI_AUTOFIX_FALLBACK_MENTION);
     await github.rest.issues.createComment({
       ...context.repo, issue_number: pr.number,
       body: buildInputRequest({ people, run, jobs: analyzed, sha: run.head_sha, summary }),

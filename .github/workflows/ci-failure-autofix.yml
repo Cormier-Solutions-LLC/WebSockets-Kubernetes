@@ -38,6 +38,7 @@ jobs:
           CI_AUTOFIX_IGNORED_JOBS: analyze,request-fix
           CI_AUTOFIX_MAX_ATTEMPTS: ${{ vars.CI_AUTOFIX_MAX_ATTEMPTS || '3' }}
           CI_AUTOFIX_AGENT_MENTION: ${{ vars.CI_AUTOFIX_AGENT_MENTION || '@copilot' }}
+          CI_AUTOFIX_FALLBACK_MENTION: ${{ vars.CI_AUTOFIX_FALLBACK_MENTION }}
           CI_AUTOFIX_TOKEN_CONFIGURED: ${{ secrets.CI_AUTOFIX_TOKEN != '' }}
         with:
           script: |

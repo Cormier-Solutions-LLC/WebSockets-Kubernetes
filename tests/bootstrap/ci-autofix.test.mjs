@@ -65,29 +65,33 @@ test('excerpts cannot close fences or mention accounts', () => {
 });
 
 test('prior markers dedupe commits and count repair attempts', () => {
+  const bot = { user: { type: 'Bot' } };
   const comments = [
-    { body: 'x <!-- cormier-ci-autofix:copilot sha=abc run=1 -->' },
-    { body: '<!-- cormier-ci-autofix:input sha=def run=2 -->' },
-    { body: 'unrelated' },
+    { author_association: 'COLLABORATOR', body: 'x <!-- cormier-ci-autofix:copilot sha=abc run=1 -->' },
+    { ...bot, body: '<!-- cormier-ci-autofix:input sha=def run=2 -->' },
+    { ...bot, body: 'unrelated' },
   ];
   assert.deepEqual(priorRequests(comments, 'def'), { copilotAttempts: 1, handledSha: true });
   assert.deepEqual(priorRequests(comments, 'fff'), { copilotAttempts: 1, handledSha: false });
+  const untrusted = { author_association: 'NONE', user: { type: 'User' } };
+  assert.deepEqual(priorRequests(comments.map(comment => ({ ...comment, ...untrusted })), 'def'), { copilotAttempts: 0, handledSha: false });
 });
 
-function harness({ log, comments = [], token = 'true' }) {
+function harness({ log, comments = [], token = 'true', listed = true, openPrs = null, actor = 'dev' }) {
   const run = {
     id: 9, name: 'Realtime gateway CI', html_url: 'https://example.invalid/run', event: 'pull_request',
     head_sha: 'b'.repeat(40), head_branch: 'feature', head_repository: { full_name: 'o/r' },
-    pull_requests: [{ number: 5 }], triggering_actor: { login: 'dev' },
+    pull_requests: listed ? [{ number: 5 }] : [], triggering_actor: { login: actor },
   };
   const outputs = {};
   const posted = [];
   const jobs = [{ id: 1, name: 'go-gin', conclusion: 'failure' }, { id: 2, name: 'ci-success', conclusion: 'failure' }];
+  const pr = { state: 'open', number: 5, head: { sha: run.head_sha }, user: { login: actor === 'dev' ? 'author' : actor } };
   const github = {
     paginate: async method => method(),
     rest: {
       actions: { listJobsForWorkflowRun: () => jobs, downloadJobLogsForWorkflowRun: async () => ({ data: log }) },
-      pulls: { get: async () => ({ data: { state: 'open', number: 5, head: { sha: run.head_sha }, user: { login: 'author' } } }) },
+      pulls: { get: async () => ({ data: pr }), list: async () => ({ data: openPrs ?? [pr] }) },
       issues: { listComments: () => comments, createComment: async args => posted.push(args) },
     },
   };
@@ -111,7 +115,7 @@ test('unresolvable failures, missing token, and attempt limits stop and prompt t
   for (const options of [
     { log: '##[error]Username and password required' },
     { log: 'error: x', token: 'false' },
-    { log: 'error: x', comments: ['1', '2'].map(n => ({ body: `<!-- cormier-ci-autofix:copilot sha=${n.repeat(4)} run=${n} -->` })) },
+    { log: 'error: x', comments: ['1', '2'].map(n => ({ author_association: 'COLLABORATOR', body: `<!-- cormier-ci-autofix:copilot sha=${n.repeat(4)} run=${n} -->` })) },
   ]) {
     const h = harness(options);
     await h.run();
@@ -123,8 +127,23 @@ test('unresolvable failures, missing token, and attempt limits stop and prompt t
 });
 
 test('already handled commits are not processed again', async () => {
-  const h = harness({ log: 'error: x', comments: [{ body: `<!-- cormier-ci-autofix:input sha=${'b'.repeat(40)} run=8 -->` }] });
+  const h = harness({ log: 'error: x', comments: [{ user: { type: 'Bot' }, body: `<!-- cormier-ci-autofix:input sha=${'b'.repeat(40)} run=8 -->` }] });
   await h.run();
   assert.equal(h.outputs.dispatch, 'false');
   assert.equal(h.posted.length, 0);
+});
+
+test('PRs are found by branch when the run lists none, and bot-only runs use the fallback mention', async () => {
+  const found = harness({ log: 'error: x', listed: false });
+  await found.run();
+  assert.equal(found.outputs.pull_number, '5');
+  const missing = harness({ log: 'error: x', listed: false, openPrs: [] });
+  await missing.run();
+  assert.equal(missing.outputs.dispatch, 'false');
+  assert.equal(missing.posted.length, 0);
+  process.env.CI_AUTOFIX_FALLBACK_MENTION = '@org/maintainers';
+  const bots = harness({ log: '##[error]Username and password required', actor: 'dependabot[bot]' });
+  await bots.run();
+  delete process.env.CI_AUTOFIX_FALLBACK_MENTION;
+  assert.match(bots.posted[0].body, /^@org\/maintainers Automatic CI repair/);
 });

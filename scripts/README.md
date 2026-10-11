@@ -1,5 +1,13 @@
 # Scripts
 
+## Cormier GitHub Actions runners
+
+Linux workflows use `cormier-runners`; the Windows bootstrap job remains on `windows-latest` to preserve Windows coverage. Every Linux job checks out its source and then calls [the shared setup action](../.github/actions/setup-cormier-runner/action.yml) before running dependent steps. It installs missing common OS tools and Node/.NET/PowerShell runtime libraries, with opt-in `docker`, `native-aot`, `build-tools`, and `shellcheck` inputs. Keep language SDK versions, checksum-verified PowerShell/deployment tool downloads, and Playwright browser installation in the consuming workflow.
+
+Use Linux x64 Ubuntu runners with Bash, the Actions runtime, and checkout prerequisites already available. Package installation requires root or passwordless sudo, or an image with all requested packages preinstalled. Docker jobs additionally require an operator-configured reachable daemon (for ARC, Docker-in-Docker with a shared workspace); the action installs missing Docker CLI/Buildx packages but does not start a privileged daemon. Jobs with `services` need Docker available **before** any steps execute. A separate setup job cannot provision other ephemeral runner pods.
+
+The [runner setup validation workflow](../.github/workflows/runner-setup.yml) installs and checks all optional capabilities when workflows, local actions, or setup scripts change, and can also be dispatched manually. Its contract tests enforce shared setup for newly added Linux jobs. Update the shared action when a new local action needs additional system prerequisites; do not assume the hosted-runner tool inventory is present. Keep runner pods ephemeral and isolated from production credentials, cluster access, and other workloads, especially when executing pull request code.
+
 ## Automatic PR branch synchronization
 
 The [branch synchronization workflow](../.github/workflows/sync-open-branches.yml) runs on every push to `main` (or manually) and merges the latest `main` into same-repository branches with open pull requests targeting `main`, including drafts. It does not merge PRs into `main`, update branches without open PRs, or write to forks. Runs are serialized, duplicate PR branches are processed once, and already-current branches are unchanged.

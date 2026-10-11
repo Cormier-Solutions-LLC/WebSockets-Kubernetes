@@ -35,6 +35,9 @@ jobs:
         with:
           fetch-depth: 2
           ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Install Node runtime prerequisites
         run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v7

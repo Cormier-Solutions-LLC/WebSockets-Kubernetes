@@ -8,6 +8,8 @@ jobs:
     runs-on: cormier-runners
 
     steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
       - name: Runner information
         run: |
           echo "Hostname: $(hostname)"

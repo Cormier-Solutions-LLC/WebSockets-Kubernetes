@@ -15,13 +15,14 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: cormier-runners
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: main
           persist-credentials: false
+      - uses: ./.github/actions/setup-cormier-runner
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           BRANCH_SYNC_TOKEN: ${{ secrets.BRANCH_SYNC_TOKEN || github.token }}

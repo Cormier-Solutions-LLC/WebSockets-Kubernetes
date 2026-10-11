@@ -44,6 +44,10 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
+          shellcheck: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -62,8 +66,6 @@ jobs:
         run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
-      - name: Install Bash analysis prerequisite
-        run: sudo apt-get update && sudo apt-get install --yes shellcheck
       - name: Parse PowerShell lifecycle scripts
         run: |
           docker run --rm -v "$PWD:/work" -w /work --entrypoint pwsh-preview "$CI_POWERSHELL_IMAGE" -NoLogo -NoProfile -Command '
@@ -204,6 +206,7 @@ jobs:
         profile: [non-ha, ha]
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
       - name: Install Node runtime prerequisites
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-node-prerequisites.sh
@@ -224,6 +227,10 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
+          native-aot: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -256,8 +263,6 @@ jobs:
       - name: Restore TypeScript SDK dependencies
         working-directory: sdk/typescript
         run: npm ci
-      - name: Install Native AOT prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes clang zlib1g-dev
       - name: Restore locked dependencies
         run: dotnet restore Cormier.Realtime.sln --runtime linux-x64 --locked-mode
       - name: Build
@@ -439,6 +444,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
       - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
@@ -447,6 +453,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -513,6 +522,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -580,6 +592,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -646,6 +661,10 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
+          build-tools: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -673,8 +692,6 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
-      - name: Install Rust native build prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes build-essential
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -716,6 +733,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -784,6 +804,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -857,6 +880,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -927,6 +953,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -992,6 +1021,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -1057,6 +1089,9 @@ jobs:
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -1131,6 +1166,9 @@ jobs:
         profile: [non-ha, ha]
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
       - name: Authenticate to Harbor
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -1209,6 +1247,8 @@ jobs:
       - swift-vapor
       - full-circle
     steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
       - name: Require every CI validation job to pass
         env:
           CI_JOB_RESULTS: ${{ toJSON(needs) }}

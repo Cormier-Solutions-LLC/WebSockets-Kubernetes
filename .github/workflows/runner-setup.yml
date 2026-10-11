@@ -1,0 +1,47 @@
+name: Validate Cormier runner setup
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/**'
+      - '.github/workflows/**'
+      - 'scripts/setup-ci-*.sh'
+      - 'tests/bootstrap/runner-setup.test.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/actions/**'
+      - '.github/workflows/**'
+      - 'scripts/setup-ci-*.sh'
+      - 'tests/bootstrap/runner-setup.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: cormier-runners
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-cormier-runner
+        with:
+          docker: 'true'
+          native-aot: 'true'
+          build-tools: 'true'
+          shellcheck: 'true'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.10.0
+      - name: Verify workflow setup contracts
+        run: node --test tests/bootstrap/runner-setup.test.mjs
+      - name: Verify installed capabilities
+        run: |
+          shellcheck --version
+          clang --version
+          cc --version
+          make --version
+          jq --version
+          docker buildx version
+          docker info >/dev/null

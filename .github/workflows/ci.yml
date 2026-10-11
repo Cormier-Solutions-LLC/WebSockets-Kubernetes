@@ -40,7 +40,29 @@ env:
   CI_SWIFT_RUNTIME_IMAGE: ${{ vars.CI_SWIFT_RUNTIME_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/swift:6.3.3-noble-slim@sha256:d20e340aeaf7109919b2a15c95569470070cca4d34dae40dfa58339a2aa734df' }}
 
 jobs:
+  changes:
+    runs-on: cormier-runners
+    outputs:
+      selected: ${{ steps.impact.outputs.selected }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-cormier-runner
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.10.0
+      - name: Select affected validation jobs
+        id: impact
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci-impact.mjs select
+
   helm-and-automation:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'helm-and-automation')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -176,6 +198,8 @@ jobs:
           grep --quiet 'bitnamilegacy/redis-exporter@sha256:d111b8a14d96f7edd67324776d6801b76023035d9390d03fbb13d1c21bda8b88' /tmp/redis.yaml
 
   bootstrap-powershell-windows:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'bootstrap-powershell-windows')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -198,6 +222,8 @@ jobs:
           Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
 
   bootstrap-lifecycle-parity:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'bootstrap-lifecycle-parity')
     runs-on: cormier-runners
     strategy:
       fail-fast: false
@@ -224,6 +250,8 @@ jobs:
         run: node --test --test-name-pattern="complete lifecycle" tests/bootstrap/bootstrap-contract.test.mjs
 
   build-test-aot:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'build-test-aot')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -437,7 +465,8 @@ jobs:
             artifacts/cormier-realtime-gateway.spdx.json
 
   dependency-review:
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && contains(fromJSON(needs.changes.outputs.selected), 'dependency-review')
     runs-on: cormier-runners
     permissions:
       contents: read
@@ -450,6 +479,8 @@ jobs:
           fail-on-severity: high
 
   node-express:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'node-express')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -519,6 +550,8 @@ jobs:
           path: artifacts/node-express
 
   java-spring-boot:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'java-spring-boot')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -589,6 +622,8 @@ jobs:
           path: artifacts/java-spring-boot
 
   kotlin-ktor:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'kotlin-ktor')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -658,6 +693,8 @@ jobs:
           path: artifacts/kotlin-ktor
 
   rust-axum:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'rust-axum')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -730,6 +767,8 @@ jobs:
           path: artifacts/rust-axum
 
   go-gin:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'go-gin')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -801,6 +840,8 @@ jobs:
           path: artifacts/go-gin
 
   elixir-phoenix:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'elixir-phoenix')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -874,6 +915,8 @@ jobs:
           path: artifacts/elixir-phoenix
 
   php-laravel:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'php-laravel')
     runs-on: cormier-runners
     concurrency:
       group: php-laravel-${{ github.workflow }}-${{ github.ref }}
@@ -950,6 +993,8 @@ jobs:
           path: artifacts/php-laravel
 
   python-fastapi:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'python-fastapi')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -1018,6 +1063,8 @@ jobs:
           path: artifacts/python-fastapi
 
   ruby-rails:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'ruby-rails')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -1086,6 +1133,8 @@ jobs:
           path: artifacts/ruby-rails
 
   swift-vapor:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'swift-vapor')
     runs-on: cormier-runners
     steps:
       - uses: actions/checkout@v5
@@ -1156,6 +1205,8 @@ jobs:
           path: artifacts/swift-vapor
 
   full-circle:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.selected), 'full-circle')
     runs-on: cormier-runners
     env:
       REDIS_TEST_ENDPOINT: 127.0.0.1:6379
@@ -1230,6 +1281,7 @@ jobs:
     if: ${{ always() }}
     runs-on: cormier-runners
     needs:
+      - changes
       - helm-and-automation
       - bootstrap-powershell-windows
       - bootstrap-lifecycle-parity
@@ -1249,20 +1301,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-cormier-runner
-      - name: Require every CI validation job to pass
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.10.0
+      - name: Require every affected CI validation job to pass
         env:
+          CI_SELECTED_JOBS: ${{ needs.changes.outputs.selected }}
           CI_JOB_RESULTS: ${{ toJSON(needs) }}
-        run: |
-          failures=$(jq --raw-output '
-            to_entries[]
-            | select(
-                .value.result != "success"
-                and (.key != "dependency-review" or .value.result != "skipped")
-              )
-            | "\(.key)=\(.value.result)"
-          ' <<<"$CI_JOB_RESULTS")
-          if [ -n "$failures" ]; then
-            printf 'Required CI jobs did not succeed:\n%s\n' "$failures" >&2
-            exit 1
-          fi
-          echo 'All required CI jobs succeeded.'
+        run: node scripts/ci-impact.mjs check

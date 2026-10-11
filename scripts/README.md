@@ -8,6 +8,14 @@ Use Linux x64 Ubuntu runners with Bash, the Actions runtime, and checkout prereq
 
 The [runner setup validation workflow](../.github/workflows/runner-setup.yml) installs and checks all optional capabilities when workflows, local actions, or setup scripts change, and can also be dispatched manually. Its contract tests enforce shared setup for newly added Linux jobs. Update the shared action when a new local action needs additional system prerequisites; do not assume the hosted-runner tool inventory is present. Keep runner pods ephemeral and isolated from production credentials, cluster access, and other workloads, especially when executing pull request code.
 
+## Change-aware CI
+
+The [CI workflow](../.github/workflows/ci.yml) selects pull-request validation jobs with [the impact selector](ci-impact.mjs). It compares the PR head against the merge base with its target branch using full Git history, including deleted paths and both sides of renames. An isolated reference-adapter change runs that adapter and the shared build/contract tests, not every unrelated adapter. Shared runtime, protocol, SDK, browser UI, or full-circle fixture changes run all runtime consumers. Deployment/configuration changes retain bootstrap cross-shell and both-topology coverage. Dependency manifest changes additionally select dependency review.
+
+Documentation-only changes under `docs`/`refs` and root README/changelog/license files skip runtime validation; example changelogs and `scripts/README.md` still select their contract tests. Shared workflow/action or executable script changes, unknown inputs, and unavailable comparisons conservatively select the full PR suite. Update the selector and its tests when introducing a job or shared dependency.
+
+The stable `ci-success` check always runs and requires every selected job to succeed; it accepts skips only for unselected jobs and fails if change detection fails. Require this aggregate check in branch protection rather than every individually conditional job. Pushes to `main` keep the full suite (except PR-only dependency review) so image/package publication continues to consume fully validated artifacts; PR filtering does not alter release or deployment approval policies.
+
 ## Automatic PR branch synchronization
 
 The [branch synchronization workflow](../.github/workflows/sync-open-branches.yml) runs on every push to `main` (or manually) and merges the latest `main` into same-repository branches with open pull requests targeting `main`, including drafts. It does not merge PRs into `main`, update branches without open PRs, or write to forks. Runs are serialized, duplicate PR branches are processed once, and already-current branches are unchanged.

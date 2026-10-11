@@ -49,9 +49,14 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-cormier-runner
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
+      - name: Install pinned npm
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Select affected validation jobs
         id: impact
         env:
@@ -1301,9 +1306,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-cormier-runner
+      - name: Install Node runtime prerequisites
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-node-prerequisites.sh
       - uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
+      - name: Install pinned npm
+        run: npm install --global "npm@${{ env.NPM_VERSION }}"
       - name: Require every affected CI validation job to pass
         env:
           CI_SELECTED_JOBS: ${{ needs.changes.outputs.selected }}

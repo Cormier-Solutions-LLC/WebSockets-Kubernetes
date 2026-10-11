@@ -1,0 +1,60 @@
+name: Repair failed CI
+
+on:
+  workflow_run:
+    workflows: [Realtime gateway CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: ci-autofix-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    # Only failed same-repository PR runs; this workflow is never its own trigger.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure'
+      && github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: cormier-runners
+    timeout-minutes: 15
+    steps:
+      # Trusted default-branch code only; the failed PR code is never checked out or executed.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-cormier-runner
+      - name: Analyze ci-success failure
+        id: analyze
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          CI_AUTOFIX_WORKFLOW_NAME: ${{ github.workflow }}
+          CI_AUTOFIX_IGNORED_JOBS: analyze,request-fix
+          CI_AUTOFIX_MAX_ATTEMPTS: ${{ vars.CI_AUTOFIX_MAX_ATTEMPTS || '3' }}
+          CI_AUTOFIX_AGENT_MENTION: ${{ vars.CI_AUTOFIX_AGENT_MENTION || '@copilot' }}
+          CI_AUTOFIX_TOKEN_CONFIGURED: ${{ secrets.CI_AUTOFIX_TOKEN != '' }}
+        with:
+          script: |
+            const { analyzeCiFailure } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci-failure-autofix.cjs`);
+            await analyzeCiFailure({ github, context, core });
+      - name: Start Copilot repair task
+        if: steps.analyze.outputs.dispatch == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          CI_AUTOFIX_PULL_NUMBER: ${{ steps.analyze.outputs.pull_number }}
+          CI_AUTOFIX_BODY: ${{ steps.analyze.outputs.body }}
+        with:
+          # Agent mentions must come from a user identity; GITHUB_TOKEN comments do not start tasks.
+          github-token: ${{ secrets.CI_AUTOFIX_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: Number(process.env.CI_AUTOFIX_PULL_NUMBER),
+              body: process.env.CI_AUTOFIX_BODY,
+            });

@@ -31,8 +31,8 @@ env:
   CI_GRADLE_IMAGE: ${{ vars.CI_GRADLE_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/gradle:9.7.1-jdk25-alpine@sha256:a0991f96020bb532564c947a4bbea93d67befd3cc81b3e356eb1a85556701b6e' }}
   CI_RUST_IMAGE: ${{ vars.CI_RUST_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/rust:1.98.1-alpine@sha256:1716b3aa042d735f4566d14dc54e8037de9d69556e2d5dd58131d93a613d173d' }}
   CI_ALPINE_IMAGE: ${{ vars.CI_ALPINE_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b' }}
-  CI_GO_IMAGE: ${{ vars.CI_GO_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125' }}
-  CI_GO_CADDY_IMAGE: ${{ vars.CI_GO_CADDY_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/golang:1.26.7-alpine3.24@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468' }}
+  CI_GO_IMAGE: ${{ vars.CI_GO_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d' }}
+  CI_GO_CADDY_IMAGE: ${{ vars.CI_GO_CADDY_IMAGE || 'harbor.cormierconsulting.io/dockerhub/library/golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade' }}
   CI_ELIXIR_IMAGE: ${{ vars.CI_ELIXIR_IMAGE || 'harbor.cormierconsulting.io/dockerhub/hexpm/elixir:1.20.4-erlang-29.0.6-alpine-3.24.1@sha256:fec752d2a79fc50dc0a29b4da3c62f0a4925bc318f5391e5e221d01f98be6f22' }}
   CI_FRANKENPHP_BUILDER_IMAGE: ${{ vars.CI_FRANKENPHP_BUILDER_IMAGE || 'harbor.cormierconsulting.io/dockerhub/dunglas/frankenphp:1.12.7-builder-php8.5-alpine@sha256:862bce4c7efe77337d8f8170a262b639e1787141ffe70ae0edd9ec6ef96c6a99' }}
   CI_FRANKENPHP_IMAGE: ${{ vars.CI_FRANKENPHP_IMAGE || 'harbor.cormierconsulting.io/dockerhub/dunglas/frankenphp:1.12.7-php8.5-alpine@sha256:214b541fe30aeed2717d54f74149b71b2bdb0089718f1fbb8b43bc170ab00939' }}
@@ -278,7 +278,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Pull Prometheus validation image
         run: bash scripts/pull-ci-image.sh "$CI_PROMETHEUS_IMAGE"
       - name: Start configured Redis fixture
@@ -506,7 +506,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -577,7 +577,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -649,7 +649,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -721,7 +721,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -794,7 +794,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -814,7 +814,7 @@ jobs:
         run: node scripts/setup-ci-npm.mjs
       - uses: actions/setup-go@v7
         with:
-          go-version: 1.27.1
+          go-version: 1.27.2
           cache-dependency-path: examples/go-gin/go.sum
       - name: Build the gateway fixture
         run: |
@@ -867,7 +867,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -945,7 +945,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -980,6 +980,7 @@ jobs:
           docker build --build-arg COMPOSER_IMAGE="$CI_COMPOSER_IMAGE"
           --build-arg FRANKENPHP_BUILDER_IMAGE="$CI_FRANKENPHP_BUILDER_IMAGE"
           --build-arg FRANKENPHP_IMAGE="$CI_FRANKENPHP_IMAGE"
+          --build-arg GO_IMAGE="$CI_GO_CADDY_IMAGE"
           --file examples/php-laravel/Dockerfile --tag cormier-php-laravel:${{ github.sha }} .
       - name: Scan the Laravel reference container
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
@@ -1020,7 +1021,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -1090,7 +1091,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -1160,7 +1161,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -1239,7 +1240,7 @@ jobs:
         with:
           registry: harbor.cormierconsulting.io
           username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
       - name: Start configured Redis fixture
         run: bash scripts/start-ci-redis.sh
       - uses: actions/setup-dotnet@v6
@@ -1291,7 +1292,7 @@ jobs:
         shell: pwsh
         run: ./scripts/FullCircle.ps1 -Action cleanup -Profile '${{ matrix.profile }}'
 
-  ci-success:
+  ci-failed:
     if: ${{ always() }}
     runs-on: cormier-runners
     needs:

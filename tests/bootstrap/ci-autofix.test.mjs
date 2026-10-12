@@ -30,10 +30,10 @@ test('failed jobs exclude ignored names and the aggregate gate unless it failed 
     { name: 'go-gin', conclusion: 'failure' },
     { name: 'rust-axum', conclusion: 'skipped' },
     { name: 'analyze', conclusion: 'failure' },
-    { name: 'ci-success', conclusion: 'failure' },
+    { name: 'ci-failed', conclusion: 'failure' },
   ];
   assert.deepEqual(failedJobs(jobs, ['analyze']).map(job => job.name), ['go-gin']);
-  assert.deepEqual(failedJobs([jobs[0], jobs[4]]).map(job => job.name), ['ci-success']);
+  assert.deepEqual(failedJobs([jobs[0], jobs[4]]).map(job => job.name), ['ci-failed']);
 });
 
 test('credential, authorization and infrastructure errors require user input', () => {
@@ -89,7 +89,7 @@ function harness({ log, comments = [], token = 'true', listed = true, openPrs = 
   };
   const outputs = {};
   const posted = [];
-  const jobs = [{ id: 1, name: jobName, conclusion: 'failure', html_url: 'https://example.invalid/job' }, { id: 2, name: 'ci-success', conclusion: 'failure' }];
+  const jobs = [{ id: 1, name: jobName, conclusion: 'failure', html_url: 'https://example.invalid/job' }, { id: 2, name: 'ci-failed', conclusion: 'failure' }];
   const pr = { state: 'open', number: 5, head: { sha: run.head_sha }, user: { login: actor === 'dev' ? 'author' : actor } };
   const github = {
     paginate: async method => method(),

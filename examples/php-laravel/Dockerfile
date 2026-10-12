@@ -1,17 +1,21 @@
 ARG COMPOSER_IMAGE=composer:2.10.3@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332
 ARG FRANKENPHP_BUILDER_IMAGE=dunglas/frankenphp:1.12.7-builder-php8.5-alpine@sha256:862bce4c7efe77337d8f8170a262b639e1787141ffe70ae0edd9ec6ef96c6a99
 ARG FRANKENPHP_IMAGE=dunglas/frankenphp:1.12.7-php8.5-alpine@sha256:214b541fe30aeed2717d54f74149b71b2bdb0089718f1fbb8b43bc170ab00939
+ARG GO_IMAGE=golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade
+
+FROM ${GO_IMAGE} AS go-toolchain
 FROM ${COMPOSER_IMAGE} AS dependencies
 WORKDIR /source
 COPY examples/php-laravel/composer.json examples/php-laravel/composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader --no-scripts
 
 FROM ${FRANKENPHP_BUILDER_IMAGE} AS frankenphp
+COPY --from=go-toolchain /usr/local/go /usr/local/go
 WORKDIR /go/src/app/caddy
 RUN go get github.com/getkin/kin-openapi@v0.144.0 \
-    golang.org/x/crypto@v0.55.0 \
-    golang.org/x/net@v0.58.0 \
-    golang.org/x/text@v0.41.0 \
+    golang.org/x/crypto@v0.57.0 \
+    golang.org/x/net@v0.60.0 \
+    golang.org/x/text@v0.42.0 \
     google.golang.org/grpc@v1.83.2 \
     && cd frankenphp \
     && GOBIN=/usr/local/bin ../../go.sh install -buildvcs=false -ldflags "-w -s -X 'github.com/caddyserver/caddy/v2.CustomVersion=FrankenPHP v1.12.7 PHP $PHP_VERSION Caddy' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp' -X 'github.com/caddyserver/caddy/v2/modules/caddyhttp.ServerHeader=FrankenPHP Caddy'"

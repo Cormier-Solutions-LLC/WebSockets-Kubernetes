@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -11,6 +11,39 @@ const setup = './.github/actions/setup-cormier-runner';
 const linuxOnly = { skip: process.platform !== 'linux' };
 const scripts = [...action.matchAll(/^      run: \|\n((?:        .*\n|\n)+)/gm)]
   .map(match => match[1].replace(/^        /gm, ''));
+
+test('GitHub YAML files retain LF checkout with Windows line-ending settings', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'cormier-yaml-checkout-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const git = (...args) => {
+    const result = spawnSync('git', ['-c', 'core.autocrlf=true', '-c', 'core.eol=crlf', ...args], { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git('init');
+  writeFileSync(join(directory, '.gitattributes'), readFileSync(new URL('.gitattributes', root)));
+  const paths = ['.github/workflows/ci.yml', '.github/workflows/ci-failure-autofix.yml', '.github/actions/setup-cormier-runner/action.yml'];
+  for (const path of paths) {
+    mkdirSync(join(directory, path, '..'), { recursive: true });
+    writeFileSync(join(directory, path), readFileSync(new URL(path, root)));
+  }
+  git('add', '.');
+  for (const path of paths) rmSync(join(directory, path));
+  git('checkout-index', '--all', '--force');
+  for (const path of paths) {
+    assert.equal(readFileSync(join(directory, path), 'utf8'), readFileSync(new URL(path, root), 'utf8').replace(/\r\n/g, '\n'), path);
+  }
+});
+
+test('CI registry logins consistently use the configured Harbor credentials', () => {
+  const workflow = readFileSync(new URL('.github/workflows/ci.yml', root), 'utf8');
+  const logins = [...workflow.matchAll(/uses: docker\/login-action@[^\r\n]+\r?\n        with:\r?\n((?:          .*\r?\n)+)/g)];
+  assert.ok(logins.length > 0);
+  for (const [, inputs] of logins) {
+    assert.match(inputs, /username: \$\{\{ secrets\.HARBOR_USERNAME \}\}/);
+    assert.match(inputs, /password: \$\{\{ secrets\.HARBOR_PASSWORD \}\}/);
+  }
+  assert.doesNotMatch(workflow, /secrets\.HARBOR_TOKEN/);
+});
 
 test('all Linux jobs use shared setup after checkout and before dependent steps', () => {
   for (const file of readdirSync(new URL('.github/workflows/', root)).filter(file => file.endsWith('.yml'))) {

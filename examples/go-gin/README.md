@@ -4,7 +4,7 @@ This non-production adapter demonstrates a Gin front end for Cormier.Realtime. E
 
 ## Prerequisites and local run
 
-- Go 1.27.1
+- Go 1.27.2
 - Redis 7.4 and a Cormier.Realtime 0.1.x gateway using the same Redis prefixes and trusted `PUBLIC_ORIGIN`
 - Node.js 26.10.0 and npm 12.1.0 to regenerate the canonical SDK and shared UI assets. From the repository root, run `npm --prefix sdk/typescript ci` followed by `npm --prefix sdk/typescript run build`. This produces both `sdk/typescript/dist` and `examples/shared-web/dist` required by the container.
 
@@ -50,14 +50,14 @@ This is a teaching adapter, not a production identity system or general reverse 
 
 | Component | Repository pin / compatibility | Status |
 | --- | --- | --- |
-| Go | 1.27.1 | `go.mod` and Dockerfile pin |
+| Go | 1.27.2 | `go.mod` and Dockerfile pin |
 | Gin | 1.12.0 | `go.mod` pin |
 | go-redis | 9.21.0 | `go.mod` pin |
 | coder/websocket | 1.8.15 | `go.mod` pin |
 | Go module graph | `go.mod` and `go.sum` | Read-only, reproducible resolution |
 | Cormier.Realtime SDK / protocol / gateway | 1.0.6-beta / 1.0 / 1.0.6-beta | Canonical assets and external gateway |
 | Redis | 7.4 | Tested dependency |
-| Container bases | Go 1.27.1 Alpine / Alpine 3.24 | Digest-pinned |
+| Container bases | Go 1.27.2 Alpine / Alpine 3.24 | Digest-pinned |
 
 The adapter has four stack-specific Go files and 849 nonblank lines, including tests. Shared assets, fixtures, generated SDK, module/build metadata, and docs are excluded. Recalculate after changes.
 

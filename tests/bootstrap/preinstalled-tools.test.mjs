@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,21 @@ import { fileURLToPath } from 'node:url';
 
 const root = new URL('../../', import.meta.url);
 const linuxOnly = { skip: process.platform !== 'linux' };
+
+test('every CI browser installer resolves from its declared working directory', () => {
+  const workflow = readFileSync(new URL('.github/workflows/ci.yml', root), 'utf8');
+  const steps = workflow.split(/\r?\n      - /).filter(step => step.includes('setup-ci-playwright.sh'));
+  assert.equal(steps.length, 12);
+  for (const step of steps) {
+    const directory = step.match(/working-directory: (\S+)/)?.[1] ?? '.';
+    const script = step.match(/run: bash (\S+)/)?.[1];
+    assert.ok(script, step);
+    const resolved = new URL(script, new URL(`${directory}/`, root));
+    assert.equal(resolved.href, new URL('scripts/setup-ci-playwright.sh', root).href);
+    assert.ok(existsSync(resolved), `${directory}: ${script}`);
+  }
+});
+
 function fixture(t, overrides = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'preinstalled-tools-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

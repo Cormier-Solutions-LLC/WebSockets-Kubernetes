@@ -808,7 +808,7 @@ public sealed class DeploymentContractTests
         Assert.Equal(
             ci.Split("uses: actions/setup-node@v7", StringSplitOptions.None).Length - 1,
             ci.Split("name: Install Node runtime prerequisites", StringSplitOptions.None).Length - 1);
-        Assert.Contains("npm@${{ env.NPM_VERSION }}", ci, StringComparison.Ordinal);
+        Assert.Contains("run: node scripts/setup-ci-npm.mjs", ci, StringComparison.Ordinal);
         Assert.DoesNotContain("node-version: 24", ci, StringComparison.Ordinal);
         Assert.Contains($"node-version: {nodeVersion}", ci, StringComparison.Ordinal);
         Assert.Contains($"node:{nodeVersion}-alpine@sha256:", ci, StringComparison.Ordinal);
@@ -821,7 +821,7 @@ public sealed class DeploymentContractTests
         Assert.Equal(
             packages.Split("uses: actions/setup-node@v7", StringSplitOptions.None).Length - 1,
             packages.Split("name: Install Node runtime prerequisites", StringSplitOptions.None).Length - 1);
-        Assert.Contains("npm@${{ env.NPM_VERSION }}", packages, StringComparison.Ordinal);
+        Assert.Contains("run: node scripts/setup-ci-npm.mjs", packages, StringComparison.Ordinal);
         Assert.DoesNotContain("node-version: 24", packages, StringComparison.Ordinal);
         Assert.Contains($"node-version: {nodeVersion}", packages, StringComparison.Ordinal);
     }

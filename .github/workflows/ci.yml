@@ -338,7 +338,7 @@ jobs:
           npm pack --dry-run
       - name: Install browser test engines
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium firefox webkit
+        run: bash ../../scripts/setup-ci-playwright.sh chromium firefox webkit
       - name: Cross-browser SDK and live gateway tests
         working-directory: sdk/typescript
         env:
@@ -552,7 +552,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.node-express.config.mjs
@@ -624,7 +624,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.java-spring-boot.config.mjs
@@ -695,7 +695,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.kotlin-ktor.config.mjs
@@ -769,7 +769,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.rust-axum.config.mjs
@@ -826,7 +826,7 @@ jobs:
       - name: Check the locked Gin reference adapter
         working-directory: examples/go-gin
         run: |
-          test -z "$(gofmt -l *.go)"
+          test -z "$(gofmt -l ./*.go)"
           go test -mod=readonly ./...
           go vet -mod=readonly ./...
       - name: Build the Gin reference container
@@ -842,7 +842,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.go-gin.config.mjs
@@ -917,7 +917,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.elixir-phoenix.config.mjs
@@ -991,7 +991,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Remove stale Laravel smoke container
         working-directory: sdk/typescript
         run: node ./test/reference-adapters/stop-php-laravel-container.mjs
@@ -1064,7 +1064,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:
@@ -1134,7 +1134,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:
@@ -1206,7 +1206,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:
@@ -1270,7 +1270,7 @@ jobs:
         run: ./scripts/FullCircle.ps1 -Action bootstrap -Profile '${{ matrix.profile }}'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: bash scripts/setup-ci-playwright.sh chromium
+        run: bash ../../scripts/setup-ci-playwright.sh chromium
       - name: Validate through Bash
         if: matrix.shell == 'bash'
         run: bash ./scripts/full-circle.sh validate --profile "${{ matrix.profile }}"

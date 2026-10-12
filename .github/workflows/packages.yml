@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/actions/**'
+      - '.github/workflows/ci.yml'
       - '.github/workflows/packages.yml'
       - 'Directory.Build.*'
       - 'Cormier.Realtime.sln'

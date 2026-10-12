@@ -6,14 +6,18 @@ on:
       - '.github/actions/**'
       - '.github/workflows/**'
       - 'scripts/setup-ci-*.sh'
+      - 'scripts/setup-ci-npm.mjs'
       - 'tests/bootstrap/runner-setup.test.mjs'
+      - 'tests/bootstrap/preinstalled-tools.test.mjs'
   push:
     branches: [main]
     paths:
       - '.github/actions/**'
       - '.github/workflows/**'
       - 'scripts/setup-ci-*.sh'
+      - 'scripts/setup-ci-npm.mjs'
       - 'tests/bootstrap/runner-setup.test.mjs'
+      - 'tests/bootstrap/preinstalled-tools.test.mjs'
   workflow_dispatch:
 
 permissions:
@@ -35,7 +39,7 @@ jobs:
         with:
           node-version: 26.10.0
       - name: Verify workflow setup contracts
-        run: node --test tests/bootstrap/runner-setup.test.mjs
+        run: node --test tests/bootstrap/runner-setup.test.mjs tests/bootstrap/preinstalled-tools.test.mjs
       - name: Verify installed capabilities
         run: |
           shellcheck --version

@@ -1,0 +1,44 @@
+{
+  "node": {
+    "repository": "actions/setup-node",
+    "ref": "v7",
+    "commit": "949feb2413d6458794dcd2491c4babbbce0c15c1",
+    "url": "https://codeload.github.com/actions/setup-node/zip/949feb2413d6458794dcd2491c4babbbce0c15c1",
+    "sha256": "9926f35f7bac9bfe58f30fc0ff6e2022678809de1ad12854ade8cc8e69baa34d"
+  },
+  "dotnet": {
+    "repository": "actions/setup-dotnet",
+    "ref": "v6",
+    "commit": "a98b56852c35b8e3190ac28c8c2271da59106c68",
+    "url": "https://codeload.github.com/actions/setup-dotnet/zip/a98b56852c35b8e3190ac28c8c2271da59106c68",
+    "sha256": "7020b588bd454a795998e809d434ef873aa915ec74d0e716b0175d4927c9c40c"
+  },
+  "java": {
+    "repository": "actions/setup-java",
+    "ref": "v5",
+    "commit": "b6effb05e454b25005698d916606bdc6ffcbf961",
+    "url": "https://codeload.github.com/actions/setup-java/zip/b6effb05e454b25005698d916606bdc6ffcbf961",
+    "sha256": "eac17ab0280198444212fe05012e43ba64f5770623021ce4c4755aca096f7622"
+  },
+  "go": {
+    "repository": "actions/setup-go",
+    "ref": "v7",
+    "commit": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+    "url": "https://codeload.github.com/actions/setup-go/zip/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+    "sha256": "c282dd2e298a7ab8cd571df04797abba6683f021645fdf19459cf4aaab3f24a3"
+  },
+  "beam": {
+    "repository": "erlef/setup-beam",
+    "ref": "v1",
+    "commit": "54075bcc5e249e4758d363f27d099f55d843f124",
+    "url": "https://codeload.github.com/erlef/setup-beam/zip/54075bcc5e249e4758d363f27d099f55d843f124",
+    "sha256": "4a87ff8bb2753545c8b7423bfd31051824b8d72cce0c29038665649fc731c21b"
+  },
+  "python": {
+    "repository": "actions/setup-python",
+    "ref": "v6",
+    "commit": "ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "url": "https://codeload.github.com/actions/setup-python/zip/ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "sha256": "96615271285fc81f57e5f6e12296742461369b2beb876f53f2a7728053494307"
+  }
+}

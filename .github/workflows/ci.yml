@@ -56,7 +56,7 @@ jobs:
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Select affected validation jobs
         id: impact
         env:
@@ -90,7 +90,7 @@ jobs:
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Parse PowerShell lifecycle scripts
@@ -107,10 +107,16 @@ jobs:
       - name: Analyze PowerShell entry point
         shell: pwsh
         run: |
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          if (-not (Get-Module PSScriptAnalyzer -ListAvailable | Where-Object Version -EQ '1.24.0')) {
+            Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          }
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Force
           $findings = Invoke-ScriptAnalyzer -Path ./scripts/Realtime-Bootstrap.ps1 -Severity Error,Warning
           if ($findings) { $findings | Format-Table -AutoSize; exit 1 }
-          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          if (-not (Get-Module Pester -ListAvailable | Where-Object Version -EQ '5.7.1')) {
+            Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          }
+          Import-Module Pester -RequiredVersion 5.7.1 -Force
           Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
       - name: Validate Bash syntax and static analysis
         run: |
@@ -215,7 +221,7 @@ jobs:
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Test shared contract on Windows
         env:
           BOOTSTRAP_SKIP_LIFECYCLE: '1'
@@ -223,7 +229,10 @@ jobs:
       - name: Test PowerShell entry point on Windows
         shell: pwsh
         run: |
-          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          if (-not (Get-Module Pester -ListAvailable | Where-Object Version -EQ '5.7.1')) {
+            Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+          }
+          Import-Module Pester -RequiredVersion 5.7.1 -Force
           Invoke-Pester ./tests/bootstrap/Realtime-Bootstrap.Tests.ps1 -CI
 
   bootstrap-lifecycle-parity:
@@ -245,7 +254,7 @@ jobs:
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Exercise lifecycle with failure injection
@@ -290,7 +299,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Install pinned PowerShell
         run: bash scripts/setup-ci-powershell.sh
       - name: Restore TypeScript SDK dependencies
@@ -329,7 +338,7 @@ jobs:
           npm pack --dry-run
       - name: Install browser test engines
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: bash scripts/setup-ci-playwright.sh chromium firefox webkit
       - name: Cross-browser SDK and live gateway tests
         working-directory: sdk/typescript
         env:
@@ -516,7 +525,7 @@ jobs:
             examples/node-express/package-lock.json
             sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -543,7 +552,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.node-express.config.mjs
@@ -591,7 +600,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -615,7 +624,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.java-spring-boot.config.mjs
@@ -662,7 +671,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -686,7 +695,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.kotlin-ktor.config.mjs
@@ -729,7 +738,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
         with:
           toolchain: 1.98.1
@@ -760,7 +769,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.rust-axum.config.mjs
@@ -802,7 +811,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.1
@@ -833,7 +842,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.go-gin.config.mjs
@@ -875,7 +884,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: 1.20.4
@@ -908,7 +917,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         run: npx playwright test --config playwright.elixir-phoenix.config.mjs
@@ -953,7 +962,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -981,7 +990,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Remove stale Laravel smoke container
         working-directory: sdk/typescript
         run: node ./test/reference-adapters/stop-php-laravel-container.mjs
@@ -1028,7 +1037,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -1054,7 +1063,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:
@@ -1098,7 +1107,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -1124,7 +1133,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:
@@ -1168,7 +1177,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build the gateway fixture
         run: |
           dotnet restore examples/full-circle/Cormier.Realtime.Example.FullCircle.csproj --locked-mode
@@ -1196,7 +1205,7 @@ jobs:
           exit-code: '1'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Run the shared browser smoke scenarios
         working-directory: sdk/typescript
         env:
@@ -1247,7 +1256,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Install pinned PowerShell
         if: matrix.shell == 'pwsh'
         run: bash scripts/setup-ci-powershell.sh
@@ -1260,7 +1269,7 @@ jobs:
         run: ./scripts/FullCircle.ps1 -Action bootstrap -Profile '${{ matrix.profile }}'
       - name: Install Chromium
         working-directory: sdk/typescript
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/setup-ci-playwright.sh chromium
       - name: Validate through Bash
         if: matrix.shell == 'bash'
         run: bash ./scripts/full-circle.sh validate --profile "${{ matrix.profile }}"
@@ -1313,7 +1322,7 @@ jobs:
         with:
           node-version: 26.10.0
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Require every affected CI validation job to pass
         env:
           CI_SELECTED_JOBS: ${{ needs.changes.outputs.selected }}

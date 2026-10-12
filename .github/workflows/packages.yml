@@ -182,7 +182,7 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - name: Install pinned npm
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Build and verify immutable package candidate
         shell: pwsh
         env:
@@ -294,7 +294,7 @@ jobs:
           registry-url: ${{ vars.NPM_REGISTRY }}
       - name: Install pinned npm
         if: needs['release-intent'].outputs.publish_npm == 'true'
-        run: npm install --global "npm@${{ env.NPM_VERSION }}"
+        run: node scripts/setup-ci-npm.mjs
       - name: Select resumable promotion evidence
         id: resume
         shell: pwsh
